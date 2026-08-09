@@ -1,0 +1,329 @@
+# ============================================================
+# BreedOps — .gitignore
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Secrets / environment variables
+# ------------------------------------------------------------
+
+.env
+.env.*
+!.env.example
+!.env.template
+!.env.sample
+
+*.env
+*.secret
+*.secrets
+
+# Local configuration containing credentials
+config.local.*
+*.local.json
+*.local.yaml
+*.local.yml
+
+
+# ------------------------------------------------------------
+# Keys / certificates / credentials
+# ------------------------------------------------------------
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
+
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+
+credentials.json
+credentials.*
+secrets.json
+secrets.*
+
+# Cloud / provider credentials
+.aws/
+.azure/
+.gcloud/
+
+# Terraform secrets/state
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl.backup
+
+
+# ------------------------------------------------------------
+# BreedOps archived assets
+# ------------------------------------------------------------
+
+assets/archived/
+assets/archived/**
+
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
+
+*.log
+logs/
+log/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+debug.log
+error.log
+
+
+# ------------------------------------------------------------
+# Runtime / temporary files
+# ------------------------------------------------------------
+
+tmp/
+temp/
+.tmp/
+.cache/
+.cache-loader/
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.backup
+*~
+
+
+# ------------------------------------------------------------
+# macOS
+# ------------------------------------------------------------
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+Icon?
+._*
+
+.Spotlight-V100
+.Trashes
+
+
+# ------------------------------------------------------------
+# Windows
+# ------------------------------------------------------------
+
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+$RECYCLE.BIN/
+
+
+# ------------------------------------------------------------
+# Linux
+# ------------------------------------------------------------
+
+.directory
+.Trash-*
+
+
+# ------------------------------------------------------------
+# VS Code / IDE local settings
+# ------------------------------------------------------------
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+.idea/
+*.iml
+
+.project
+.classpath
+.settings/
+
+
+# ------------------------------------------------------------
+# Node.js / JavaScript / TypeScript
+# ------------------------------------------------------------
+
+node_modules/
+
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.vercel/
+.netlify/
+
+# Framework caches
+.turbo/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# Coverage
+coverage/
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python build
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+
+# ------------------------------------------------------------
+# R
+# ------------------------------------------------------------
+
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+*.Rproj.user
+
+
+# ------------------------------------------------------------
+# Jupyter
+# ------------------------------------------------------------
+
+.ipynb_checkpoints/
+
+
+# ------------------------------------------------------------
+# Databases / local development storage
+# ------------------------------------------------------------
+
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+data/local/
+storage/local/
+
+
+# ------------------------------------------------------------
+# Docker local overrides
+# ------------------------------------------------------------
+
+docker-compose.override.yml
+compose.override.yml
+
+
+# ------------------------------------------------------------
+# Local application state
+# ------------------------------------------------------------
+
+.local/
+.localdata/
+runtime/
+sessions/
+session/
+
+uploads/
+downloads/
+
+
+# ------------------------------------------------------------
+# Test / coverage output
+# ------------------------------------------------------------
+
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+
+# ------------------------------------------------------------
+# Package manager / local metadata
+# ------------------------------------------------------------
+
+.npmrc.local
+.yarnrc.local
+
+# Do NOT ignore package lock files:
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+
+# ------------------------------------------------------------
+# AI coding assistants — local/private files
+# ------------------------------------------------------------
+
+.claude/settings.local.json
+.codex/
+.cursor/*
+!.cursor/rules/
+
+# Local agent state / memory
+.agent/
+.agents/local/
+.memory/
+memory/local/
+
+
+# ------------------------------------------------------------
+# Misc generated files
+# ------------------------------------------------------------
+
+*.pid
+*.pid.lock
+*.seed
+
+*.tgz
+*.tar.gz
+
+generated/
+scratch/
