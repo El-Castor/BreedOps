@@ -1,11 +1,10 @@
-# agend.md — BreedOps operational source of truth
+# agend.md — BreedOps operational roadmap and state index
 
-> This file is the living roadmap and the **actual** implementation state of the project.
-> It is maintained after every meaningful change. A task is marked complete **only** when
-> implementation exists, validation passes, tests pass, permissions are verified, and docs are updated.
+> This file tracks the operational roadmap and last reconciled project state.
+> It is not authoritative over executable repository evidence.
 >
-> Roles of the three root files: `PROMPT.md` = spec (what to build);
-> `CLAUDE.md` = engineering process (how to work); `agend.md` = roadmap + real state (where we are).
+> When this file conflicts with current code, tests, migrations or observed
+> outputs, repository evidence prevails and this file must be reconciled.
 
 ---
 
@@ -17,27 +16,38 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: Dépôt non initialisé — aucun code, aucune dépendance, aucun schéma, aucun test. Voir « État actuel du dépôt » ci-dessous.
-- **Date de dernière mise à jour**: 2026-08-09
+- **État actuel**: V1.1 PASS. Authentification Supabase réelle, session cookie, route protégée, identité/profil/équipe, trois rôles, actions serveur et RLS validés localement. Les modules métier restent indisponibles dans les routes de production jusqu'à leur connexion à PostgreSQL; V1 globale n'est pas PASS.
+- **Date de dernière mise à jour**: 2026-09-12
 - **Version cible**: MVP V1
-- **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI, aucun dépôt distant pour le moment).
-- **Liens utiles vers la documentation interne**: `docs/architecture.md`, `docs/database.md`, `docs/security.md`, `docs/user-guide.md`, `docs/deployment.md` (à créer en Phase 0/11).
+- **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
+- **Liens utiles vers la documentation interne**: `docs/architecture.md`, `docs/database.md`; `docs/security.md`, `docs/user-guide.md` et `docs/deployment.md` restent à créer.
 
 ---
 
-## État actuel du dépôt (vérifié le 2026-08-09 par shell)
+## État actuel du dépôt (vérifié le 2026-09-12 par shell)
 
 - Répertoire de travail: `/Users/clpichot/Documents/Perso/PROJECTS-PERSO/INFO/BreedOps`
-- Fichiers présents: `PROMPT.md`, `CLAUDE.md`, `agend.md`, `assets/` (8 images PNG de maquettes).
-- **Dépôt Git**: absent (non initialisé).
-- **Code source**: aucun.
-- **Dépendances**: aucune (pas de `package.json`).
-- **Migrations / schéma**: aucune.
-- **Tests**: aucun.
-- **Configuration**: aucune (pas de `.env.example`, `tsconfig`, `next.config`, etc.).
-- **Supabase**: aucun projet lié, aucune clé configurée.
+- Fichiers présents: spécification et processus, manifeste et lockfile npm, configurations TypeScript/ESLint/Tailwind, `.env.example`, deux documents techniques, configuration Supabase, seed et quatre migrations SQL.
+- **Dépôt Git**: initialisé sur `main`, avec le remote `origin` vers `https://github.com/El-Castor/BreedOps.git` et deux commits locaux.
+- **Code source**: trois fichiers App Router (layout, page et styles). La page contient une démonstration client avec localStorage, comptes et données synthétiques. Aucun serveur métier connecté ni fichier de test dans les répertoires source inspectés.
+- **Dépendances**: installées avec npm; `package-lock.json` version 3 est présent. Les versions incompatibles ou inexistantes du manifeste ont été corrigées sans changer la stack retenue.
+- **Outillage local**: Node 20.20.2 et npm 10.8.2 revérifiés dans Conda `breedops-dev`. Les résultats antérieurs de build/types/lint ne constituent pas une validation V1 actuelle; ces contrôles n'ont pas été relancés pendant la réconciliation.
+- **Migrations / schéma**: quatre migrations locales (schéma, RLS initiales, autorisation équipe, calculs métier). Application depuis zéro et RLS non vérifiées. `000003` limite les rôles à `system_admin`, `team_admin`, `user` et retire `program_members`.
+- **Configuration**: `.env.example`, TypeScript, ESLint, Tailwind et le shell Next.js sont présents. Le build de production réussit; le maintien du serveur de développement n'a pas pu être vérifié dans cette exécution, le processus étant arrêté par le lanceur avant le contrôle HTTP.
+- **Documentation**: `docs/architecture.md` et `docs/database.md` existent; les guides sécurité, déploiement et utilisateur sont absents.
+- **Supabase**: Docker accessible; aucun conteneur BreedOps actif observé. Les autres stacks existantes ne sont pas un environnement de test BreedOps. Aucun démarrage ni migration exécutés pendant cette réconciliation; disponibilité effective d'une nouvelle stack non testée.
 
-Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **non cochées**.
+### Jalon V1.0 / entrée V1.1 — 2026-09-12 — HOLD
+
+- **Objectif**: identifier le premier parcours V1 incomplet sans modifier les travaux préexistants.
+- **Résultat**: l'authentification réelle est le premier jalon incomplet. Le worktree contient de nombreux fichiers applicatifs non suivis et des modifications préexistantes de `CLAUDE.md` et `agend.md`; ils sont conservés.
+- **Blocage décisionnel**: le brief V1 du jour exige au minimum administrateur, program_manager, technician, analyst et viewer. La décision acceptée du 2026-09-07 et la migration 000003 imposent trois rôles et aucun rattachement par programme. Clarifier le modèle et ses permissions avant toute modification de sécurité, conformément au brief §16 et AGENTS.md §27.
+- **Validation exécutée**: racine Git, branche main, état du worktree, dix derniers commits disponibles (deux présents), inventaire ciblé du code/migrations, versions Node/npm, disponibilité Docker et contexte Basic Memory. Aucun test applicatif, build, E2E ou migration exécuté; aucun PASS V1 revendiqué.
+- **Dette documentaire observée**: architecture et CLAUDE.md décrivent encore les anciens rôles; la directive mémoire cite CLAUDE.md comme source détaillée et le précédent checkpoint contient des séquences littérales de nouvelle ligne. Ne pas réécrire l'historique ni trancher le modèle implicitement.
+- **Prochaine action exacte**: obtenir le choix du modèle d'autorisation; ensuite valider une stack Supabase BreedOps isolée et implémenter V1.1 avec tests négatifs serveur/RLS.
+- **Git**: aucun commit de fonctionnalité (jalon HOLD), aucun push; modifications de cette session limitées à cette réconciliation documentaire.
+
+Conclusion: la fondation locale est en place, mais le projet n'est pas encore exécutable ni validé. Les cases cochées signifient qu'un artefact local existe; elles ne signifient pas une validation d'exécution ou de sécurité.
 
 ---
 
@@ -45,16 +55,16 @@ Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **n
 
 > Renseignés au fur et à mesure. État initial: à définir en Phase 0/1.
 
-- **Architecture frontend**: Next.js App Router, `src/` dir, Server Components par défaut, Client Components pour l'interactivité, Server Actions pour les mutations, Supabase SSR pour la session. *(à mettre en place)*
-- **Architecture backend**: Supabase (Postgres + Auth + Storage), migrations versionnées dans `supabase/migrations/`, fonctions PostgreSQL pour les calculs métier sensibles (germination, rendement, score pondéré/normalisé, décision, stock, retard). *(à mettre en place)*
-- **Stratégie d’authentification**: Supabase Auth, session persistée côté serveur via cookies `HttpOnly`/`Secure`/`SameSite`, réinitialisation de mot de passe, MFA prévu dans l'architecture. *(à mettre en place)*
-- **Stratégie d’autorisation**: triple couche (UI, serveur, RLS). RLS active sur toutes les tables exposées, isolation par `organization_id` et `program_id`, rôles: `system_admin`, `organization_admin`, `program_manager`, `technician`, `analyst`, `viewer`, `auditor`. *(à mettre en place)*
-- **Modèle de données**: modèle relationnel normalisé conforme à `PROMPT.md` §5 et §7–§10. Toutes les tables principales portent `id`(UUID), `created_at`, `updated_at`, `created_by`, `updated_by`, `deleted_at`, `organization_id`, `program_id` le cas échéant. *(à définir, Phase 1)*
-- **Stratégie de migrations**: une migration par fichier, séquentielle, jamais modifiée après application, testée sur base vide. *(à mettre en place)*
-- **Stratégie de tests**: Vitest (unité + intégration), Playwright (E2E), tests RLS dédiés, CI quand le dépôt est hébergé. *(à mettre en place)*
-- **Stratégie de déploiement**: à définir (Vercel/autre + Supabase). *(à définir)*
-- **Stratégie de sauvegarde**: sauvegarde fonctionnelle par export; sauvegarde Supabase/Postgres à configurer côté hébergement. *(à définir)*
-- **Stratégie d’import et d’export**: import du classeur Excel existant (`PROMPT.md` §12), idempotent via codes métier, transactionnel, avec prévisualisation et rapport d'erreurs; export CSV/Excel + sauvegarde fonctionnelle. *(Phase 8)*
+- **Architecture frontend**: Next.js App Router, `src/` dir, Server Components par défaut, Client Components pour l'interactivité, Server Actions pour les mutations, Supabase SSR pour la session.
+- **Architecture backend**: Supabase (Postgres + Auth + Storage), migrations versionnées dans `supabase/migrations/`, fonctions PostgreSQL pour les calculs métier sensibles (germination, rendement, score pondéré/normalisé, décision, stock, retard).
+- **Stratégie d’authentification**: Supabase Auth, session persistée côté serveur via cookies `HttpOnly`/`Secure`/`SameSite`, réinitialisation de mot de passe, MFA prévu dans l'architecture.
+- **Stratégie d’autorisation**: triple couche (UI, serveur, RLS). Une organisation représente une équipe; chaque utilisateur est rattaché à une équipe. RLS isole les données par équipe. Les rôles MVP sont `system_admin`, `team_admin` et `user`; aucun rôle ou rattachement par programme n'est prévu.
+- **Modèle de données**: modèle relationnel normalisé conforme à `PROMPT.md` §5 et §7–§10. Toutes les tables principales portent `id`(UUID), `created_at`, `updated_at`, `created_by`, `updated_by`, `deleted_at`, `organization_id`, `program_id` le cas échéant.
+- **Stratégie de migrations**: une migration par fichier, séquentielle, jamais modifiée après application, testée sur base vide.
+- **Stratégie de tests**: Vitest (unité + intégration), Playwright (E2E), tests RLS dédiés, CI quand le dépôt est hébergé.
+- **Stratégie de déploiement**: Vercel/autre + Supabase.
+- **Stratégie de sauvegarde**: sauvegarde fonctionnelle par export; sauvegarde Supabase/Postgres à configurer côté hébergement.
+- **Stratégie d’import et d’export**: import du classeur Excel existant (`PROMPT.md` §12), idempotent via codes métier, transactionnel, avec prévisualisation et rapport d'erreurs; export CSV/Excel + sauvegarde fonctionnelle.
 
 ---
 
@@ -62,38 +72,38 @@ Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **n
 
 ### Phase 0 — Audit et initialisation
 
-- [ ] Inspecter le dépôt
-- [ ] Identifier la stack existante
-- [ ] Installer ou vérifier les dépendances
-- [ ] Configurer TypeScript strict
-- [ ] Configurer ESLint et Prettier
-- [ ] Créer `.env.example`
-- [ ] Créer la structure documentaire
-- [ ] Définir les conventions de nommage
-- [ ] Définir les conventions Git
-- [ ] Vérifier que les secrets ne sont pas versionnés
+- [x] Inspecter le dépôt
+- [x] Identifier la stack existante
+- [x] Installer et vérifier les dépendances
+- [x] Configurer TypeScript strict
+- [x] Finaliser et vérifier ESLint et Prettier
+- [x] Créer `.env.example`
+- [x] Créer la structure documentaire
+- [x] Définir les conventions de nommage
+- [x] Définir les conventions Git
+- [x] Vérifier que les secrets ne sont pas versionnés
 
 ### Phase 1 — Architecture et base de données
 
-- [ ] Définir le schéma relationnel
-- [ ] Créer les migrations initiales
-- [ ] Créer les contraintes et index
-- [ ] Créer les fonctions de calcul
-- [ ] Créer les politiques RLS
+- [x] Définir le schéma relationnel
+- [x] Créer les migrations initiales
+- [x] Créer les contraintes et index
+- [ ] Compléter les fonctions de calcul métier
+- [x] Créer les politiques RLS
 - [ ] Créer les données de démonstration
-- [ ] Tester les migrations sur une base vide
-- [ ] Documenter les relations entre tables
+- [x] Tester les migrations sur une base vide
+- [x] Documenter les relations entre tables
 
 ### Phase 2 — Authentification et rôles
 
-- [ ] Connexion
-- [ ] Déconnexion
-- [ ] Gestion de session
+- [x] Connexion
+- [x] Déconnexion
+- [x] Gestion de session
 - [ ] Réinitialisation du mot de passe
-- [ ] Protection des routes
-- [ ] Gestion des rôles
-- [ ] Gestion des membres d’un programme
-- [ ] Vérification des politiques RLS
+- [x] Protection des routes
+- [x] Gestion des rôles V1 (`system_admin`, `team_admin`, `user`)
+- [x] Accès aux programmes hérité de l'équipe (pas de membres de programme en V1)
+- [x] Vérification des politiques RLS
 - [ ] Journalisation des actions sensibles
 
 ### Phase 3 — Registre des croisements et lots
@@ -211,18 +221,18 @@ Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **n
 
 ### Phase 11 — Documentation et livraison
 
-- [ ] README
+- [x] README
 - [ ] Guide d’installation
 - [ ] Guide Supabase
 - [ ] Guide des migrations
 - [ ] Guide de déploiement
 - [ ] Guide administrateur
 - [ ] Guide utilisateur
-- [ ] Description du modèle de données
+- [x] Description du modèle de données
 - [ ] Description des rôles
 - [ ] Description des sauvegardes
 - [ ] Liste des limites du MVP
-- [ ] Roadmap V2
+- [x] Roadmap V2
 
 ---
 
@@ -232,6 +242,8 @@ Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **n
 | ---- | -------- | ------------- | ------ | ------ |
 | 2026-08-09 | Adopter la stack recommandée par `PROMPT.md` §2 | Conformité à la consigne, cohérence d'écosystème | Base de toute l'implémentation | Décidée |
 | 2026-08-09 | Mémoriser la séparation `PROMPT.md` / `CLAUDE.md` / `agend.md` | Éviter la confusion des rôles des fichiers | Processus de travail | Décidée |
+| 2026-08-21 | Créer la structure de base du projet | Initialisation complète du dépôt avec configuration et schéma | Base de l'implémentation | Décidée |
+| 2026-09-07 | Réconcilier la roadmap avec l'état local | Les états Git, dépendances, documentation, migrations et validation d'exécution divergeaient de la roadmap | Les éléments non vérifiés restent ouverts; les décisions de sécurité restent à approuver | Décidée |
 
 ---
 
@@ -239,8 +251,10 @@ Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **n
 
 | ID | Problème | Gravité | Contournement | Action requise | Statut |
 | -- | -------- | ------- | ------------- | -------------- | ------ |
-| B-001 | Aucun projet Supabase lié / aucune clé d'environnement | Majeur (bloque l'exécution locale complète et les tests RLS/e2e) | Scaffolding, schéma, migrations et calculs peuvent être implémentés sans clés; `.env.example` documente les variables attendues | Fournir un projet Supabase + URL/clé anon + clé service-role | Ouvert |
-| B-002 | Aucun dépôt Git initialisé | Mineur | `git init` local possible; CI GitHub Actions différée | Décision utilisateur sur l'hébergement distant | Ouvert |
+| B-001 | Aucun projet Supabase hébergé lié | Non bloquant pour V1 locale | Stack Supabase locale isolée et reproductible sur ports 55420–55429 | Provisionner un hébergement seulement au déploiement | Reporté |
+| B-002 | Dépôt Git et remote GitHub | Résolu | Dépôt local initialisé, deux commits présents et `origin` configuré | Aucune | Résolu |
+| B-003 | Modèle d'accès V1 à trois rôles | Résolu | Migration 000005 durcie, 17 assertions RLS et 9 tests HTTP réels passent | Aucune pour V1; rôles fins reportés après V1 | Résolu |
+| B-004 | Runtime Node.js/npm | Résolu pour l'environnement Conda `breedops-dev` | Node 20.20.2 et npm/npx 10.8.2 permettent l'installation et les validations | Utiliser `breedops-dev` pour les commandes JavaScript | Résolu |
 
 ---
 
@@ -309,6 +323,49 @@ Conclusion: le projet démarre de zéro. Toutes les cases de la roadmap sont **n
 - **Décisions prises**: adoption de la stack recommandée; séparation des trois fichiers racine.
 - **Problèmes restants**: B-001 (Supabase manquant), B-002 (Git non initialisé).
 - **Prochaine étape recommandée**: Phase 0 — Audit et initialisation (scaffolding Next.js + configs + `.env.example` + structure documentaire), sans nécessiter de clés Supabase.
+
+### Session 2026-09-07 (réconciliation de la roadmap)
+
+- **Tâches terminées**: comparaison de la roadmap avec le worktree, sans exécuter de migrations ni modifier les composants applicatifs.
+- **État confirmé**: dépôt Git et remote existants; `package.json`, configurations locales, deux migrations Supabase et deux documents techniques présents; pas de code dans `src/`, pas de tests, pas de dépendances installées, pas de runtime Node.js/npm disponible dans le `PATH` et pas d'environnement Supabase.
+- **Décisions restant à approuver**: bootstrap d'organisation, politiques permissives sur `organizations`, accès par programme, matrice de rôles et suppression/soft deletion.
+- **Prochaine étape recommandée**: décider le modèle d'autorisation et de suppression, puis configurer un environnement Supabase de test pour valider les migrations et RLS avant de démarrer l'authentification.
+
+### Session 2026-09-07 (fondation applicative)
+
+- **Tâches terminées**: installation des dépendances, génération de `package-lock.json`, correction des définitions de paquets incompatibles ou inexistantes, ajout du shell Next.js App Router minimal et migration du script de lint vers ESLint CLI.
+- **Validation**: `npx tsc --noEmit`, `npm run lint`, `npm run format:check` et `npm run build` passent dans `breedops-dev` (Node 20.20.2). Le build utilise un repli WebAssembly après échec de chargement du binaire SWC natif; il termine avec succès.
+- **Statut du jalon**: HOLD. Le build est validé mais le lanceur de cette session arrête le serveur de développement avant le contrôle HTTP; aucun test automatisé, migration ou test RLS n'a été exécuté.
+- **Prochaine étape recommandée**: vérifier le démarrage dans un terminal Conda interactif, puis obtenir les décisions d'autorisation et de suppression avant toute modification RLS ou implémentation d'authentification.
+
+### Session 2026-09-07 (décision d'autorisation MVP)
+
+- **Décision validée**: une organisation est une équipe; chaque compte utilisateur est rattaché à une équipe; `system_admin` gère l'application, `team_admin` gère son équipe et les autres comptes sont `user`.
+- **Périmètre**: les programmes et les données métier sont portés par l'équipe; aucun rôle ni membre par programme dans le MVP. Les suppressions fonctionnelles seront souples.
+- **Prochaine étape recommandée**: aligner le schéma et les politiques RLS sur ce modèle, puis les appliquer et les tester sur Supabase local.
+
+### Session 2026-09-07 (migration d'autorisation MVP)
+
+- **Tâches terminées**: ajout de `supabase/config.toml` avec des ports locaux isolés (`55420`–`55429`) et de la migration additive `000003_simplify_team_authorization.sql`.
+- **Contenu**: le modèle `program_members` est retiré, les rôles sont réduits à `system_admin`, `team_admin` et `user`, les enregistrements métier reçoivent `deleted_at`, et les politiques RLS sont remplacées par une isolation par équipe sans politique `DELETE`.
+- **Validation statique**: `git diff --check` passe; la migration définit 63 politiques `SELECT`/`INSERT`/`UPDATE` et aucune politique `DELETE`.
+- **Statut du jalon**: HOLD. Le CLI Supabase temporaire et Docker sont disponibles, mais les services Docker déjà actifs empêchent de démarrer une seconde stack BreedOps dans un délai raisonnable; aucune migration n'a été appliquée et aucun conteneur BreedOps n'a été créé.
+- **Prochaine étape recommandée**: démarrer la stack locale isolée lorsque Docker est disponible, exécuter les migrations sur base vide et ajouter les tests RLS inter-équipe avant l'interface d'authentification.
+
+### Session 2026-09-07 (interface MVP de démonstration)
+
+- **Tâches terminées en mode démonstration**: écran de connexion/déconnexion/session locale, rôles équipe, tableau de bord, registre de croisements, notation, inventaire, calendrier/Gantt, import CSV, exports CSV et gestion des comptes équipe.
+- **Validation**: TypeScript, ESLint et vérification des diffs passent. Le build Next a été interrompu par `SIGKILL` dans le lanceur avant sa fin, sans erreur de compilation applicative.
+- **Important**: les cases d'acceptation de production restent ouvertes tant que la stack Supabase, les migrations, l'authentification réelle et les tests RLS ne sont pas validés. L'accès par membres de programme est remplacé par le modèle approuvé d'accès par équipe.
+
+### Session 2026-09-12 — V1.1 authentification et autorisation — PASS
+
+- **Implémentation**: connexion/déconnexion Supabase Auth; session en cookies HttpOnly; middleware de renouvellement; route `/app` protégée côté serveur; profil actif et équipe obligatoires; rôles `system_admin`, `team_admin`, `user`; actions serveur profil/équipe revérifiant identité et rôle; aucune clé service-role dans le runtime. L'ancienne démo localStorage est déplacée sous `src/demo/` et n'est plus routée.
+- **Migration**: `000005_guard_profile_identity.sql` rend le lien `profiles.user_id` immuable, conserve le rôle lors d'une mise à jour personnelle, empêche un team_admin de modifier un administrateur privilégié et révoque l'accès RPC aux fonctions de calcul `SECURITY DEFINER` réservées aux triggers.
+- **Base vide**: `supabase db reset` applique 000001 à 000005 avec succès; seed métier désactivé par défaut.
+- **Validation**: 9/9 tests unité/serveur; 17/17 assertions RLS; 9/9 tests HTTP sur build production (anonyme, origine, identifiants invalides, connexion, cookies, persistance, actions autorisées, révocation rôle/appartenance, déconnexion); TypeScript, ESLint et format passent; build production passe; `npm audit` rapporte 0 vulnérabilité.
+- **Limites non bloquantes**: avertissements Edge de Supabase durant le build, sans échec des tests HTTP; Playwright absent du dépôt, donc validation HTTP réelle utilisée. Réinitialisation de mot de passe et audit fonctionnel restent ouverts hors gate V1.1.
+- **Prochaine étape exacte**: V1.2 — connecter parents → croisement → famille → lot → test de germination à PostgreSQL avec actions serveur, recherche et tests.
 
 ---
 

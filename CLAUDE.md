@@ -81,7 +81,11 @@ Work in small, testable, documented increments. Do not stop mid-task unless a ge
 
 ## 7. Roles (authorization basis)
 
-`system_admin` (full access) · `organization_admin` (org programs and users) · `program_manager` (their programs' data) · `technician` (create/edit permitted experimental data) · `analyst` (read + add analytical results, cannot modify validated raw data) · `viewer` (read-only) · `auditor` (read + audit logs).
+V1 uses the accepted three-role team model, reaffirmed on 2026-09-12:
+`system_admin` (global administration), `team_admin` (own team and ordinary team users),
+and `user` (standard active team member). Each profile belongs to one organization/team;
+program access inherits team ownership. No separate program memberships or differentiated
+staff roles in V1. AGENTS.md supplies cross-agent rules; this file cannot override them.
 
 ---
 
@@ -95,3 +99,16 @@ Work in small, testable, documented increments. Do not stop mid-task unless a ge
 ## 9. Out of MVP scope (architecture must allow later)
 
 Interactive pedigree · QR codes · advanced photography · e-mail/push notifications · advanced statistics · inter-year comparison · offline mode (PWA) · native mobile · lab-instrument integration · LDAP/SSO. Use stable IDs, separated business services, and normalized relations so these can be added without a major refactor.
+
+---
+
+## 10. Project initialization and setup
+
+For the initial setup, we are following the following steps:
+
+1. Initialize git repository
+2. Install dependencies from package.json
+3. Configure TypeScript with strict mode
+4. Setup ESLint and Prettier
+5. Create .env.example file with required environment variables
+6. Create initial documentation structure
