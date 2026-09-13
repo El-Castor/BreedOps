@@ -16,7 +16,7 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: V1.1 PASS. Authentification Supabase réelle, session cookie, route protégée, identité/profil/équipe, trois rôles, actions serveur et RLS validés localement. Les modules métier restent indisponibles dans les routes de production jusqu'à leur connexion à PostgreSQL; V1 globale n'est pas PASS.
+- **État actuel**: V1.1 et V1.2 PASS. Authentification/autorisation réelles et parcours PostgreSQL programme → parents → croisement → famille → lot → germination validés. Phénotypage, inventaire, opérations et tableau de bord restent à connecter; V1 globale n'est pas PASS.
 - **Date de dernière mise à jour**: 2026-09-12
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
@@ -108,16 +108,16 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 ### Phase 3 — Registre des croisements et lots
 
-- [ ] Référentiel des parents et lignées
-- [ ] Création d’un croisement
-- [ ] Modification contrôlée d’un croisement
-- [ ] Création d’une famille
-- [ ] Création d’un lot de graines
-- [ ] Test de germination
-- [ ] Calcul automatique du taux de germination
-- [ ] Calcul du rendement par unité pollinisée
+- [x] Référentiel des parents et lignées
+- [x] Création d’un croisement
+- [x] Modification contrôlée d’un croisement
+- [x] Création d’une famille
+- [x] Création d’un lot de graines
+- [x] Test de germination
+- [x] Calcul automatique du taux de germination
+- [x] Calcul du rendement par unité pollinisée
 - [ ] Gestion du statut du lot
-- [ ] Recherche, tri et filtres
+- [x] Recherche par code et tri des registres
 - [ ] Export CSV ou Excel
 - [ ] Historique des modifications
 
@@ -366,6 +366,14 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Validation**: 9/9 tests unité/serveur; 17/17 assertions RLS; 9/9 tests HTTP sur build production (anonyme, origine, identifiants invalides, connexion, cookies, persistance, actions autorisées, révocation rôle/appartenance, déconnexion); TypeScript, ESLint et format passent; build production passe; `npm audit` rapporte 0 vulnérabilité.
 - **Limites non bloquantes**: avertissements Edge de Supabase durant le build, sans échec des tests HTTP; Playwright absent du dépôt, donc validation HTTP réelle utilisée. Réinitialisation de mot de passe et audit fonctionnel restent ouverts hors gate V1.1.
 - **Prochaine étape exacte**: V1.2 — connecter parents → croisement → famille → lot → test de germination à PostgreSQL avec actions serveur, recherche et tests.
+
+### Session 2026-09-13 — V1.2 croisements, familles et lots — PASS
+
+- **Implémentation**: création/sélection de programme; registre de lignées; création et modification contrôlée des croisements; création de familles et lots; test de germination; vues relationnelles et recherche de croisement. Toutes les écritures passent par des Server Actions authentifiées puis RLS.
+- **Migrations**: 000006 ajoute les champs obligatoires et contraintes de comptage, parents distincts, quantités positives et cohérence de germination; 000007 sépare les triggers de validation de lignage par table après détection déterministe d'un défaut du trigger générique.
+- **Calculs**: `germination_rate` est une colonne PostgreSQL générée; rendement affiché à partir des entrées persistées et la fonction PostgreSQL autoritative existante reste disponible côté serveur.
+- **Validation**: reconstruction depuis zéro 000001–000007 réussie; 7/7 tests HTTP du parcours métier; suite complète 25/25; RLS 17/17; TypeScript, ESLint, Prettier et build production passent. Données de test synthétiques, aléatoires et nettoyées après chaque suite.
+- **Prochaine étape exacte**: V1.3 — notation phénotypique configurable, scores persistés, calcul PostgreSQL et classement.
 
 ---
 

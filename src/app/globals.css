@@ -100,6 +100,55 @@ nav button:hover {
   background: #29654f;
   color: white;
 }
+.program-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+.program-nav a {
+  color: #247053;
+  background: white;
+  border: 1px solid #b7c9bd;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  text-decoration: none;
+}
+.program-nav a.active {
+  color: white;
+  background: #247053;
+}
+.section-header {
+  margin-top: 2rem;
+}
+.search,
+.inline-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+.inline-form input,
+.inline-form select {
+  min-width: 8rem;
+}
+.fields-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.compact {
+  border-top: 1px solid #e5ede8;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+.empty {
+  margin-top: 1rem;
+  text-align: center;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .sidebar-bottom {
   margin-top: auto;
   display: grid;

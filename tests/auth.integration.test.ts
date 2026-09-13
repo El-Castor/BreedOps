@@ -112,9 +112,9 @@ describe.sequential("real Supabase authentication over HTTP", () => {
   });
   it("persists an allowed profile Server Action", async () => {
     const html = await (await request("/app")).text();
-    const form = html.match(
-      /<form[^>]*>[\s\S]*?name="display_name"[\s\S]*?<\/form>/,
-    )?.[0];
+    const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
+      .map((match) => match[0])
+      .find((value) => value.includes('data-action="profile"'));
     const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
     expect(action).toBeTruthy();
     const body = new FormData();
@@ -145,7 +145,7 @@ describe.sequential("real Supabase authentication over HTTP", () => {
     const html = await (await request("/app")).text();
     const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
       .map((x) => x[0])
-      .find((x) => x.includes('name="name"'));
+      .find((x) => x.includes('data-action="team"'));
     const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
     expect(action).toBeTruthy();
     const body = new FormData();
