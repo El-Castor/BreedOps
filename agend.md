@@ -16,8 +16,8 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: V1.1 et V1.2 PASS. Authentification/autorisation réelles et parcours PostgreSQL programme → parents → croisement → famille → lot → germination validés. Phénotypage, inventaire, opérations et tableau de bord restent à connecter; V1 globale n'est pas PASS.
-- **Date de dernière mise à jour**: 2026-09-12
+- **État actuel**: V1.1, V1.2 et V1.3 PASS. Authentification/autorisation réelles, parcours d'élevage et notation phénotypique PostgreSQL configurable sont validés. Inventaire, opérations et tableau de bord restent à connecter; V1 globale n'est pas PASS.
+- **Date de dernière mise à jour**: 2026-09-13
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
 - **Liens utiles vers la documentation interne**: `docs/architecture.md`, `docs/database.md`; `docs/security.md`, `docs/user-guide.md` et `docs/deployment.md` restent à créer.
@@ -123,16 +123,16 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 ### Phase 4 — Notation phénotypique
 
-- [ ] Création d’un individu
-- [ ] Création d’un modèle de notation
-- [ ] Configuration des coefficients
-- [ ] Saisie des notes
-- [ ] Calcul du score pondéré
-- [ ] Normalisation sur 100
-- [ ] Classement des individus
-- [ ] Décision automatique
+- [x] Création d’un individu
+- [x] Création d’un modèle de notation
+- [x] Configuration des coefficients
+- [x] Saisie des notes
+- [x] Calcul du score pondéré
+- [x] Normalisation sur 100
+- [x] Classement des individus
+- [x] Décision automatique
 - [ ] Gestion des critères éliminatoires
-- [ ] Comparaison des individus
+- [x] Comparaison des individus
 - [ ] Export de la matrice de sélection
 
 ### Phase 5 — Inventaire
@@ -374,6 +374,15 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Calculs**: `germination_rate` est une colonne PostgreSQL générée; rendement affiché à partir des entrées persistées et la fonction PostgreSQL autoritative existante reste disponible côté serveur.
 - **Validation**: reconstruction depuis zéro 000001–000007 réussie; 7/7 tests HTTP du parcours métier; suite complète 25/25; RLS 17/17; TypeScript, ESLint, Prettier et build production passent. Données de test synthétiques, aléatoires et nettoyées après chaque suite.
 - **Prochaine étape exacte**: V1.3 — notation phénotypique configurable, scores persistés, calcul PostgreSQL et classement.
+
+### Session 2026-09-13 — V1.3 notation phénotypique — PASS
+
+- **Implémentation**: registre de phénotypes lié aux familles et lots; création transactionnelle du modèle initial et de ses six critères/règles; modification des coefficients avec recalcul du maximum; saisie atomique de toutes les notes; score pondéré, normalisation et décision calculés par PostgreSQL; classement persistant dans l'application.
+- **Migrations**: 000008 ajoute les contraintes, la validation de lignage et les RPC transactionnelles sous RLS; 000009 corrige de façon additive les colonnes `updated_at` absentes sur trois tables qui possédaient déjà un trigger de mise à jour depuis 000001.
+- **Calculs**: modèle initial 130 points et règles Elite/Advance/Reserve/Eliminate stockés en base. Les quatre seuils sont couverts avec un modèle reconfiguré à 140 points, ce qui prouve que l'application utilise les coefficients et règles persistés.
+- **Validation**: reconstruction depuis zéro 000001–000009 réussie; 8/8 tests HTTP phénotypiques; suite complète 33/33; RLS 17/17; TypeScript, ESLint, Prettier et build production passent; audit npm 0 vulnérabilité.
+- **Dette**: critères éliminatoires spécialisés, export de matrice et vue de comparaison avancée restent différés; le classement V1 couvre la comparaison opérationnelle requise.
+- **Prochaine étape exacte**: V1.4 — articles et lots d'inventaire, mouvements transactionnels, stock courant, seuils/péremption et historique.
 
 ---
 

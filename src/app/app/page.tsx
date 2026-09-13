@@ -108,6 +108,15 @@ export default async function Application({
         </form>
       </header>
       <nav className="program-nav" aria-label="Programmes">
+        <Link
+          href={
+            programId
+              ? `/app/phenotypes?program=${programId}`
+              : "/app/phenotypes"
+          }
+        >
+          Notation phénotypique
+        </Link>
         {programs?.map((program) => (
           <Link
             key={program.id}
