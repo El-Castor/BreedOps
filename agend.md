@@ -16,7 +16,7 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: V1.1 à V1.4 PASS. Authentification/autorisation, parcours d'élevage, notation phénotypique et inventaire transactionnel PostgreSQL sont validés. Opérations et tableau de bord restent à connecter; V1 globale n'est pas PASS.
+- **État actuel**: V1.1 à V1.5 PASS. Les cinq domaines V1 sont connectés à PostgreSQL et validés par leurs parcours ciblés. Le gate d'intégration V1.6 et le parcours E2E unique restent à exécuter; V1 globale n'est pas encore PASS.
 - **Date de dernière mise à jour**: 2026-09-13
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
@@ -154,26 +154,26 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 - [ ] Création de modèles de cycles
 - [ ] Génération automatique des tâches
-- [ ] Affectation des responsables
-- [ ] Gestion des statuts
-- [ ] Gestion des priorités
-- [ ] Calcul des retards
+- [x] Affectation des responsables
+- [x] Gestion des statuts
+- [x] Gestion des priorités
+- [x] Calcul des retards
 - [ ] Contrôle SOP
-- [ ] Vue tableau
-- [ ] Vue calendrier
+- [x] Vue tableau
+- [x] Vue calendrier
 - [ ] Vue Gantt
 - [ ] Filtres par programme, zone et responsable
 
 ### Phase 7 — Tableau de bord et alertes
 
-- [ ] KPI des croisements
-- [ ] KPI de germination
-- [ ] KPI de sélection phénotypique
-- [ ] KPI d’inventaire
-- [ ] KPI du calendrier
-- [ ] Alertes de stock
-- [ ] Alertes de péremption
-- [ ] Alertes de retard
+- [x] KPI des croisements
+- [x] KPI de germination
+- [x] KPI de sélection phénotypique
+- [x] KPI d’inventaire
+- [x] KPI du calendrier
+- [x] Alertes de stock
+- [x] Alertes de péremption
+- [x] Alertes de retard
 - [ ] Graphiques
 - [ ] Filtres par programme et campagne
 
@@ -391,6 +391,14 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Validation**: reconstruction depuis zéro 000001–000010 réussie; 4/4 tests HTTP inventaire; suite complète 37/37; RLS étendue 19/19; TypeScript, ESLint, Prettier et build production passent. Réception 100, consommation 30 et stock final 70 vérifiés; ajustement sans motif et surconsommation refusés sans écriture partielle.
 - **Dette**: équipements spécialisés, couverture estimée et export d'inventaire restent différés hors du parcours V1 essentiel.
 - **Prochaine étape exacte**: V1.5 — cycle expérimental, tâches assignées, statuts/dates/retards, vues liste/calendrier et tableau de bord agrégé.
+
+### Session 2026-09-13 — V1.5 opérations et tableau de bord — PASS
+
+- **Implémentation**: création de cycles expérimentaux datés; tâches liées au cycle/programme, assignées à un membre actif, avec priorité, dates, statut et retard; transition de statut cohérente; vues liste et calendrier; tableau de bord des neuf KPI V1 et alertes opérationnelles.
+- **Migration**: 000011 ajoute les contraintes de dates/statuts/priorités, valide cycle/programme et responsable, assure la cohérence `completed_at`, et expose les neuf agrégats persistés par une fonction PostgreSQL sous RLS.
+- **Validation**: reconstruction depuis zéro 000001–000011 réussie; 3/3 tests HTTP opérations/KPI; suite complète 40/40; RLS étendue 21/21; TypeScript, ESLint, Prettier, build production et audit npm passent. Un cycle, une tâche en retard, son affectation, son achèvement, le passage 0→100 % et la vue calendrier sont vérifiés.
+- **Dette**: modèles automatiques de cycles, checklist/SOP, Gantt et filtres avancés restent différés; ces extensions ne bloquent pas le parcours V1 calendrier/liste.
+- **Prochaine étape exacte**: V1.6 — parcours E2E critique unique, gate complet final, documentation et commit V1 local.
 
 ---
 

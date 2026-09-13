@@ -1,7 +1,7 @@
 -- Disposable local test database only. Fixtures are rolled back.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(19);
+SELECT plan(21);
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-000000000001','Test A','auth-test-a'),
  ('11111111-0000-0000-0000-000000000002','Test B','auth-test-b');
@@ -29,6 +29,10 @@ SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-000000000001'
 SELECT is((SELECT count(*) FROM organizations),1::bigint,'user sees only own team');
 SELECT is((SELECT count(*) FROM profiles),2::bigint,'user sees only own team profiles');
 SELECT lives_ok($$INSERT INTO programs(organization_id,code,name) VALUES ('11111111-0000-0000-0000-000000000001','AUTH-TEST-OWN','Test')$$,'team member can create own program');
+INSERT INTO experimental_cycles(id,program_id,name,start_date,end_date,status)
+SELECT '55555555-0000-0000-0000-000000000001',id,'Auth cycle',CURRENT_DATE,CURRENT_DATE+10,'active' FROM programs WHERE code='AUTH-TEST-OWN';
+INSERT INTO tasks(id,experimental_cycle_id,program_id,title,planned_date,due_date,status)
+SELECT '66666666-0000-0000-0000-000000000001','55555555-0000-0000-0000-000000000001',id,'Auth task',CURRENT_DATE,CURRENT_DATE+1,'not_started' FROM programs WHERE code='AUTH-TEST-OWN';
 SELECT throws_ok($$INSERT INTO programs(organization_id,code,name) VALUES ('11111111-0000-0000-0000-000000000002','AUTH-TEST-FOREIGN','Test')$$,'42501',NULL,'cross-team insert denied');
 SELECT throws_ok($$UPDATE profiles SET role='system_admin' WHERE user_id=auth.uid()$$,'42501',NULL,'self promotion denied');
 SELECT throws_ok($$UPDATE profiles SET organization_id='11111111-0000-0000-0000-000000000002' WHERE user_id=auth.uid()$$,'42501',NULL,'self tenant transfer denied');
@@ -38,6 +42,8 @@ SELECT throws_ok($$INSERT INTO inventory_movements(inventory_lot_id,movement_typ
 SELECT throws_ok($$SELECT record_inventory_movement('44444444-0000-0000-0000-000000000002','receipt',1,CURRENT_DATE,'foreign',NULL)$$,'42501','Forbidden','cross-team inventory movement RPC denied');
 SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-000000000002',true);
 SELECT is((SELECT count(*) FROM programs WHERE code='AUTH-TEST-OWN'),0::bigint,'other team cannot read program');
+SELECT throws_ok($$SELECT get_dashboard_kpis((SELECT id FROM programs WHERE code='AUTH-TEST-OWN'))$$,'42501','Forbidden','other team cannot read dashboard KPI');
+SELECT throws_ok($$SELECT set_task_status('66666666-0000-0000-0000-000000000001','completed')$$,'42501','Forbidden','other team cannot update task status');
 WITH changed AS (UPDATE programs SET name='Forbidden' WHERE code='AUTH-TEST-OWN' RETURNING id)
 SELECT is(count(*),0::bigint,'other team cannot update program') FROM changed;
 SELECT throws_ok($$UPDATE profiles SET user_id='22222222-0000-0000-0000-000000000001' WHERE user_id=auth.uid()$$,'23514','Profile auth identity is immutable','profile auth identity cannot be reassigned');
