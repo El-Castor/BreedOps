@@ -13,7 +13,7 @@ npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
 Open http://localhost:3107. Supabase uses API port 55421 and database port 55422.
-CLI 2.75.0 is pinned by the scripts. Initial startup applies migrations 000001–000005
+CLI 2.75.0 is pinned by the scripts. Initial startup applies migrations 000001–000011
 to a new local database; demo seeding is disabled. Never reset a retained database
 containing user records. `supabase/seed.sql` is optional synthetic demo material,
 not a prerequisite for the application or tests.
@@ -34,8 +34,8 @@ Initial local bootstrap is an explicitly approved operator-only action. Run
 the password is hidden and no credential is written by the script. It creates exactly
 one team, Auth account, and system_admin profile, rolling back partial creation on error.
 Do not use this local-only command against hosted environments. Tests create
-temporary synthetic accounts only. Business modules are visibly unavailable until
-their persisted workflows pass validation. The historical demo is preserved under
+temporary synthetic accounts only. The five V1 workflows use the local PostgreSQL
+backend. The historical demo is preserved under
 `src/demo/` but is not served by any application route.
 
 ## Validation
@@ -45,6 +45,7 @@ With the production server running on port 3107:
 ```sh
 npm test
 npm run test:rls
+npm run test:e2e
 npm run typecheck
 npm run lint
 npm run format:check
@@ -55,12 +56,12 @@ Unit tests can run without the backend using `npm run test:unit`.
 HTTP integration tests require local configuration and the running production app.
 They create randomly identified synthetic users/teams and clean them up afterward.
 RLS tests run inside a transaction and roll back. Neither suite supports hosted targets.
-No Playwright configuration existed at V1.1; HTTP tests validate real session cookies
-and native Server Actions, including stale admin forms after role revocation.
+Playwright Chromium executes the complete login → breeding → phenotyping → inventory
+→ task → dashboard → logout journey. HTTP integration tests also validate real session
+cookies and native Server Actions, including stale admin forms after role revocation.
 
-The production build currently reports Supabase Edge-bundle Node API warnings.
-Login, refresh-by-page-request and logout HTTP checks passed on that build; realtime
-subscriptions are not part of this slice. Cookies are HttpOnly, SameSite=Lax and Secure
+Login, refresh-by-page-request and logout checks pass on the production build; realtime
+subscriptions are outside V1. Cookies are HttpOnly, SameSite=Lax and Secure
 in production. Hosted use requires HTTPS and APP_ORIGIN set to the exact application
 origin. Local validation uses the localhost loopback origin.
 

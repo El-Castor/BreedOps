@@ -2,11 +2,9 @@
 
 ## Overview
 
-Status (2026-09-12): this document describes the target architecture. The real
-authentication slice is being implemented and has not passed its runtime gate.
-Business workflows remain unavailable in the application. The old localStorage
-demo is preserved in `src/demo/local-demo.tsx` and is not routed or imported by
-the production application.
+Status (2026-09-13): the five V1 domains run against local Supabase/PostgreSQL and
+pass targeted integration tests. The old localStorage demo is preserved in
+`src/demo/local-demo.tsx` and is not routed or imported by production paths.
 
 BreedOps is a secure, data-driven platform for plant breeding programs built on modern web technologies. The architecture is designed with security, scalability, and maintainability in mind.
 
@@ -48,7 +46,7 @@ BreedOps is a secure, data-driven platform for plant breeding programs built on 
 ### Authentication
 - Supabase Auth for user management
 - Session persistence via secure cookies (`HttpOnly`, `Secure`, `SameSite`)
-- Password reset functionality
+- Password reset planned
 - MFA support planned
 
 ### Authorization
@@ -63,7 +61,7 @@ BreedOps is a secure, data-driven platform for plant breeding programs built on 
 ### Data Protection
 - PostgreSQL Row-Level Security (RLS)
 - Parameterized queries to prevent injection attacks
-- XSS protection via content security policy
+- React output escaping and response security headers
 - CSRF protection
 - Secure cookie configuration
 
@@ -77,7 +75,7 @@ The database schema is designed around the core concepts of plant breeding:
 - Phenotyping: phenotypes, selection models, evaluations
 - Inventory: items, lots, movements
 - Experimental workflow: cycles, tasks, templates
-- Audit logging
+- Audit-log schema reserved for future sensitive-action instrumentation
 
 ## Data Flow
 

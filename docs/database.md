@@ -19,7 +19,7 @@ Manages breeding programs within organizations.
 Migration 000003 removes program_members. Each profile belongs to one organization/team;
 program access inherits that team. V1 uses system_admin, team_admin and user.
 Migration 000005 guards profile identity and privileged-role boundaries and restricts
-trigger-only calculation functions. The 17 auth/RLS assertions pass on local PostgreSQL.
+trigger-only calculation functions. The final 21 auth/RLS assertions pass locally.
 
 ### Parent Lines
 Stores information about parent lines used in crosses.
@@ -118,8 +118,8 @@ All tables follow the naming conventions:
 
 Row-Level Security (RLS) policies are implemented on all tables to ensure proper data isolation:
 - Users can only access data within their organization
-- Program-specific access is controlled via program membership
-- All data operations are logged in the audit log
+- Program access inherits the authenticated profile's team
+- Sensitive-action audit instrumentation remains future work; no blanket logging claim is made
 
 ## Calculations and Functions
 
@@ -141,7 +141,6 @@ seed_yield_per_pollinated_unit = total_seeds / pollinated_units
 ### Stock Calculations
 ```sql
 current_quantity = initial_quantity + total_positive_movements - total_negative_movements
-estimated_coverage = current_quantity / average_weekly_consumption
 days_before_expiration = expiration_date - current_date
 ```
 

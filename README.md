@@ -102,7 +102,7 @@ BreedOps supports structured and weighted evaluation of breeding material.
 
 - Phenotype registry and evaluation models
 - Configurable weighted criteria and coefficients
-- Evaluator and reviewer workflows
+- Authenticated evaluator attribution
 - Automatic and normalized score calculation
 - Automated decision categories
 - Elite candidate identification
@@ -128,7 +128,7 @@ Weighted Score =
 BreedOps connects breeding workflows to laboratory and operational logistics.
 
 - Inventory items, reagents, consumables, and lots
-- Equipment registry
+- Reagent and consumable registry
 - Stock levels, stock movements, and consumption history
 - Minimum-stock thresholds and operational alerts
 - Expiration dates and storage conditions
@@ -143,8 +143,8 @@ BreedOps structures experimental execution from reusable templates to milestone 
 
 - Experimental cycles and task templates
 - Priorities, deadlines, zones, and locations
-- Calendar and Gantt views
-- SOP compliance
+- Calendar and task-list views
+- SOP compliance planned
 - Deliverables and milestone validation
 - Delay calculation and operational alerts
 
@@ -201,11 +201,12 @@ BreedOps provides a high-level view of breeding progress and operational bottlen
 | 📦 Inventory | Expiration alerts | ✅ | — |
 | 📦 Inventory | QR-based traceability | — | 🔜 |
 | 📅 Workflow | Calendar | ✅ | — |
-| 📅 Workflow | Gantt | ✅ | — |
+| 📅 Workflow | Gantt | — | 🔜 |
 | 📅 Workflow | Notifications | — | 🔜 |
 | 📊 Analytics | Dashboard | ✅ | — |
 | 📊 Analytics | Advanced statistics | — | 🔬 |
-| 🛡️ Platform | Security and audit | ✅ | — |
+| 🛡️ Platform | Authentication, server authorization and RLS | ✅ | — |
+| 🛡️ Platform | Sensitive-action audit instrumentation | — | 🔜 |
 | 🛡️ Platform | Offline sync | — | 🔜 |
 
 ---
@@ -293,25 +294,21 @@ BreedOps is designed with **security, data integrity, and traceability** as core
 - Role-based access control
 - Server-side authorization
 - PostgreSQL Row-Level Security
-- Organization-level and program-level data isolation
-- Audit logging
+- Team-level data isolation for team-owned programs
+- Audit-log schema; action instrumentation planned
 - Soft deletion for critical scientific records
 - Versioned migrations
-- Controlled imports and exports
-- Traceable modifications to sensitive data
+- Controlled imports and exports planned
+- Traceable stock movements and scientific lineage
 
 </details>
 
 <details>
-<summary><strong>Target roles</strong></summary>
+<summary><strong>V1 roles</strong></summary>
 
 - `system_admin`
-- `organization_admin`
-- `program_manager`
-- `technician`
-- `analyst`
-- `viewer`
-- `auditor`
+- `team_admin`
+- `user`
 
 </details>
 
@@ -352,27 +349,29 @@ git clone https://github.com/El-Castor/BreedOps.git
 cd BreedOps
 ```
 
-### 2. Install dependencies
+### 2. Install dependencies and start local Supabase
 
 ```bash
-npm install
+npm ci
+npm run db:start
 ```
 
 ### 3. Configure the environment
 
 ```bash
-cp .env.example .env.local
+npm run local:configure
 ```
 
-Fill in the required variables in `.env.local`. **Never commit secrets or production credentials.**
+This generates ignored local configuration. **Never commit secrets or production credentials.**
 
 ### 4. Start the development server
 
 ```bash
-npm run dev
+npm run build
+npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
-Then open `http://localhost:3000`.
+Then open `http://localhost:3107`. See `docs/local-development.md` for account provisioning and validation.
 
 ---
 
@@ -382,7 +381,7 @@ BreedOps is being developed in structured phases.
 
 | Phase | Scope |
 |---|---|
-| **MVP** | Authentication & roles · cross registry · families & seed lots · phenotype scoring · inventory & stock movements · calendar & Gantt · dashboard & alerts |
+| **MVP** | Authentication & roles · cross registry · families & seed lots · phenotype scoring · inventory & stock movements · calendar/list · dashboard & alerts |
 | **V1** | Interactive pedigree · QR codes · photograph/image workflows · notifications |
 | **V2** | Advanced statistical analysis · multi-year comparison · genotype × environment exploration · offline-first synchronization |
 | **Future** | Genomics integration · genomic prediction · AI-assisted breeding intelligence |

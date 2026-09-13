@@ -16,7 +16,7 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: V1.1 à V1.5 PASS. Les cinq domaines V1 sont connectés à PostgreSQL et validés par leurs parcours ciblés. Le gate d'intégration V1.6 et le parcours E2E unique restent à exécuter; V1 globale n'est pas encore PASS.
+- **État actuel**: V1 PASS. Les cinq domaines utilisent le backend PostgreSQL réel; le parcours Playwright critique, la reconstruction des migrations et tous les contrôles finaux configurés passent.
 - **Date de dernière mise à jour**: 2026-09-13
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
@@ -191,47 +191,47 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 ### Phase 9 — Sécurité et audit
 
-- [ ] Vérifier toutes les politiques RLS
-- [ ] Vérifier les permissions côté serveur
-- [ ] Protéger les Server Actions et routes API
-- [ ] Configurer les cookies sécurisés
-- [ ] Configurer les en-têtes de sécurité
-- [ ] Configurer une Content Security Policy
-- [ ] Vérifier les risques XSS
-- [ ] Vérifier les risques d’injection
-- [ ] Vérifier les risques CSRF
+- [x] Vérifier les politiques RLS du périmètre V1
+- [x] Vérifier les permissions côté serveur
+- [x] Protéger les Server Actions et routes API
+- [x] Configurer les cookies sécurisés
+- [x] Configurer les en-têtes de sécurité
+- [x] Configurer une Content Security Policy
+- [x] Vérifier les risques XSS
+- [x] Vérifier les risques d’injection
+- [x] Vérifier les risques CSRF
 - [ ] Limiter les tentatives de connexion
 - [ ] Créer le journal d’audit
-- [ ] Tester la séparation entre utilisateurs
+- [x] Tester la séparation entre utilisateurs
 
 ### Phase 10 — Tests et stabilisation
 
-- [ ] Tests unitaires
-- [ ] Tests des calculs métier
-- [ ] Tests des formulaires
-- [ ] Tests des politiques RLS
-- [ ] Tests d’intégration
-- [ ] Tests end-to-end
+- [x] Tests unitaires
+- [x] Tests des calculs métier
+- [x] Tests des formulaires
+- [x] Tests des politiques RLS
+- [x] Tests d’intégration
+- [x] Tests end-to-end
 - [ ] Tests d’accessibilité
 - [ ] Tests responsive
 - [ ] Tests d’import
 - [ ] Tests d’export
-- [ ] Vérification des erreurs TypeScript
-- [ ] Vérification du build de production
+- [x] Vérification des erreurs TypeScript
+- [x] Vérification du build de production
 
 ### Phase 11 — Documentation et livraison
 
 - [x] README
-- [ ] Guide d’installation
-- [ ] Guide Supabase
-- [ ] Guide des migrations
+- [x] Guide d’installation
+- [x] Guide Supabase
+- [x] Guide des migrations
 - [ ] Guide de déploiement
 - [ ] Guide administrateur
 - [ ] Guide utilisateur
 - [x] Description du modèle de données
-- [ ] Description des rôles
+- [x] Description des rôles
 - [ ] Description des sauvegardes
-- [ ] Liste des limites du MVP
+- [x] Liste des limites du MVP
 - [x] Roadmap V2
 
 ---
@@ -253,7 +253,7 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 | -- | -------- | ------- | ------------- | -------------- | ------ |
 | B-001 | Aucun projet Supabase hébergé lié | Non bloquant pour V1 locale | Stack Supabase locale isolée et reproductible sur ports 55420–55429 | Provisionner un hébergement seulement au déploiement | Reporté |
 | B-002 | Dépôt Git et remote GitHub | Résolu | Dépôt local initialisé, deux commits présents et `origin` configuré | Aucune | Résolu |
-| B-003 | Modèle d'accès V1 à trois rôles | Résolu | Migration 000005 durcie, 17 assertions RLS et 9 tests HTTP réels passent | Aucune pour V1; rôles fins reportés après V1 | Résolu |
+| B-003 | Modèle d'accès V1 à trois rôles | Résolu | Migration 000005 durcie, 21 assertions RLS et parcours E2E réel passent | Aucune pour V1; rôles fins reportés après V1 | Résolu |
 | B-004 | Runtime Node.js/npm | Résolu pour l'environnement Conda `breedops-dev` | Node 20.20.2 et npm/npx 10.8.2 permettent l'installation et les validations | Utiliser `breedops-dev` pour les commandes JavaScript | Résolu |
 
 ---
@@ -328,8 +328,8 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 - **Tâches terminées**: comparaison de la roadmap avec le worktree, sans exécuter de migrations ni modifier les composants applicatifs.
 - **État confirmé**: dépôt Git et remote existants; `package.json`, configurations locales, deux migrations Supabase et deux documents techniques présents; pas de code dans `src/`, pas de tests, pas de dépendances installées, pas de runtime Node.js/npm disponible dans le `PATH` et pas d'environnement Supabase.
-- **Décisions restant à approuver**: bootstrap d'organisation, politiques permissives sur `organizations`, accès par programme, matrice de rôles et suppression/soft deletion.
-- **Prochaine étape recommandée**: décider le modèle d'autorisation et de suppression, puis configurer un environnement Supabase de test pour valider les migrations et RLS avant de démarrer l'authentification.
+- **Décisions restant à approuver**: aucune pour le périmètre V1 local. Les décisions d'hébergement, de bootstrap initial en production et de rôles fins seront requises avant un déploiement public.
+- **Prochaine étape recommandée**: préparer V1.1 post-livraison avec audit des actions sensibles et durcissement opérationnel avant hébergement.
 
 ### Session 2026-09-07 (fondation applicative)
 
@@ -399,6 +399,15 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Validation**: reconstruction depuis zéro 000001–000011 réussie; 3/3 tests HTTP opérations/KPI; suite complète 40/40; RLS étendue 21/21; TypeScript, ESLint, Prettier, build production et audit npm passent. Un cycle, une tâche en retard, son affectation, son achèvement, le passage 0→100 % et la vue calendrier sont vérifiés.
 - **Dette**: modèles automatiques de cycles, checklist/SOP, Gantt et filtres avancés restent différés; ces extensions ne bloquent pas le parcours V1 calendrier/liste.
 - **Prochaine étape exacte**: V1.6 — parcours E2E critique unique, gate complet final, documentation et commit V1 local.
+
+### Session 2026-09-13 — V1.6 gate final — PASS
+
+- **Parcours critique**: Playwright Chromium exécute via l'interface réelle connexion → programme → deux parents → croisement → famille → lot → germination 92 % → phénotype → notation Elite → article/lot d'inventaire → réception/consommation et stock 80 → cycle/tâche en retard → achèvement → neuf KPI mis à jour → déconnexion.
+- **Base et sécurité**: reconstruction propre 000001–000011 réussie; RLS 21/21, y compris anonymat, isolement inter-équipe, élévation de rôle, identité, RPC inventaire, KPI et tâches. Aucun secret suivi détecté; audit npm: 0 vulnérabilité.
+- **Validation finale**: Vitest 40/40 dans 7 fichiers; Playwright 1/1; TypeScript, ESLint, Prettier et build Next.js production passent. Documentation et état opérationnel réconciliés avec le code.
+- **Git**: cinq commits de modules V1 validés précèdent le commit final; aucun push distant effectué. Les fichiers locaux non liés `.beads*`, `.serena/` et la trace Serena restent intacts et hors commit.
+- **Statut V1**: PASS.
+- **Prochaine étape exacte**: V1.1 post-livraison — instrumenter le journal d'audit des actions sensibles et ajouter sa rétention/consultation sous RLS avant tout déploiement hébergé.
 
 ---
 
