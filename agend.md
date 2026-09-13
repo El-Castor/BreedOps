@@ -16,7 +16,7 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: V1.1, V1.2 et V1.3 PASS. Authentification/autorisation réelles, parcours d'élevage et notation phénotypique PostgreSQL configurable sont validés. Inventaire, opérations et tableau de bord restent à connecter; V1 globale n'est pas PASS.
+- **État actuel**: V1.1 à V1.4 PASS. Authentification/autorisation, parcours d'élevage, notation phénotypique et inventaire transactionnel PostgreSQL sont validés. Opérations et tableau de bord restent à connecter; V1 globale n'est pas PASS.
 - **Date de dernière mise à jour**: 2026-09-13
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
@@ -137,17 +137,17 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 ### Phase 5 — Inventaire
 
-- [ ] Référentiel des articles
-- [ ] Gestion des lots de réactifs et consommables
+- [x] Référentiel des articles
+- [x] Gestion des lots de réactifs et consommables
 - [ ] Gestion des équipements
-- [ ] Réception de stock
-- [ ] Consommation de stock
-- [ ] Ajustement avec justification
-- [ ] Historique des mouvements
+- [x] Réception de stock
+- [x] Consommation de stock
+- [x] Ajustement avec justification
+- [x] Historique des mouvements
 - [ ] Calcul de la couverture estimée
-- [ ] Alerte de stock minimal
-- [ ] Alerte de péremption
-- [ ] Recherche par CAS, lot ou emplacement
+- [x] Alerte de stock minimal
+- [x] Alerte de péremption
+- [x] Recherche par CAS, lot ou emplacement
 - [ ] Export de l’inventaire
 
 ### Phase 6 — Calendrier et Gantt
@@ -383,6 +383,14 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Validation**: reconstruction depuis zéro 000001–000009 réussie; 8/8 tests HTTP phénotypiques; suite complète 33/33; RLS 17/17; TypeScript, ESLint, Prettier et build production passent; audit npm 0 vulnérabilité.
 - **Dette**: critères éliminatoires spécialisés, export de matrice et vue de comparaison avancée restent différés; le classement V1 couvre la comparaison opérationnelle requise.
 - **Prochaine étape exacte**: V1.4 — articles et lots d'inventaire, mouvements transactionnels, stock courant, seuils/péremption et historique.
+
+### Session 2026-09-13 — V1.4 inventaire et mouvements — PASS
+
+- **Implémentation**: registre d'articles par équipe; lots avec réception initiale obligatoire; réceptions, consommations, retours, destructions et ajustements justifiés; stock courant dérivé des mouvements; historique; recherche article/CAS/référence/lot/emplacement; alertes de seuil et de péremption issues de la vue PostgreSQL.
+- **Migration**: 000010 renforce les contraintes et dates, ajoute deux RPC transactionnelles, verrouille le lot pendant un mouvement, refuse un stock négatif, attribue l'acteur authentifié et interdit l'insertion directe de mouvements aux rôles client.
+- **Validation**: reconstruction depuis zéro 000001–000010 réussie; 4/4 tests HTTP inventaire; suite complète 37/37; RLS étendue 19/19; TypeScript, ESLint, Prettier et build production passent. Réception 100, consommation 30 et stock final 70 vérifiés; ajustement sans motif et surconsommation refusés sans écriture partielle.
+- **Dette**: équipements spécialisés, couverture estimée et export d'inventaire restent différés hors du parcours V1 essentiel.
+- **Prochaine étape exacte**: V1.5 — cycle expérimental, tâches assignées, statuts/dates/retards, vues liste/calendrier et tableau de bord agrégé.
 
 ---
 

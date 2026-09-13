@@ -1,7 +1,7 @@
 -- Disposable local test database only. Fixtures are rolled back.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(17);
+SELECT plan(19);
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-000000000001','Test A','auth-test-a'),
  ('11111111-0000-0000-0000-000000000002','Test B','auth-test-b');
@@ -15,6 +15,12 @@ INSERT INTO profiles(user_id,organization_id,role) VALUES
  ('22222222-0000-0000-0000-000000000002','11111111-0000-0000-0000-000000000002','team_admin'),
  ('22222222-0000-0000-0000-000000000003','11111111-0000-0000-0000-000000000001','system_admin'),
  ('22222222-0000-0000-0000-000000000004','11111111-0000-0000-0000-000000000002','system_admin');
+INSERT INTO inventory_items(id,organization_id,name,default_unit,minimum_stock) VALUES
+ ('33333333-0000-0000-0000-000000000001','11111111-0000-0000-0000-000000000001','Inventory A','g',10),
+ ('33333333-0000-0000-0000-000000000002','11111111-0000-0000-0000-000000000002','Inventory B','g',10);
+INSERT INTO inventory_lots(id,inventory_item_id,batch_number,initial_quantity,current_quantity) VALUES
+ ('44444444-0000-0000-0000-000000000001','33333333-0000-0000-0000-000000000001','LOT-A',0,0),
+ ('44444444-0000-0000-0000-000000000002','33333333-0000-0000-0000-000000000002','LOT-B',0,0);
 SET LOCAL ROLE anon;
 SELECT is((SELECT count(*) FROM organizations),0::bigint,'anonymous cannot read teams');
 SELECT is((SELECT count(*) FROM profiles),0::bigint,'anonymous cannot read profiles');
@@ -28,6 +34,8 @@ SELECT throws_ok($$UPDATE profiles SET role='system_admin' WHERE user_id=auth.ui
 SELECT throws_ok($$UPDATE profiles SET organization_id='11111111-0000-0000-0000-000000000002' WHERE user_id=auth.uid()$$,'42501',NULL,'self tenant transfer denied');
 SELECT throws_ok($$SELECT refresh_inventory_lot_quantity('00000000-0000-0000-0000-000000000000')$$,'42501',NULL,'privileged inventory RPC denied');
 SELECT throws_ok($$SELECT refresh_phenotype_evaluation('00000000-0000-0000-0000-000000000000')$$,'42501',NULL,'privileged scoring RPC denied');
+SELECT throws_ok($$INSERT INTO inventory_movements(inventory_lot_id,movement_type,quantity) VALUES ('44444444-0000-0000-0000-000000000001','receipt',1)$$,'42501',NULL,'authenticated direct inventory movement insert denied');
+SELECT throws_ok($$SELECT record_inventory_movement('44444444-0000-0000-0000-000000000002','receipt',1,CURRENT_DATE,'foreign',NULL)$$,'42501','Forbidden','cross-team inventory movement RPC denied');
 SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-000000000002',true);
 SELECT is((SELECT count(*) FROM programs WHERE code='AUTH-TEST-OWN'),0::bigint,'other team cannot read program');
 WITH changed AS (UPDATE programs SET name='Forbidden' WHERE code='AUTH-TEST-OWN' RETURNING id)

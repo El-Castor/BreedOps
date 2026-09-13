@@ -28,6 +28,6 @@ const lines = output
 console.log(lines.join("\n"));
 if (
   lines.some((line) => line.startsWith("not ok")) ||
-  lines.filter((line) => line.startsWith("ok ")).length !== 17
+  lines.filter((line) => line.startsWith("ok ")).length !== 19
 )
   process.exitCode = 1;

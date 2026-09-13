@@ -117,6 +117,7 @@ export default async function Application({
         >
           Notation phénotypique
         </Link>
+        <Link href="/app/inventory">Inventaire</Link>
         {programs?.map((program) => (
           <Link
             key={program.id}
