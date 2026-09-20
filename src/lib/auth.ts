@@ -39,6 +39,6 @@ export async function requireIdentity() {
 
 export async function requireAdministrator() {
   const identity = await requireIdentity();
-  if (identity.profile.role === "user") throw new Error("Forbidden");
+  if (identity.profile.role === "user") redirect("/app?error=forbidden");
   return identity;
 }

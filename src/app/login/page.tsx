@@ -1,3 +1,18 @@
+import Link from "next/link";
+import { SubmitButton } from "./submit-button";
+
+export const dynamic = "force-dynamic";
+
+const errors: Record<string, string> = {
+  invalid: "Email ou mot de passe incorrect.",
+  disabled: "Compte désactivé. Contactez votre administrateur.",
+  unconfirmed: "Compte non confirmé. Consultez votre invitation.",
+  expired: "Session expirée. Connectez-vous à nouveau.",
+  membership: "Compte en attente d’affectation ou sans équipe active.",
+  configuration: "Erreur de configuration serveur.",
+  unexpected: "Erreur inattendue. Réessayez.",
+};
+
 export default async function Login({
   searchParams,
 }: {
@@ -12,13 +27,7 @@ export default async function Login({
       </section>
       <form className="card form login-card" action="/auth/login" method="post">
         <h2>Connexion</h2>
-        {error && (
-          <p role="alert">
-            {error === "membership"
-              ? "Aucune appartenance active à une équipe. Contactez votre administrateur."
-              : "Connexion impossible. Vérifiez vos identifiants et réessayez."}
-          </p>
-        )}
+        {error && <p role="alert">{errors[error] ?? errors.unexpected}</p>}
         <label>
           Email
           <input
@@ -39,7 +48,11 @@ export default async function Login({
             maxLength={1024}
           />
         </label>
-        <button type="submit">Se connecter</button>
+        <SubmitButton>Se connecter</SubmitButton>
+        <Link href="/forgot-password">Mot de passe oublié ?</Link>
+        {process.env.ALLOW_SELF_SIGNUP === "true" && (
+          <Link href="/signup">Créer un compte</Link>
+        )}
       </form>
     </main>
   );

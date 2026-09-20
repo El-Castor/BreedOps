@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { updateEnvFile } from "./lib/env-file.mjs";
 
 // Local CLI-generated keys only; never print credentials or use a hosted project.
 const raw = execFileSync(
@@ -28,16 +29,21 @@ mkdirSync(".local", { recursive: true });
 writeFileSync(".local/test-backend.json", JSON.stringify(data), {
   mode: 0o600,
 });
-if (existsSync(".env.local")) {
-  console.log(".env.local already exists and was left unchanged.");
-} else {
-  writeFileSync(
-    ".env.local",
-    `NEXT_PUBLIC_SUPABASE_URL=${data.API_URL}\nNEXT_PUBLIC_SUPABASE_ANON_KEY=${data.ANON_KEY}\nAPP_ORIGIN=http://localhost:3107\n`,
-    { mode: 0o600, flag: "wx" },
-  );
-  console.log("Local application configuration written to .env.local.");
-}
+const currentEnv = existsSync(".env.local")
+  ? readFileSync(".env.local", "utf8")
+  : "";
+writeFileSync(
+  ".env.local",
+  updateEnvFile(currentEnv, {
+    NEXT_PUBLIC_SUPABASE_URL: data.API_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: data.ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: data.SERVICE_ROLE_KEY,
+    APP_ORIGIN: "http://localhost:3107",
+    ALLOW_SELF_SIGNUP: "false",
+  }),
+  { mode: 0o600 },
+);
+console.log("Local application configuration updated in .env.local.");
 console.log(
   "Privileged local test configuration written to .local/test-backend.json.",
 );

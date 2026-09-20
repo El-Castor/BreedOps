@@ -22,9 +22,43 @@ export async function middleware(request: NextRequest) {
       },
     },
   });
-  await client.auth.getUser();
+  const { data: auth } = await client.auth.getUser();
+  const path = request.nextUrl.pathname;
+  let hasActiveProfile = false;
+  if (auth.user) {
+    const { data: profile } = await client
+      .from("profiles")
+      .select("id")
+      .eq("user_id", auth.user.id)
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .maybeSingle();
+    hasActiveProfile = Boolean(profile);
+  }
+  if (path.startsWith("/app") && (!auth.user || !hasActiveProfile)) {
+    if (auth.user) await client.auth.signOut();
+    const target = request.nextUrl.clone();
+    target.pathname = "/login";
+    target.search = auth.user ? "?error=membership" : "?error=expired";
+    return NextResponse.redirect(target);
+  }
+  if (path === "/login" && auth.user && hasActiveProfile) {
+    const target = request.nextUrl.clone();
+    target.pathname = "/app";
+    target.search = "";
+    return NextResponse.redirect(target);
+  }
   response.headers.set("Cache-Control", "private, no-store");
   return response;
 }
 
-export const config = { matcher: ["/app/:path*", "/auth/:path*"] };
+export const config = {
+  matcher: [
+    "/app/:path*",
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+    "/auth/:path*",
+  ],
+};

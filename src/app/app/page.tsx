@@ -11,7 +11,7 @@ import {
   updateCross,
 } from "./breeding-actions";
 
-type Params = { program?: string; q?: string };
+type Params = { program?: string; q?: string; error?: string };
 export default async function Application({
   searchParams,
 }: {
@@ -95,6 +95,9 @@ export default async function Application({
 
   return (
     <main className="workspace">
+      {params.error === "forbidden" && (
+        <p role="alert">Action non autorisée.</p>
+      )}
       <header>
         <div>
           <p className="eyebrow">{team.name}</p>
@@ -108,6 +111,10 @@ export default async function Application({
         </form>
       </header>
       <nav className="program-nav" aria-label="Programmes">
+        <Link href="/app/profile">Mon profil</Link>
+        {profile.role !== "user" && (
+          <Link href="/app/admin/users">Utilisateurs</Link>
+        )}
         <Link
           href={
             programId

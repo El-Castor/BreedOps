@@ -19,7 +19,9 @@
     "typecheck": "tsc --noEmit",
     "local:configure": "node scripts/configure-local.mjs",
     "local:provision-admin": "node scripts/provision-first-admin.mjs",
+    "local:reset-password": "node scripts/reset-local-password.mjs",
     "test:rls": "node scripts/test-rls.mjs",
+    "security:client-secrets": "node scripts/check-client-secrets.mjs",
     "db:start": "npm exec --yes --package=supabase@2.75.0 -- supabase start -x studio,realtime,storage-api,imgproxy,edge-runtime,logflare,vector,supavisor",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage"

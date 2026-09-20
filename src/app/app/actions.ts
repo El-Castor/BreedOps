@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireIdentity } from "@/lib/auth";
+import { requireAdministrator, requireIdentity } from "@/lib/auth";
 
 export async function updateDisplayName(form: FormData) {
   const { client, profile } = await requireIdentity();
@@ -23,9 +23,7 @@ export async function updateDisplayName(form: FormData) {
 }
 
 export async function updateTeamName(form: FormData) {
-  const { client, profile } = await requireIdentity();
-  if (profile.role !== "system_admin" && profile.role !== "team_admin")
-    throw new Error("Forbidden");
+  const { client, profile } = await requireAdministrator();
   const name = z.string().trim().min(1).max(120).parse(form.get("name"));
   const { data, error } = await client
     .from("organizations")

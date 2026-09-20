@@ -3,10 +3,11 @@ import { sameOrigin } from "../src/lib/request-security";
 
 describe("authentication CSRF boundary", () => {
   it("accepts the application's own origin", () => {
+    process.env.APP_ORIGIN = "http://localhost:3107";
     expect(
       sameOrigin(
-        new Request("http://localhost:3000/auth/login", {
-          headers: { origin: "http://localhost:3000" },
+        new Request("http://127.0.0.1:3107/auth/login", {
+          headers: { origin: "http://localhost:3107" },
         }),
       ),
     ).toBe(true);
@@ -18,7 +19,7 @@ describe("authentication CSRF boundary", () => {
     ]) {
       expect(
         sameOrigin(
-          new Request("http://localhost:3000/auth/logout", { headers }),
+          new Request("http://127.0.0.1:3107/auth/logout", { headers }),
         ),
       ).toBe(false);
     }

@@ -73,14 +73,12 @@ describe.sequential("real Supabase authentication over HTTP", () => {
     expect(response.headers.get("location")).toContain("/login");
   });
   it("rejects cross-origin login", async () => {
-    expect(
-      (
-        await request("/auth/login", {
+    const response = await request("/auth/login", {
           method: "POST",
           headers: { origin: "https://attacker.example" },
-        })
-      ).status,
-    ).toBe(403);
+        });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(`${base}/login?error=unexpected`);
   });
   it("rejects invalid credentials", async () => {
     const response = await request("/auth/login", {
@@ -166,15 +164,13 @@ describe.sequential("real Supabase authentication over HTTP", () => {
       .eq("user_id", userId!);
     if (demotionError) throw demotionError;
     body.set("name", "Forbidden team rename");
-    expect(
-      (
-        await request("/app", {
+    const denied = await request("/app", {
           method: "POST",
           headers: { origin: base },
           body,
-        })
-      ).status,
-    ).toBe(500);
+        });
+    expect(denied.status).toBe(303);
+    expect(denied.headers.get("location")).toContain("error=forbidden");
     const { data } = await admin
       .from("organizations")
       .select("name")

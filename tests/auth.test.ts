@@ -80,7 +80,7 @@ describe("server identity and role boundary", () => {
   });
   it("allows ordinary identity but rejects administrative access", async () => {
     expect((await requireIdentity()).profile.role).toBe("user");
-    await expect(requireAdministrator()).rejects.toThrow("Forbidden");
+    await expect(requireAdministrator()).rejects.toThrow("REDIRECT:/app?error=forbidden");
   });
   it.each(["team_admin", "system_admin"])(
     "allows %s administrative access",

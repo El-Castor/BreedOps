@@ -26,8 +26,11 @@ const lines = output
   .split("\n")
   .filter((line) => /^(ok |not ok |1\.\.|#)/.test(line));
 console.log(lines.join("\n"));
+const plan = lines.find((line) => /^1\.\.\d+$/.test(line));
+const expected = plan ? Number(plan.slice(3)) : 0;
 if (
+  !expected ||
   lines.some((line) => line.startsWith("not ok")) ||
-  lines.filter((line) => line.startsWith("ok ")).length !== 21
+  lines.filter((line) => line.startsWith("ok ")).length !== expected
 )
   process.exitCode = 1;
