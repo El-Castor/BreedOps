@@ -2,8 +2,9 @@
 
 ## Overview
 
-Status (2026-09-13): the five V1 domains run against local Supabase/PostgreSQL and
-pass targeted integration tests. The old localStorage demo is preserved in
+Status (2026-09-20): the five V1 domains and the complete V1 authentication/user
+management workflow run against local Supabase/PostgreSQL and pass unit,
+integration, RLS and browser tests. The old localStorage demo is preserved in
 `src/demo/local-demo.tsx` and is not routed or imported by production paths.
 
 BreedOps is a secure, data-driven platform for plant breeding programs built on modern web technologies. The architecture is designed with security, scalability, and maintainability in mind.
@@ -46,7 +47,7 @@ BreedOps is a secure, data-driven platform for plant breeding programs built on 
 ### Authentication
 - Supabase Auth for user management
 - Session persistence via secure cookies (`HttpOnly`, `Secure`, `SameSite`)
-- Password reset planned
+- Password recovery and authenticated password changes through Supabase Auth
 - MFA support planned
 
 ### Authorization
@@ -55,6 +56,8 @@ BreedOps is a secure, data-driven platform for plant breeding programs built on 
 - An organization is a team; each application profile belongs to one team.
 - Programs inherit team access; no program-membership hierarchy in V1.
 - `system_admin` administers globally; `team_admin` administers its team and ordinary members; active team members can work on their team's business records.
+- Public signup is disabled by default. When feature-enabled, signup creates only an Auth identity without a profile; RLS therefore grants no team or business access until explicit `system_admin` assignment.
+- Supabase Admin API operations are confined to server-only modules and use a non-public service-role environment variable.
 - Differentiated program_manager/technician/analyst/viewer roles are post-V1 candidates.
 - Soft deletion for scientific records
 
@@ -75,7 +78,7 @@ The database schema is designed around the core concepts of plant breeding:
 - Phenotyping: phenotypes, selection models, evaluations
 - Inventory: items, lots, movements
 - Experimental workflow: cycles, tasks, templates
-- Audit-log schema reserved for future sensitive-action instrumentation
+- Audit log instrumentation for user invitations, creation, activation, deactivation, role/team changes and administrator password resets
 
 ## Data Flow
 

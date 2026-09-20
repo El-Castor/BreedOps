@@ -206,7 +206,7 @@ BreedOps provides a high-level view of breeding progress and operational bottlen
 | 📊 Analytics | Dashboard | ✅ | — |
 | 📊 Analytics | Advanced statistics | — | 🔬 |
 | 🛡️ Platform | Authentication, server authorization and RLS | ✅ | — |
-| 🛡️ Platform | Sensitive-action audit instrumentation | — | 🔜 |
+| 🛡️ Platform | User-administration audit instrumentation | ✅ | — |
 | 🛡️ Platform | Offline sync | — | 🔜 |
 
 ---
@@ -295,7 +295,7 @@ BreedOps is designed with **security, data integrity, and traceability** as core
 - Server-side authorization
 - PostgreSQL Row-Level Security
 - Team-level data isolation for team-owned programs
-- Audit-log schema; action instrumentation planned
+- Audit-log schema with user-administration action instrumentation
 - Soft deletion for critical scientific records
 - Versioned migrations
 - Controlled imports and exports planned
@@ -364,14 +364,45 @@ npm run local:configure
 
 This generates ignored local configuration. **Never commit secrets or production credentials.**
 
-### 4. Start the development server
+### 4. Provision the first local administrator
+
+```bash
+npm run local:provision-admin
+```
+
+The prompts are interactive and the password is hidden. The command is
+idempotent. To replace an existing local administrator password, run
+`npm run local:reset-password`; the command updates it through the Supabase
+Admin API and verifies a real password login before reporting success.
+
+### 5. Start BreedOps
 
 ```bash
 npm run build
 npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
-Then open `http://localhost:3107`. See `docs/local-development.md` for account provisioning and validation.
+Open `http://localhost:3107/login`. `localhost` is the canonical browser host;
+the process listens on `127.0.0.1` only to limit network exposure.
+
+### User management
+
+`system_admin` and scoped `team_admin` users can open **Utilisateurs** at
+`/app/admin/users`. The page supports invitations, direct development account
+creation, activation/deactivation, team and role changes within the authorized
+scope, and administrator-initiated password resets. Sensitive actions are
+recorded in `audit_logs` without passwords or tokens.
+
+Users can use **Mot de passe oublié ?** on `/login`, and can edit their display
+name or password on `/app/profile`. BreedOps keeps exactly three roles:
+`system_admin`, `team_admin`, and `user`.
+
+Public self-signup is disabled by default with `ALLOW_SELF_SIGNUP=false`. When
+explicitly enabled, `/signup` creates only a pending Auth identity. It creates
+no team or business profile and grants no `/app` or database access until a
+`system_admin` assigns an existing team, selects a role, and activates it.
+
+See `docs/local-development.md` for security and validation details.
 
 ---
 

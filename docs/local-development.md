@@ -8,21 +8,23 @@ conda activate breedops-dev
 npm ci
 npm run db:start
 npm run local:configure
+npm run local:provision-admin
 npm run build
 npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
-Open http://localhost:3107. Supabase uses API port 55421 and database port 55422.
+Open http://localhost:3107/login. Supabase uses API port 55421 and database port 55422.
 CLI 2.75.0 is pinned by the scripts. Initial startup applies migrations 000001–000011
 to a new local database; demo seeding is disabled. Never reset a retained database
 containing user records. `supabase/seed.sql` is optional synthetic demo material,
 not a prerequisite for the application or tests.
 
-`local:configure` writes `.env.local` without overwriting an existing file and stores
+`local:configure` safely updates the required keys in `.env.local` and stores
 privileged local test configuration in `.local/test-backend.json`, both Git-ignored.
-The application uses only the anonymous/public API key and the authenticated user's
-session. Never put a service-role credential in a NEXT_PUBLIC variable or source file.
-These local generated keys are not hosted credentials.
+The service-role credential is available only to server-side user-management code.
+Never put it in a `NEXT_PUBLIC_` variable, client component, source file, or browser
+payload. `npm run security:client-secrets` verifies the production client artifacts.
+These generated local keys are not hosted credentials.
 
 ## Accounts and current scope
 
@@ -31,12 +33,21 @@ program access inherits the team. A valid Auth account without an active applica
 profile/team is rejected. There is no fake identity fallback and no public role selector.
 Initial local bootstrap is an explicitly approved operator-only action. Run
 `npm run local:provision-admin` in an interactive terminal after `local:configure`;
-the password is hidden and no credential is written by the script. It creates exactly
-one team, Auth account, and system_admin profile, rolling back partial creation on error.
+the password is hidden and no credential is written by the script. It creates or repairs
+the required team, Auth account, and system_admin profile and verifies the password with
+a real Supabase sign-in. It is safe to rerun. Use `npm run local:reset-password` for an
+existing local administrator; it never prints the supplied password and verifies the
+new credential before reporting success.
 Do not use this local-only command against hosted environments. Tests create
 temporary synthetic accounts only. The five V1 workflows use the local PostgreSQL
 backend. The historical demo is preserved under
 `src/demo/` but is not served by any application route.
+
+Self-signup is off by default. With `ALLOW_SELF_SIGNUP=true`, a request creates an
+unassigned Auth identity only. A pending identity has no `profiles` row, team, active
+membership, or business-data access. A `system_admin` completes assignment from
+`/app/admin/users`. Invitations and recovery messages are captured by local Mailpit at
+http://127.0.0.1:55424.
 
 ## Validation
 
@@ -49,6 +60,7 @@ npm run test:e2e
 npm run typecheck
 npm run lint
 npm run format:check
+npm run security:client-secrets
 npm audit
 ```
 

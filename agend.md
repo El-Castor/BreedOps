@@ -17,7 +17,7 @@
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
 - **État actuel**: V1 PASS. Les cinq domaines utilisent le backend PostgreSQL réel; le parcours Playwright critique, la reconstruction des migrations et tous les contrôles finaux configurés passent.
-- **Date de dernière mise à jour**: 2026-09-13
+- **Date de dernière mise à jour**: 2026-09-20
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
 - **Liens utiles vers la documentation interne**: `docs/architecture.md`, `docs/database.md`; `docs/security.md`, `docs/user-guide.md` et `docs/deployment.md` restent à créer.
@@ -99,12 +99,12 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - [x] Connexion
 - [x] Déconnexion
 - [x] Gestion de session
-- [ ] Réinitialisation du mot de passe
+- [x] Réinitialisation du mot de passe
 - [x] Protection des routes
 - [x] Gestion des rôles V1 (`system_admin`, `team_admin`, `user`)
 - [x] Accès aux programmes hérité de l'équipe (pas de membres de programme en V1)
 - [x] Vérification des politiques RLS
-- [ ] Journalisation des actions sensibles
+- [x] Journalisation des actions sensibles de gestion utilisateur
 
 ### Phase 3 — Registre des croisements et lots
 
@@ -201,7 +201,7 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - [x] Vérifier les risques d’injection
 - [x] Vérifier les risques CSRF
 - [ ] Limiter les tentatives de connexion
-- [ ] Créer le journal d’audit
+- [x] Instrumenter le journal d’audit pour la gestion utilisateur
 - [x] Tester la séparation entre utilisateurs
 
 ### Phase 10 — Tests et stabilisation
@@ -408,6 +408,16 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Git**: cinq commits de modules V1 validés précèdent le commit final; aucun push distant effectué. Les fichiers locaux non liés `.beads*`, `.serena/` et la trace Serena restent intacts et hors commit.
 - **Statut V1**: PASS.
 - **Prochaine étape exacte**: V1.1 post-livraison — instrumenter le journal d'audit des actions sensibles et ajouter sa rétention/consultation sous RLS avant tout déploiement hébergé.
+
+### Session 2026-09-20 — Authentification et gestion utilisateurs V1 — PASS
+
+- **Objectif**: réparer le compte administrateur local et livrer login, reset, invitation, gestion des utilisateurs, profil, signup pending et audit avec les trois rôles approuvés.
+- **Implémentation validée**: lecteur de secret compatible saisie/collage avec restauration terminal; provisioning idempotent; reset local vérifié par login Supabase; origine canonique `http://localhost:3107`; login/logout et middleware sans page technique brute; invitation/création/activation/désactivation/rôle/équipe/reset sous contrôle serveur; profil; forgot/reset; signup désactivé par défaut et compte pending sans profil; audit utilisateur instrumenté.
+- **Compte retenu**: `clementpch@gmail.com` confirmé, profil `system_admin` actif dans `nad`; reset réel réussi, login direct Supabase et login/logout Chromium réussis; `last_sign_in_at` observé `2026-09-20 14:45:34.946162+00`.
+- **Base/RLS**: migrations `000012_auth_user_management.sql` et `000013_team_admin_password_reset_audit.sql`; application non destructive sur la base retenue et application 000001–000013 depuis zéro dans une seconde stack jetable; RLS 25/25, dont pending sans accès et audit non forgeable par un utilisateur ordinaire.
+- **Validation**: Vitest 47/47; Playwright principal 3 PASS + 1 SKIP conditionnel; mode `ALLOW_SELF_SIGNUP=true` 1 PASS + 1 SKIP conditionnel; browser du compte existant PASS; TypeScript PASS; ESLint PASS; Prettier PASS; build PASS; recherche de clé service-role dans les artefacts client PASS; npm audit 0 vulnérabilité.
+- **Limites non bloquantes**: l’envoi réel d’e-mails hors environnement local dépendra du SMTP du projet Supabase hébergé; Mailpit capture les e-mails en local. Aucun MFA dans ce jalon.
+- **Prochaine étape exacte**: préparer la configuration Supabase hébergée (SMTP, variables serveur, URL de redirection HTTPS) et exécuter le même gate Auth sur l’environnement de préproduction avant déploiement.
 
 ---
 
