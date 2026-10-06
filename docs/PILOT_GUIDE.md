@@ -28,6 +28,8 @@ Mailpit at `http://127.0.0.1:55424`.
 
 1. From **Vue d’ensemble**, create a programme with code, name and species.
 2. Choose **Ajouter un parent** and create two distinct parent lines by name. No code is typed.
+   Optional provenance: accession (external identifier), source (breeder, institute or
+   supplier), origin and notes.
 3. In **Croisements**, select both parents and record the pollination date.
 4. In **Familles**, select the new cross and create its family.
 5. In **Lots de graines**, select the cross and family, then record harvest and quantity.
@@ -46,7 +48,9 @@ entity type, safe under concurrent creation, and the code cannot be edited after
 The success message shows the code that was assigned. Codes recorded manually before this
 change are kept unchanged. Use the name field for descriptive meaning.
 
-Each register row opens the record inspector on click, Enter or Space. The **⋯** menu offers
+Each register (data table on the left, creation form on the right) can be searched by code,
+name, accession or source, and filtered with **Actifs / Avec archives**. Each row opens the
+record inspector on click, Enter or Space. The **⋯** menu offers
 **Voir le détail**, **Voir le pedigree** and **Archiver** (or **Restaurer** for an archived
 record). Archiving hides parents, crosses, families and seed lots from the active registers
 and from every selector used to create new relationships, without deleting anything. Existing
@@ -54,10 +58,16 @@ crosses, families, lots and the pedigree keep showing archived ancestors. **Affi
 archives** lists archived records, which can be restored. Any active member of the owning team
 can archive or restore; no hard delete is offered.
 
-The inspector groups the real stored fields (identity, lineage, pollination or seed
-propagation, metadata), lists linked phenotypes with their latest PostgreSQL-calculated score
-and decision, or reports "Pas encore de données phénotypiques." Its **Images** section reads
-"Aucune image enregistrée.": image upload and storage are a separate future milestone.
+The inspector is the scientific record view. It shows an overview (programme, species,
+campaign, accession, source, origin, timestamps), the lineage (parents, crosses, families and
+lots, with archived relatives marked), pollination and harvest or seed/germination data, the
+cross yield computed by PostgreSQL, linked phenotypes with their latest PostgreSQL-calculated
+score and decision (or "Pas encore de données phénotypiques."), and notes. **Modifier** edits
+a parent's descriptive provenance, a cross's status and notes, or family/lot notes; archived
+records must be restored before editing. The **Images** section reads "Aucune image
+enregistrée.": image upload and storage are a separate future milestone.
+
+The visual and interaction rules for every screen are defined in `docs/DESIGN_SYSTEM.md`.
 
 ## Pedigree
 
