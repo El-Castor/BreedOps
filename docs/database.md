@@ -52,6 +52,32 @@ Records evaluations of phenotypes.
 ### Phenotype Scores
 Stores individual scores for each selection criterion.
 
+### Phenotype Traits
+Team-scoped, reusable trait definitions (migration 000016): name, code, category, data
+type (`numeric`, `integer`, `ordinal`, `categorical`, `boolean`, `date`, `text`), unit,
+bounds/precision, allowed values for categorical traits, selection `direction`
+(`higher_is_better`, `lower_is_better`, `target_value`, `neutral`) and protocol. Traits are
+soft-archived (`is_active`), never deleted, so historical observations stay interpretable.
+
+### Phenotyping Modules and Module Traits
+A phenotyping module (`phenotyping_modules`) is a named, reusable, ordered group of traits
+(`phenotyping_module_traits`, one row per trait with `display_order`). Modules compose the
+evaluation form; they do not belong to a single program.
+
+### Program Phenotyping Modules
+`program_phenotyping_modules` selects which modules (and therefore which traits) a given
+program follows, each independently activatable. `program_active_traits(program_id)`
+resolves the program's current trait set (active modules → active traits, first module
+wins on a conflict) and is the single source the evaluation form and `submit_trait_evaluation`
+both read from.
+
+### Phenotype Trait Values
+One typed value per trait per evaluation (`phenotype_trait_values`): exactly one of
+`numeric_value`, `text_value`, `boolean_value`, `date_value` is set, enforced by PostgreSQL.
+Rows are written only by `submit_trait_evaluation` (SECURITY DEFINER; no direct insert
+policy), which validates every value against the trait's bounds/precision/allowed values
+before insert.
+
 ### Inventory Items
 Tracks inventory items (reagents, consumables, equipment).
 
@@ -94,6 +120,14 @@ erDiagram
     SEED_LOT ||--o{ PHENOTYPE : generates
     PHENOTYPE ||--o{ PHENOTYPE_EVALUATION : receives
     PHENOTYPE_EVALUATION ||--o{ PHENOTYPE_SCORE : contains
+    PHENOTYPE_EVALUATION ||--o{ PHENOTYPE_TRAIT_VALUE : contains
+
+    ORGANIZATION ||--o{ PHENOTYPE_TRAIT : defines
+    ORGANIZATION ||--o{ PHENOTYPING_MODULE : defines
+    PHENOTYPING_MODULE ||--o{ PHENOTYPE_TRAIT : groups
+    PROGRAM ||--o{ PHENOTYPING_MODULE : follows
+    PHENOTYPE_TRAIT ||--o{ PHENOTYPE_TRAIT_VALUE : measures
+    PHENOTYPE_TRAIT ||--o{ SELECTION_CRITERION : weights
 
     ORGANIZATION ||--o{ INVENTORY_ITEM : manages
     INVENTORY_ITEM ||--o{ INVENTORY_LOT : contains
@@ -122,6 +156,9 @@ Row-Level Security (RLS) policies are implemented on all tables to ensure proper
 - Program access inherits the authenticated profile's team
 - Pending Auth identities have no profile, tenant membership or business-data access
 - User invitation, creation, activation, role/team changes and administrator password resets are audited
+- `phenotype_trait_values` has no client insert policy: it is written only by the
+  `submit_trait_evaluation` SECURITY DEFINER function, which re-checks `can_write_program`
+  and every trait's constraints before writing
 
 ## Calculations and Functions
 

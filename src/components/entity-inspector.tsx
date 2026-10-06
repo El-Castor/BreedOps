@@ -103,8 +103,9 @@ export function EntityInspectorWorkspace({
   const context = useMemo(
     () => ({
       open: setSelected,
-      register: (entity: BreedingEntityDetail) =>
-        registry.current.set(entity.id, entity),
+      register: (entity: BreedingEntityDetail) => {
+        registry.current.set(entity.id, entity);
+      },
       find: (id: string) => registry.current.get(id),
     }),
     [],
