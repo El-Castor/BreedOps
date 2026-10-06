@@ -57,7 +57,42 @@ Team-scoped, reusable trait definitions (migration 000016): name, code, category
 type (`numeric`, `integer`, `ordinal`, `categorical`, `boolean`, `date`, `text`), unit,
 bounds/precision, allowed values for categorical traits, selection `direction`
 (`higher_is_better`, `lower_is_better`, `target_value`, `neutral`) and protocol. Traits are
-soft-archived (`is_active`), never deleted, so historical observations stay interpretable.
+soft-archived (`is_active`), never deleted through the application, so historical
+observations stay interpretable. `UNIQUE(organization_id, code)` prevents duplicate traits
+within a team; `code` must be a stable, meaningful slug (e.g. `plant_height`), never a UUID.
+A trait is reusable across every module and program of its own team; the application never
+clones a trait to let one more program use it or to change its per-program weight — see
+`program_phenotyping_modules` and `set_program_trait_weight` below.
+
+Rows are only ever hard-deleted as part of deleting the whole owning `organizations` row
+(the application has no "delete trait" action; traits are archived via `is_active`).
+Migration 000017 fixes three foreign keys added in 000016
+(`phenotyping_module_traits.trait_id`, `phenotype_trait_values.trait_id`,
+`selection_criteria.trait_id`) that were missing `ON DELETE CASCADE`, unlike every sibling
+column in that migration. Without it, deleting an organization that had ever run
+`create_initial_selection_model` failed with a foreign key violation partway through —
+which integration/E2E test teardown silently swallowed (see "Test fixture cleanup" below),
+leaving the organization, its program, its "Sélection V1" module and six traits behind on
+every run. A `system_admin` sees every team by design (`can_access_team()`, migration
+000003), so these orphaned per-team copies showed up side by side in the trait/module
+library and looked like unexplained duplicates, even though `UNIQUE(organization_id, code)`
+/ `UNIQUE(organization_id, name)` held correctly within every individual team the whole
+time. The trait and module library tables show an "Équipe" column (only when more than one
+team is actually present in what the caller can see) so a legitimate cross-team view never
+looks like an unexplained duplicate again.
+
+### Test fixture cleanup
+Integration tests and `e2e/critical-v1.spec.ts` each create a throwaway organization via
+the service-role Supabase client and must remove it afterwards. `organizations` has RLS
+enabled with only SELECT/INSERT/UPDATE policies (migration 000003) and no DELETE policy, by
+design (soft delete only), so a PostgREST delete through the service-role client cannot be
+relied on for teardown even when it returns no catchable error. `tests/db-cleanup.ts`
+(`hardDeleteOrganization`) instead deletes the row directly against the database as the
+Postgres superuser — the same privileged path `scripts/test-rls.mjs` already uses — which
+now actually cascades, after the 000017 fix above. Phenotyping's integration test and the
+critical E2E journey use this helper; the breeding/inventory/operations/auth suites still
+use the old unchecked PostgREST delete and were left out of this change's scope, so they
+can still leak a synthetic organization per run until they adopt the same helper.
 
 ### Phenotyping Modules and Module Traits
 A phenotyping module (`phenotyping_modules`) is a named, reusable, ordered group of traits

@@ -103,6 +103,15 @@ form always reflects that programme's active traits — never a fixed list.
    or removed from the score while staying observed, from **Configuration du programme**.
    The **Classement** table orders persisted, scored evaluations.
 
+A `system_admin` account can see every team's trait library and modules, not only its own
+(by design). When that makes more than one team visible, **Bibliothèque de traits** and
+**Modules** show an extra **Équipe** label next to each row so a legitimate cross-team view
+never reads as an unexplained duplicate — e.g. two teams each independently running
+**Créer le modèle** both get their own "Sélection V1" module and six traits named
+Architecture, Vigueur, etc.; with the team shown, that is immediately legible as two teams,
+not one duplicated row. The programme switchers (top bar and in-page) show the programme's
+**name** first; its business code is secondary.
+
 ## Inventory
 
 Open **Inventaire**, create an article, then create a lot with an initial receipt.
