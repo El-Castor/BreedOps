@@ -1,22 +1,45 @@
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
+import { Icon, type IconName } from "@/components/icons";
 import {
   Breadcrumbs,
   Card,
+  DecisionBadge,
   EmptyState,
   ErrorState,
   KindBadge,
-  MetricCard,
   PageHeader,
   ProgramContext,
   ProgramSwitch,
-  SectionHeader,
   StatusBadge,
 } from "@/components/ui";
-import { formatDay } from "@/lib/breeding-entity-details";
 import { requireIdentity } from "@/lib/auth";
+import { formatDay } from "@/lib/breeding-entity-details";
 import { collectionState } from "@/lib/query-state";
 import { createProgram } from "./breeding-actions";
+
+type Row = { id: string; created_at: string };
+
+const decisionOrder = ["elite", "advance", "reserve", "eliminate"] as const;
+const decisionColors: Record<string, string> = {
+  elite: "var(--chart-2)",
+  advance: "var(--chart-1)",
+  reserve: "var(--chart-3)",
+  eliminate: "var(--chart-4)",
+};
+const taskLabels: Record<string, string> = {
+  not_started: "À faire",
+  in_progress: "En cours",
+  blocked: "Bloquées",
+  completed: "Terminées",
+  cancelled: "Annulées",
+};
+const alertLabels: Record<string, string> = {
+  expired: "Périmé",
+  urgent: "Péremption < 30 j",
+  plan: "Péremption < 90 j",
+  order: "Sous le seuil",
+};
 
 export default async function Dashboard({
   searchParams,
@@ -78,12 +101,17 @@ export default async function Dashboard({
           .order("created_at", { ascending: false }),
         client
           .from("tasks")
-          .select("id,title,status,created_at")
+          .select("id,title,status,due_date,completed_at,created_at")
           .eq("program_id", programId)
           .is("deleted_at", null)
-          .order("created_at", { ascending: false }),
+          .order("due_date", { ascending: true }),
+        // security_invoker view: RLS limits alerts to the caller's team.
+        client
+          .from("inventory_lot_status")
+          .select("inventory_lot_id,alert_level,days_before_expiration")
+          .not("alert_level", "is", null),
       ])
-    : [empty, empty, empty, empty, empty, empty];
+    : [empty, empty, empty, empty, empty, empty, empty];
   const states = [
     collectionState(results[0], "Impossible de charger les parents."),
     collectionState(results[1], "Impossible de charger les croisements."),
@@ -91,6 +119,7 @@ export default async function Dashboard({
     collectionState(results[3], "Impossible de charger les lots."),
     collectionState(results[4], "Impossible de charger les phénotypes."),
     collectionState(results[5], "Impossible de charger les tâches."),
+    collectionState(results[6], "Impossible de charger les alertes de stock."),
   ];
   const failed = states.find((state) => state.status === "error");
   if (failed?.status === "error")
@@ -102,103 +131,194 @@ export default async function Dashboard({
         />
       </div>
     );
-  const parents = states[0].data as {
-    id: string;
-    parent_code: string;
-    created_at: string;
-  }[];
-  const crosses = states[1].data as {
-    id: string;
-    cross_code: string;
-    created_at: string;
-  }[];
-  const families = states[2].data as {
-    id: string;
-    family_code: string;
-    created_at: string;
-  }[];
-  const lots = states[3].data as {
-    id: string;
-    seed_lot_code: string;
-    created_at: string;
-  }[];
-  const phenotypes = states[4].data as {
-    id: string;
-    phenotype_code: string;
-    created_at: string;
-  }[];
-  const tasks = states[5].data as {
-    id: string;
+  const parents = states[0].data as (Row & { parent_code: string })[];
+  const crosses = states[1].data as (Row & { cross_code: string })[];
+  const families = states[2].data as (Row & { family_code: string })[];
+  const lots = states[3].data as (Row & { seed_lot_code: string })[];
+  const phenotypes = states[4].data as (Row & { phenotype_code: string })[];
+  const tasks = states[5].data as (Row & {
     title: string;
     status: string;
-    created_at: string;
+    due_date: string | null;
+    completed_at: string | null;
+  })[];
+  const alertRows = states[6].data as {
+    inventory_lot_id: string;
+    alert_level: string;
+    days_before_expiration: number | null;
   }[];
-  // Germination tests are counted from their own table, not inferred from lots.
-  const germinationResult = lots.length
+  const alertLotsResult = alertRows.length
     ? await client
-        .from("germination_tests")
-        .select("id", { count: "exact", head: true })
+        .from("inventory_lots")
+        .select("id,batch_number")
         .in(
-          "seed_lot_id",
-          lots.map((lot) => lot.id),
+          "id",
+          alertRows.map((row) => row.inventory_lot_id),
         )
-        .is("deleted_at", null)
-    : { count: 0, error: null };
-  if (germinationResult.error)
+    : { data: [], error: null };
+  const inventoryAlerts = alertRows.map((row) => ({
+    ...row,
+    batch_number:
+      (alertLotsResult.data ?? []).find(
+        (lot: { id: string }) => lot.id === row.inventory_lot_id,
+      )?.batch_number ?? "Lot",
+  }));
+  // Germination and evaluations come from their own tables, never inferred.
+  const [testsResult, evaluationsResult] = await Promise.all([
+    lots.length
+      ? client
+          .from("germination_tests")
+          .select("seed_lot_id,germination_rate,test_date")
+          .in(
+            "seed_lot_id",
+            lots.map((lot) => lot.id),
+          )
+          .is("deleted_at", null)
+          .order("test_date", { ascending: false })
+      : Promise.resolve(empty),
+    phenotypes.length
+      ? client
+          .from("phenotype_evaluations")
+          .select(
+            "id,phenotype_id,automatic_decision,normalized_score,evaluation_date",
+          )
+          .in(
+            "phenotype_id",
+            phenotypes.map((item) => item.id),
+          )
+          .is("deleted_at", null)
+          .order("normalized_score", { ascending: false, nullsFirst: false })
+      : Promise.resolve(empty),
+  ]);
+  const testsState = collectionState(
+    testsResult,
+    "Impossible de charger la germination.",
+  );
+  const evaluationsState = collectionState(
+    evaluationsResult,
+    "Impossible de charger les évaluations.",
+  );
+  const dependent = [testsState, evaluationsState].find(
+    (state) => state.status === "error",
+  );
+  if (dependent?.status === "error")
     return (
       <div className="page">
         <ErrorState
-          message="Impossible de charger les tests de germination."
+          message={dependent.message}
           retryHref={programId ? `/app?program=${programId}` : "/app"}
         />
       </div>
     );
-  const germinationCount = germinationResult.count ?? 0;
+  const tests = testsState.data as {
+    seed_lot_id: string;
+    germination_rate: number;
+    test_date: string | null;
+  }[];
+  const evaluations = evaluationsState.data as {
+    id: string;
+    phenotype_id: string;
+    automatic_decision: string | null;
+    normalized_score: number | null;
+    evaluation_date: string | null;
+  }[];
+
   const base = programId ? `?program=${programId}` : "";
-  const workflow = [
+  const evaluationHref = programId
+    ? `/app/phenotypes?program=${programId}&tab=evaluations`
+    : "/app/phenotypes?tab=evaluations";
+  const today = new Date().toISOString().slice(0, 10);
+  const openTasks = tasks.filter(
+    (task) => task.status !== "completed" && task.status !== "cancelled",
+  );
+  const overdue = openTasks.filter(
+    (task) => task.due_date && task.due_date < today,
+  );
+  const upcoming = openTasks
+    .filter((task) => !task.due_date || task.due_date >= today)
+    .slice(0, 5);
+  const latestRateByLot = new Map<string, number>();
+  for (const test of tests)
+    if (!latestRateByLot.has(test.seed_lot_id))
+      latestRateByLot.set(test.seed_lot_id, Number(test.germination_rate));
+  const meanGermination = latestRateByLot.size
+    ? [...latestRateByLot.values()].reduce((sum, rate) => sum + rate, 0) /
+      latestRateByLot.size
+    : null;
+  const scored = evaluations.filter((item) => item.automatic_decision);
+  const decisionCounts = decisionOrder.map((decision) => ({
+    decision,
+    count: scored.filter((item) => item.automatic_decision === decision).length,
+  }));
+  const phenotypeCode = (id: string) =>
+    phenotypes.find((item) => item.id === id)?.phenotype_code ?? "—";
+  const taskStatusCounts = Object.keys(taskLabels)
+    .map((status) => ({
+      status,
+      count: tasks.filter((task) => task.status === status).length,
+    }))
+    .filter((item) => item.count);
+
+  const workflow: {
+    label: string;
+    count: number;
+    href: string;
+    ready: boolean;
+    icon: IconName;
+  }[] = [
     {
-      label: "Lignées parentales",
+      label: "Lignées",
       count: parents.length,
       href: `/app/breeding${base}#parents`,
       ready: true,
-      requirement: "",
+      icon: "parent",
     },
     {
       label: "Croisements",
       count: crosses.length,
       href: `/app/breeding${base}#crosses`,
       ready: parents.length >= 2,
-      requirement: "Deux lignées actives nécessaires",
+      icon: "cross",
     },
     {
       label: "Familles",
       count: families.length,
       href: `/app/breeding${base}#families`,
       ready: crosses.length > 0,
-      requirement: "Un croisement actif nécessaire",
+      icon: "family",
     },
     {
-      label: "Lots de graines",
+      label: "Lots",
       count: lots.length,
       href: `/app/breeding${base}#lots`,
       ready: families.length > 0,
-      requirement: "Une famille active nécessaire",
+      icon: "lot",
     },
     {
       label: "Germination",
-      count: germinationCount,
+      count: latestRateByLot.size,
       href: `/app/breeding${base}#germination`,
       ready: lots.length > 0,
-      requirement: "Un lot actif nécessaire",
+      icon: "seed",
     },
     {
       label: "Phénotypage",
       count: phenotypes.length,
-      href: `/app/phenotypes${base}`,
+      href: evaluationHref,
       ready: lots.length > 0,
-      requirement: "Une famille et un lot nécessaires",
+      icon: "phenotype",
     },
   ];
+  // Coverage of each step relative to the previous one, from real counts.
+  const coverage = (index: number) => {
+    const step = workflow[index];
+    if (!step.count) return 0;
+    if (index === 0) return 100;
+    return Math.min(
+      100,
+      Math.round((step.count / Math.max(1, workflow[index - 1].count)) * 100),
+    );
+  };
   const recent = [
     ...parents.slice(0, 3).map((item) => ({
       id: item.id,
@@ -227,9 +347,51 @@ export default async function Dashboard({
   ]
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 6);
-  const openTasks = tasks.filter(
-    (task) => task.status !== "completed" && task.status !== "cancelled",
-  ).length;
+  const kpis: {
+    label: string;
+    value: string | number;
+    icon: IconName;
+    href: string;
+    hint: string;
+    attention?: boolean;
+  }[] = [
+    {
+      label: "Lignées actives",
+      value: parents.length,
+      icon: "parent",
+      href: `/app/breeding${base}#parents`,
+      hint: `${crosses.length} croisement(s)`,
+    },
+    {
+      label: "Lots de graines",
+      value: lots.length,
+      icon: "lot",
+      href: `/app/breeding${base}#lots`,
+      hint: `${families.length} famille(s)`,
+    },
+    {
+      label: "Germination moyenne",
+      value: meanGermination == null ? "—" : `${meanGermination.toFixed(1)} %`,
+      icon: "seed",
+      href: `/app/breeding${base}#germination`,
+      hint: `${latestRateByLot.size} lot(s) testé(s)`,
+    },
+    {
+      label: "Phénotypes évalués",
+      value: new Set(evaluations.map((item) => item.phenotype_id)).size,
+      icon: "phenotype",
+      href: evaluationHref,
+      hint: `${phenotypes.length} phénotype(s) enregistré(s)`,
+    },
+    {
+      label: "Tâches ouvertes",
+      value: openTasks.length,
+      icon: "operations",
+      href: `/app/operations${base}`,
+      hint: overdue.length ? `${overdue.length} en retard` : "Aucun retard",
+      attention: overdue.length > 0,
+    },
+  ];
 
   return (
     <div className="page">
@@ -237,10 +399,11 @@ export default async function Dashboard({
       <PageHeader
         eyebrow="Tableau de bord"
         title="Vue d’ensemble"
-        description="État du programme actif, progression du workflow et derniers enregistrements."
+        description="Poste de pilotage du programme actif : progression, sélection, travaux à venir et alertes."
         actions={
           program ? (
             <Link className="button-link" href={`/app/breeding${base}`}>
+              <Icon name="program" />
               Ouvrir les registres
             </Link>
           ) : undefined
@@ -254,92 +417,212 @@ export default async function Dashboard({
             activeId={programId}
             basePath="/app"
           />
-          <section
-            className="metrics-grid"
-            aria-label="Indicateurs du programme"
-          >
-            <MetricCard
-              label="Parents"
-              value={parents.length}
-              href={`/app/breeding${base}#parents`}
-            />
-            <MetricCard
-              label="Croisements"
-              value={crosses.length}
-              href={`/app/breeding${base}#crosses`}
-            />
-            <MetricCard
-              label="Familles"
-              value={families.length}
-              href={`/app/breeding${base}#families`}
-            />
-            <MetricCard
-              label="Lots de graines"
-              value={lots.length}
-              href={`/app/breeding${base}#lots`}
-            />
-            <MetricCard
-              label="Tests de germination"
-              value={germinationCount}
-              href={`/app/breeding${base}#germination`}
-            />
-            <MetricCard
-              label="Phénotypes"
-              value={phenotypes.length}
-              href={`/app/phenotypes${base}`}
-            />
-            <MetricCard
-              label="Tâches ouvertes"
-              value={openTasks}
-              href={`/app/operations${base}`}
-            />
+          <section className="kpi-grid" aria-label="Indicateurs du programme">
+            {kpis.map((kpi) => (
+              <Link
+                key={kpi.label}
+                href={kpi.href}
+                className={`kpi${kpi.attention ? " attention" : ""}`}
+              >
+                <span className="kpi-label">{kpi.label}</span>
+                <span className="kpi-icon">
+                  <Icon name={kpi.icon} size={18} />
+                </span>
+                <strong className="kpi-value">{kpi.value}</strong>
+                <span className="kpi-hint">{kpi.hint}</span>
+              </Link>
+            ))}
           </section>
-          <section className="dashboard-grid">
-            <Card>
-              <SectionHeader
-                title="Workflow d’élevage"
-                description="Chaque étape débloque la suivante."
-              />
-              <div className="workflow-list">
-                {workflow.map((step, index) => (
-                  <Link
-                    href={step.href}
-                    key={step.label}
-                    className={
-                      !step.ready ? "locked" : step.count ? "done" : ""
-                    }
-                  >
-                    <span>{index + 1}</span>
-                    <div>
-                      <strong>{step.label}</strong>
-                      <small>
-                        {step.ready
-                          ? `${step.count} enregistré${step.count > 1 ? "s" : ""}`
-                          : step.requirement}
-                      </small>
-                    </div>
-                    <StatusBadge
-                      tone={
-                        step.count
-                          ? "success"
-                          : step.ready
-                            ? "warning"
-                            : "neutral"
-                      }
+
+          <Card>
+            <div className="register-header card-title-row">
+              <h2>
+                <Icon name="lineage" size={18} />
+                Progression du workflow d’élevage
+              </h2>
+              <small>Barre : couverture par rapport à l’étape précédente</small>
+            </div>
+            <nav className="pipeline" aria-label="Workflow d’élevage">
+              {workflow.map((step, index) => (
+                <Link
+                  key={step.label}
+                  href={step.href}
+                  className={`pipeline-step${!step.ready ? " locked" : step.count ? " done" : ""}`}
+                >
+                  <header>
+                    <span>{step.label}</span>
+                    <Icon name={step.count ? "check" : step.icon} size={15} />
+                  </header>
+                  <strong>{step.count}</strong>
+                  <span className="pipeline-bar" aria-hidden="true">
+                    <span style={{ width: `${coverage(index)}%` }} />
+                  </span>
+                  <small>
+                    {!step.ready
+                      ? "En attente"
+                      : step.count
+                        ? `${coverage(index)} % de couverture`
+                        : "À commencer"}
+                  </small>
+                </Link>
+              ))}
+            </nav>
+          </Card>
+
+          <section className="dashboard-columns">
+            <div className="grid-stack">
+              <Card className="chart-card">
+                <h2 className="icon-heading">
+                  <Icon name="score" size={18} />
+                  Décisions de sélection
+                </h2>
+                {scored.length ? (
+                  <>
+                    <div
+                      className="stacked-bar"
+                      role="img"
+                      aria-label={decisionCounts
+                        .map((item) => `${item.decision} ${item.count}`)
+                        .join(", ")}
                     >
-                      {step.count
-                        ? "En cours"
-                        : step.ready
-                          ? "À commencer"
-                          : "En attente"}
-                    </StatusBadge>
-                  </Link>
-                ))}
-              </div>
-            </Card>
+                      {decisionCounts
+                        .filter((item) => item.count)
+                        .map((item) => (
+                          <span
+                            key={item.decision}
+                            style={{
+                              flex: item.count,
+                              background: decisionColors[item.decision],
+                            }}
+                          />
+                        ))}
+                    </div>
+                    <div className="chart-legend">
+                      {decisionCounts.map((item) => (
+                        <span key={item.decision}>
+                          <i
+                            style={{
+                              background: decisionColors[item.decision],
+                            }}
+                          />
+                          <DecisionBadge decision={item.decision} />
+                          <strong className="num">{item.count}</strong>
+                        </span>
+                      ))}
+                    </div>
+                    <ol className="task-list">
+                      {scored.slice(0, 5).map((item, index) => (
+                        <li key={item.id}>
+                          <span className="num muted">#{index + 1}</span>
+                          <strong className="code">
+                            {phenotypeCode(item.phenotype_id)}
+                          </strong>
+                          <span className="num">{item.normalized_score} %</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                ) : (
+                  <p className="inspector-note">
+                    Aucune évaluation classée pour ce programme.
+                  </p>
+                )}
+              </Card>
+              <Card className="chart-card">
+                <h2 className="icon-heading">
+                  <Icon name="seed" size={18} />
+                  Germination par lot
+                </h2>
+                {latestRateByLot.size ? (
+                  <ul className="bar-list">
+                    {[...latestRateByLot.entries()].map(([lotId, rate]) => (
+                      <li key={lotId}>
+                        <span className="code">
+                          {lots.find((lot) => lot.id === lotId)?.seed_lot_code}
+                        </span>
+                        <span className="bar" aria-hidden="true">
+                          <span style={{ width: `${Math.min(100, rate)}%` }} />
+                        </span>
+                        <span className="value">{rate.toFixed(1)} %</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="inspector-note">
+                    Aucun test de germination enregistré.
+                  </p>
+                )}
+              </Card>
+            </div>
             <div className="grid-stack">
               <Card>
-                <SectionHeader title="Activité récente" />
+                <h2 className="icon-heading">
+                  <Icon name="warning" size={18} />
+                  Alertes
+                </h2>
+                {overdue.length || inventoryAlerts.length ? (
+                  <ul className="alert-list">
+                    {overdue.map((task) => (
+                      <li key={task.id}>
+                        <Icon name="operations" />
+                        <span>{task.title}</span>
+                        <StatusBadge tone="danger">
+                          Échéance {formatDay(task.due_date)}
+                        </StatusBadge>
+                      </li>
+                    ))}
+                    {inventoryAlerts.slice(0, 5).map((alert) => (
+                      <li key={alert.inventory_lot_id}>
+                        <Icon name="inventory" />
+                        <span className="code">{alert.batch_number}</span>
+                        <StatusBadge tone="warning">
+                          {alertLabels[alert.alert_level] ?? alert.alert_level}
+                        </StatusBadge>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="inspector-note">Aucune alerte active.</p>
+                )}
+              </Card>
+              <Card>
+                <h2 className="icon-heading">
+                  <Icon name="calendar" size={18} />
+                  Travaux à venir
+                </h2>
+                {upcoming.length ? (
+                  <ul className="task-list">
+                    {upcoming.map((task) => (
+                      <li key={task.id}>
+                        <span className="num muted">
+                          {formatDay(task.due_date)}
+                        </span>
+                        <span>{task.title}</span>
+                        <StatusBadge>
+                          {taskLabels[task.status] ?? task.status}
+                        </StatusBadge>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="inspector-note">Aucune tâche planifiée.</p>
+                )}
+                {taskStatusCounts.length > 0 && (
+                  <div className="chart-legend">
+                    {taskStatusCounts.map((item) => (
+                      <span key={item.status}>
+                        {taskLabels[item.status]}{" "}
+                        <strong className="num">{item.count}</strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </Card>
+              <Card>
+                <h2 className="icon-heading">
+                  <Icon name="activity" size={18} />
+                  Activité récente
+                </h2>
                 {recent.length ? (
                   <ul className="activity-list">
                     {recent.map((item) => (
@@ -351,43 +634,40 @@ export default async function Dashboard({
                     ))}
                   </ul>
                 ) : (
-                  <EmptyState
-                    title="Aucune activité"
-                    message="Les derniers enregistrements apparaîtront ici."
-                  />
+                  <p className="inspector-note">
+                    Les derniers enregistrements apparaîtront ici.
+                  </p>
                 )}
               </Card>
               <Card>
-                <SectionHeader title="Actions rapides" />
+                <h2 className="icon-heading">
+                  <Icon name="add" size={18} />
+                  Actions rapides
+                </h2>
                 <div className="quick-actions">
                   <Link
                     className="button-link secondary"
                     href={`/app/breeding${base}#parents`}
                   >
+                    <Icon name="parent" />
                     Ajouter un parent
                   </Link>
                   <Link
                     className="button-link secondary"
                     href={`/app/breeding${base}#crosses`}
                   >
+                    <Icon name="cross" />
                     Créer un croisement
                   </Link>
-                  <Link
-                    className="button-link secondary"
-                    href={`/app/breeding${base}#lots`}
-                  >
-                    Enregistrer un lot
-                  </Link>
-                  <Link
-                    className="button-link secondary"
-                    href={`/app/phenotypes${base}`}
-                  >
+                  <Link className="button-link secondary" href={evaluationHref}>
+                    <Icon name="evaluation" />
                     Noter un phénotype
                   </Link>
                   <Link
                     className="button-link secondary"
                     href={`/app/operations${base}`}
                   >
+                    <Icon name="calendar" />
                     Créer une tâche
                   </Link>
                 </div>

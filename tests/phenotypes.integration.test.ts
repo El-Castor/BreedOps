@@ -153,7 +153,7 @@ describe.sequential("configured phenotype scoring", () => {
   });
   it("creates the configured initial model in one transaction", async () => {
     const html = await (
-      await request(`/app/phenotypes?program=${ids.program}`)
+      await request(`/app/phenotypes?program=${ids.program}&tab=setup`)
     ).text();
     await submit(html, "model", {
       program_id: ids.program,
@@ -180,19 +180,20 @@ describe.sequential("configured phenotype scoring", () => {
       expect.arrayContaining(["elite", "advance", "reserve", "eliminate"]),
     );
   });
-  it("configures a coefficient and transactionally updates model maximum", async () => {
-    let html = await (
-      await request(`/app/phenotypes?program=${ids.program}&model=${ids.model}`)
+  it("weights a library trait and transactionally updates model maximum", async () => {
+    const html = await (
+      await request(`/app/phenotypes?program=${ids.program}&tab=setup`)
     ).text();
-    await submit(html, "criterion-vigor", {
-      criterion_id: (
-        await admin
-          .from("selection_criteria")
-          .select("id")
-          .eq("selection_model_id", ids.model)
-          .eq("code", "vigor")
-          .single()
-      ).data!.id,
+    const trait = await admin
+      .from("phenotype_traits")
+      .select("id")
+      .eq("organization_id", ids.team)
+      .eq("code", "vigor")
+      .single();
+    if (trait.error) throw trait.error;
+    await submit(html, "weight-vigor", {
+      program_id: ids.program,
+      trait_id: trait.data.id,
       coefficient: "2",
     });
     expect(
@@ -209,7 +210,7 @@ describe.sequential("configured phenotype scoring", () => {
   });
   it("creates a phenotype linked to the family and lot", async () => {
     const html = await (
-      await request(`/app/phenotypes?program=${ids.program}&model=${ids.model}`)
+      await request(`/app/phenotypes?program=${ids.program}&tab=evaluations`)
     ).text();
     await submit(html, "phenotype", {
       program_id: ids.program,
@@ -233,11 +234,12 @@ describe.sequential("configured phenotype scoring", () => {
   });
   it("persists scores and PostgreSQL calculates ranking fields", async () => {
     const html = await (
-      await request(`/app/phenotypes?program=${ids.program}&model=${ids.model}`)
+      await request(`/app/phenotypes?program=${ids.program}&tab=evaluations`)
     ).text();
+    // The evaluation form is generated from the program's active traits.
     const values: Record<string, string> = {
       phenotype_id: ids.phenotype,
-      model_id: ids.model,
+      program_id: ids.program,
       evaluation_date: "2026-09-13",
     };
     for (const code of [
@@ -248,7 +250,7 @@ describe.sequential("configured phenotype scoring", () => {
       "analytical_quality",
       "stability",
     ])
-      values[`score:${code}`] = "9";
+      values[`trait:${code}`] = "9";
     await submit(html, "evaluation", values);
     const evaluation = await admin
       .from("phenotype_evaluations")
@@ -265,9 +267,9 @@ describe.sequential("configured phenotype scoring", () => {
       .eq("phenotype_evaluation_id", evaluation.data.id);
     expect(scores.data).toHaveLength(6);
     const rendered = await (
-      await request(`/app/phenotypes?program=${ids.program}&model=${ids.model}`)
+      await request(`/app/phenotypes?program=${ids.program}&tab=ranking`)
     ).text();
-    expect(rendered).toContain("elite");
+    expect(rendered).toContain("Elite");
     expect(rendered).toContain("90");
   });
   it.each([
@@ -278,13 +280,11 @@ describe.sequential("configured phenotype scoring", () => {
     "applies the configured %s-point decision threshold",
     async (score, weighted, decision) => {
       const html = await (
-        await request(
-          `/app/phenotypes?program=${ids.program}&model=${ids.model}`,
-        )
+        await request(`/app/phenotypes?program=${ids.program}&tab=evaluations`)
       ).text();
       const values: Record<string, string> = {
         phenotype_id: ids.phenotype,
-        model_id: ids.model,
+        program_id: ids.program,
         evaluation_date: "2026-09-13",
       };
       for (const code of [
@@ -295,7 +295,7 @@ describe.sequential("configured phenotype scoring", () => {
         "analytical_quality",
         "stability",
       ])
-        values[`score:${code}`] = score;
+        values[`trait:${code}`] = score;
       await submit(html, "evaluation", values);
       const result = await admin
         .from("phenotype_evaluations")
@@ -308,7 +308,34 @@ describe.sequential("configured phenotype scoring", () => {
       expect(result.data.automatic_decision).toBe(decision);
     },
   );
-  it("rejects incomplete score submissions transactionally", async () => {
+  it("stores a partial submission as an unranked observation", async () => {
+    const html = await (
+      await request(`/app/phenotypes?program=${ids.program}&tab=evaluations`)
+    ).text();
+    await submit(html, "evaluation", {
+      phenotype_id: ids.phenotype,
+      program_id: ids.program,
+      evaluation_date: "2026-09-14",
+      "trait:vigor": "5",
+    });
+    const observation = await admin
+      .from("phenotype_evaluations")
+      .select("id,selection_model_id,automatic_decision")
+      .eq("phenotype_id", ids.phenotype)
+      .eq("evaluation_date", "2026-09-14")
+      .single();
+    if (observation.error) throw observation.error;
+    expect(observation.data.selection_model_id).toBeNull();
+    expect(observation.data.automatic_decision).toBeNull();
+    const values = await admin
+      .from("phenotype_trait_values")
+      .select("numeric_value")
+      .eq("phenotype_evaluation_id", observation.data.id);
+    expect(values.data?.map((value) => Number(value.numeric_value))).toEqual([
+      5,
+    ]);
+  });
+  it("rejects an out-of-bounds measurement transactionally", async () => {
     const before = (
       await admin
         .from("phenotype_evaluations")
@@ -316,16 +343,16 @@ describe.sequential("configured phenotype scoring", () => {
         .eq("phenotype_id", ids.phenotype)
     ).count;
     const html = await (
-      await request(`/app/phenotypes?program=${ids.program}&model=${ids.model}`)
+      await request(`/app/phenotypes?program=${ids.program}&tab=evaluations`)
     ).text();
     await submit(
       html,
       "evaluation",
       {
         phenotype_id: ids.phenotype,
-        model_id: ids.model,
-        evaluation_date: "2026-09-13",
-        "score:vigor": "5",
+        program_id: ids.program,
+        evaluation_date: "2026-09-15",
+        "trait:vigor": "11",
       },
       200,
     );

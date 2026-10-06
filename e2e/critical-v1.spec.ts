@@ -21,6 +21,18 @@ function day(offset: number) {
   return new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 }
 
+// Creation forms live in drawers; mutations reload the route on success.
+async function openForm(page: Page, trigger: string, action: string) {
+  await page.getByRole("button", { name: trigger, exact: true }).click();
+  return page.locator(`form[data-action="${action}"]`);
+}
+async function submit(page: Page, form: ReturnType<Page["locator"]>) {
+  await Promise.all([
+    page.waitForEvent("load"),
+    form.getByRole("button").click(),
+  ]);
+}
+
 async function signOut(page: Page) {
   await page.locator("header details > summary").click();
   await Promise.all([
@@ -72,9 +84,9 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await form.getByLabel("Code").fill(`E2EP-${marker}`);
   await form.getByLabel("Nom").fill("Synthetic E2E program");
   await form.getByLabel("Espèce").fill("Synthetic species");
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(
-    page.getByRole("link", { name: `E2EP-${marker}` }),
+    page.getByRole("button", { name: new RegExp(`E2EP-${marker}`) }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Ajouter un parent" }).click();
   await expect(
@@ -100,10 +112,10 @@ test("critical V1 journey persists through every module and changes KPIs", async
     [`${prefix}-P-0001`, "Synthetic parent A"],
     [`${prefix}-P-0002`, "Synthetic parent B"],
   ].entries()) {
-    form = page.locator('form[data-action="parent"]');
+    form = await openForm(page, "Nouvelle lignée", "parent");
     await expect(form.getByLabel("Code")).toHaveCount(0);
     await form.getByLabel("Nom").fill(name);
-    await form.getByRole("button").click();
+    await submit(page, form);
     await expect(
       page.getByRole("cell", { name: parentCode, exact: true }),
     ).toBeVisible();
@@ -122,7 +134,7 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await expect(
     page.locator('form[data-action="cross"] button[type="submit"]'),
   ).toBeEnabled();
-  form = page.locator('form[data-action="cross"]');
+  form = await openForm(page, "Nouveau croisement", "cross");
   await form
     .getByLabel("Parent femelle")
     .selectOption({ label: `${prefix}-P-0001 · Synthetic parent A` });
@@ -130,7 +142,7 @@ test("critical V1 journey persists through every module and changes KPIs", async
     .getByLabel("Parent mâle")
     .selectOption({ label: `${prefix}-P-0002 · Synthetic parent B` });
   await form.getByLabel("Date").fill(day(-20));
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(
     page.getByRole("cell", { name: `${code("X")}`, exact: true }),
   ).toBeVisible();
@@ -138,35 +150,35 @@ test("critical V1 journey persists through every module and changes KPIs", async
     page.locator('select[name="cross_id"]').first().locator("option"),
   ).toHaveCount(2);
 
-  form = page.locator('form[data-action="family"]');
+  form = await openForm(page, "Nouvelle famille", "family");
   await form.getByLabel("Croisement").selectOption({ label: `${code("X")}` });
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(
     page.getByRole("cell", { name: `${code("F")}`, exact: true }),
   ).toBeVisible();
   await expect(page.locator('select[name="family_id"] option')).toHaveCount(2);
-  form = page.locator('form[data-action="seed-lot"]');
+  form = await openForm(page, "Nouveau lot", "seed-lot");
   await form.getByLabel("Croisement").selectOption({ label: `${code("X")}` });
   await form
     .getByLabel("Famille")
     .selectOption({ label: `${code("F")} · ${code("X")}` });
   await form.getByLabel("Date de récolte").fill(day(-15));
   await form.getByLabel("Quantité en graines").fill("200");
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(
     page.getByRole("cell", { name: `${code("L")}`, exact: true }),
   ).toBeVisible();
   await expect(page.locator('select[name="seed_lot_id"] option')).toHaveCount(
     2,
   );
-  form = page.locator('form[data-action="germination"]');
+  form = await openForm(page, "Nouveau test", "germination");
   await form.getByLabel("Lot").selectOption({ label: `${code("L")}` });
   await form.getByLabel("Date").fill(day(-14));
   await form.getByLabel("Jour d’évaluation").fill("7");
   await form.getByLabel("Graines testées").fill("100");
   await form.getByLabel("Graines germées").fill("92");
   await form.getByLabel("Méthode").fill("Synthetic paper test");
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(page.getByText("92.00 %", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: "Pedigree", exact: true }).click();
@@ -195,37 +207,41 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await expect(inspector).toHaveCount(0);
 
   await page.getByRole("link", { name: "Phénotypes", exact: true }).click();
-  form = page.locator('form[data-action="model"]');
+  await page.getByRole("link", { name: /Configuration du programme/ }).click();
+  form = await openForm(page, "Créer le modèle", "model");
   await form.getByLabel("Nom").fill("Synthetic E2E selection");
-  await form.getByRole("button").click();
-  form = page.locator('form[data-action="phenotype"]');
+  await submit(page, form);
+  // The initial model activates the "Sélection V1" module for the program.
+  await expect(page.getByText("Suivi par le programme")).toBeVisible();
+  await page.getByRole("link", { name: /Évaluations/ }).click();
+  form = await openForm(page, "Nouveau phénotype", "phenotype");
   await form.getByLabel("Famille").selectOption({ label: `${code("F")}` });
   await form.getByLabel("Lot").selectOption({ label: `${code("L")}` });
   await form.getByLabel("Répétition").fill("1");
-  await form.getByRole("button").click();
+  await submit(page, form);
   form = page.locator('form[data-action="evaluation"]');
   await form.getByLabel("Phénotype").selectOption({ label: `${code("I")}` });
   await form.getByLabel("Date").fill(day(-10));
   for (const label of [
-    "Vigueur ×1",
-    "Architecture ×1",
-    "Rendement ×2",
-    "Qualité sanitaire ×2",
-    "Qualité analytique ×3",
-    "Stabilité ×4",
+    "Vigueur",
+    "Architecture",
+    "Rendement",
+    "Qualité sanitaire",
+    "Qualité analytique",
+    "Stabilité",
   ])
-    await form.getByLabel(label).fill("9");
-  await form.getByRole("button").click();
+    await form.getByLabel(label, { exact: false }).first().fill("9");
+  await submit(page, form);
   await expect(page.getByText("Elite", { exact: true })).toBeVisible();
 
   await page.goto("/app/inventory");
-  form = page.locator('form[data-action="inventory-item"]');
+  form = await openForm(page, "Nouvel article", "inventory-item");
   await form.getByLabel("Nom").fill(`Synthetic E2E item ${marker}`);
   await form.getByLabel("Catégorie").fill("reagent");
   await form.getByLabel("Unité").fill("g");
   await form.getByLabel("Stock minimal").fill("90");
-  await form.getByRole("button").click();
-  form = page.locator('form[data-action="inventory-lot"]');
+  await submit(page, form);
+  form = await openForm(page, "Nouveau lot", "inventory-lot");
   await form
     .getByLabel("Article")
     .selectOption({ label: `Synthetic E2E item ${marker}` });
@@ -233,8 +249,8 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await form.getByLabel("Réception").fill(day(-2));
   await form.getByLabel("Péremption").fill(day(14));
   await form.getByLabel("Quantité reçue").fill("100");
-  await form.getByRole("button").click();
-  form = page.locator('form[data-action="inventory-movement"]');
+  await submit(page, form);
+  form = await openForm(page, "Mouvement", "inventory-movement");
   await form
     .getByLabel("Lot")
     .selectOption({ label: `Synthetic E2E item ${marker} · E2EI-${marker}` });
@@ -244,16 +260,16 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await form
     .getByLabel("Motif (obligatoire pour ajustement)")
     .fill("Synthetic E2E use");
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(page.getByText("80 g", { exact: true })).toBeVisible();
 
   await page.goto("/app/operations");
-  form = page.locator('form[data-action="cycle"]');
+  form = await openForm(page, "Nouveau cycle", "cycle");
   await form.getByLabel("Nom").fill("Synthetic E2E cycle");
   await form.getByLabel("Début").fill(day(-20));
   await form.getByLabel("Fin").fill(day(60));
-  await form.getByRole("button").click();
-  form = page.locator('form[data-action="task"]');
+  await submit(page, form);
+  form = await openForm(page, "Nouvelle tâche", "task");
   await form.getByLabel("Cycle").selectOption({ label: "Synthetic E2E cycle" });
   await form.getByLabel("Titre").fill("Synthetic E2E task");
   await form.getByLabel("Planifiée").fill(day(-3));
@@ -261,7 +277,7 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await form
     .getByLabel("Responsable")
     .selectOption({ label: "Synthetic E2E operator" });
-  await form.getByRole("button").click();
+  await submit(page, form);
   await expect(page.getByText("En retard", { exact: true })).toBeVisible();
   const statusForm = page.locator('form[data-action^="task-status-"]');
   await statusForm.locator('select[name="status"]').selectOption("completed");

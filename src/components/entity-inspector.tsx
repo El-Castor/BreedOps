@@ -16,7 +16,7 @@ import {
   useState,
 } from "react";
 import { ActionForm } from "@/components/action-form";
-import { Icon } from "@/components/icons";
+import { Icon, type IconName } from "@/components/icons";
 import { ActionMenu, DecisionBadge } from "@/components/ui";
 import {
   setBreedingEntityArchived,
@@ -31,7 +31,7 @@ export type DetailField = { label: string; value: string; wide?: boolean };
 
 export type RelationGroup = {
   label: string;
-  items: { code: string; archived: boolean }[];
+  items: { id: string; code: string; archived: boolean }[];
 };
 
 type PhenotypeItem = {
@@ -86,6 +86,9 @@ export type BreedingEntityDetail = {
 
 type InspectorContextValue = {
   open: (entity: BreedingEntityDetail) => void;
+  /** Rows and pedigree nodes register their records so related chips can open them. */
+  register: (entity: BreedingEntityDetail) => void;
+  find: (id: string) => BreedingEntityDetail | undefined;
 };
 
 const InspectorContext = createContext<InspectorContextValue | null>(null);
@@ -96,7 +99,16 @@ export function EntityInspectorWorkspace({
   children: ReactNode;
 }) {
   const [selected, setSelected] = useState<BreedingEntityDetail | null>(null);
-  const context = useMemo(() => ({ open: setSelected }), []);
+  const registry = useRef(new Map<string, BreedingEntityDetail>());
+  const context = useMemo(
+    () => ({
+      open: setSelected,
+      register: (entity: BreedingEntityDetail) =>
+        registry.current.set(entity.id, entity),
+      find: (id: string) => registry.current.get(id),
+    }),
+    [],
+  );
   const close = useCallback(() => setSelected(null), []);
   return (
     <InspectorContext.Provider value={context}>
@@ -138,7 +150,8 @@ export function EntityTableRow({
   entity: BreedingEntityDetail;
   children: ReactNode;
 }) {
-  const { open } = useEntityInspector();
+  const { open, register } = useEntityInspector();
+  useEffect(() => register(entity), [entity, register]);
   const activate = (event: MouseEvent<HTMLTableRowElement>) => {
     if (!isNestedControl(event.target)) open(entity);
   };
@@ -264,6 +277,7 @@ export function EntityInspector({
         />
         <div className="inspector-actions">
           <Link className="button-link" href={entity.pedigreeHref}>
+            <Icon name="pedigree" size={14} />
             Voir dans le pedigree
           </Link>
           {!entity.archived && (
@@ -272,6 +286,7 @@ export function EntityInspector({
               aria-pressed={editing}
               onClick={() => setEditing((value) => !value)}
             >
+              <Icon name={editing ? "close" : "edit"} size={14} />
               {editing ? "Annuler la modification" : "Modifier"}
             </button>
           )}
@@ -279,11 +294,16 @@ export function EntityInspector({
         </div>
         <div className="inspector-body">
           {editing && <EntityEditSection entity={entity} />}
-          <EntityFieldSection title="Aperçu" fields={entity.overview} />
+          <EntityFieldSection
+            title="Aperçu"
+            icon="info"
+            fields={entity.overview}
+          />
           <EntityLineageSection entity={entity} />
           {entity.propagation && (
             <EntityFieldSection
               title={entity.propagation.title}
+              icon={entity.kind === "cross" ? "cross" : "seed"}
               fields={entity.propagation.fields}
             />
           )}
@@ -309,7 +329,10 @@ function EntityInspectorHeader({
   return (
     <header>
       <div>
-        <span className="eyebrow">{kindLabel(entity.kind)}</span>
+        <span className="eyebrow icon-heading">
+          <Icon name={entity.kind} size={14} />
+          {kindLabel(entity.kind)}
+        </span>
         <h2 id="entity-inspector-title" className="entity-code">
           {entity.code}
         </h2>
@@ -346,13 +369,18 @@ function EntityInspectorHeader({
 function EntityFieldSection({
   title,
   fields,
+  icon,
 }: {
   title: string;
   fields: DetailField[];
+  icon: IconName;
 }) {
   return (
     <section>
-      <h3>{title}</h3>
+      <h3 className="icon-heading">
+        <Icon name={icon} size={14} />
+        {title}
+      </h3>
       <dl className="inspector-fields">
         {fields.map((field) => (
           <div key={field.label} className={field.wide ? "wide" : undefined}>
@@ -368,9 +396,13 @@ function EntityFieldSection({
 }
 
 function EntityLineageSection({ entity }: { entity: BreedingEntityDetail }) {
+  const { open, find } = useEntityInspector();
   return (
     <section>
-      <h3>Lignée</h3>
+      <h3 className="icon-heading">
+        <Icon name="lineage" size={14} />
+        Lignée
+      </h3>
       <p className="inspector-note">{entity.lineageSummary}</p>
       <dl>
         {entity.lineage.map((group) => (
@@ -379,18 +411,32 @@ function EntityLineageSection({ entity }: { entity: BreedingEntityDetail }) {
             <dd>
               <ul className="relation-list">
                 {group.items.length ? (
-                  group.items.map((item) => (
-                    <li
-                      key={item.code}
-                      className={item.archived ? "archived" : undefined}
-                      title={item.archived ? "Archivé" : undefined}
-                    >
-                      {item.code}
-                      {item.archived && (
-                        <span className="sr-only"> (archivé)</span>
-                      )}
-                    </li>
-                  ))
+                  group.items.map((item) => {
+                    const related = find(item.id);
+                    return (
+                      <li
+                        key={item.id}
+                        className={item.archived ? "archived" : undefined}
+                        title={item.archived ? "Archivé" : undefined}
+                      >
+                        {related ? (
+                          // Opens the related record in the same inspector.
+                          <button
+                            type="button"
+                            className="relation-link"
+                            onClick={() => open(related)}
+                          >
+                            {item.code}
+                          </button>
+                        ) : (
+                          item.code
+                        )}
+                        {item.archived && (
+                          <span className="sr-only"> (archivé)</span>
+                        )}
+                      </li>
+                    );
+                  })
                 ) : (
                   <li className="none">Aucun</li>
                 )}
@@ -411,7 +457,10 @@ function EntityPhenotypeSection({
   const latest = phenotypes.latest;
   return (
     <section>
-      <h3>Phénotypage et sélection</h3>
+      <h3 className="icon-heading">
+        <Icon name="score" size={14} />
+        Phénotypage et sélection
+      </h3>
       {phenotypes.count ? (
         <>
           <dl className="phenotype-stats">
@@ -464,7 +513,10 @@ function EntityPhenotypeSection({
 function EntityMediaSection() {
   return (
     <section>
-      <h3>Images</h3>
+      <h3 className="icon-heading">
+        <Icon name="image" size={14} />
+        Images
+      </h3>
       <div className="media-empty">
         <Icon name="image" />
         <p>
@@ -488,7 +540,10 @@ function EntityMediaSection() {
 function EntityNotesSection({ notes }: { notes: string | null }) {
   return (
     <section>
-      <h3>Notes</h3>
+      <h3 className="icon-heading">
+        <Icon name="notes" size={14} />
+        Notes
+      </h3>
       {notes ? (
         <p className="inspector-prose">{notes}</p>
       ) : (
@@ -502,7 +557,10 @@ function EntityEditSection({ entity }: { entity: BreedingEntityDetail }) {
   const edit = entity.edit;
   return (
     <section className="inspector-edit" aria-label="Modifier la fiche">
-      <h3>Modifier la fiche</h3>
+      <h3 className="icon-heading">
+        <Icon name="edit" size={14} />
+        Modifier la fiche
+      </h3>
       {edit.type === "parent" && (
         <ActionForm
           action={updateParentLine}

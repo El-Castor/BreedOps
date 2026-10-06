@@ -1,4 +1,5 @@
 import { ActionForm } from "@/components/action-form";
+import { FormDrawer } from "@/components/form-drawer";
 import {
   ActionMenu,
   Breadcrumbs,
@@ -58,6 +59,53 @@ export default async function UsersPage({
         eyebrow="Administration"
         title="Utilisateurs"
         description="Invitez, affectez et administrez les comptes autorisés pour votre périmètre."
+        actions={
+          <>
+            <FormDrawer
+              label="Inviter"
+              title="Inviter un utilisateur"
+              description="Un lien d’activation est envoyé par e-mail."
+              icon="add"
+            >
+              <ActionForm
+                action={inviteUser}
+                className="form"
+                actionName="invite-user"
+                submitLabel="Inviter l’utilisateur"
+              >
+                <h3>Inviter un utilisateur</h3>
+                <UserFields organizations={organizations} roles={roles} />
+              </ActionForm>
+            </FormDrawer>
+            <FormDrawer
+              label="Créer un compte"
+              title="Créer un compte"
+              description="Le mot de passe temporaire est transmis hors application."
+              icon="profile"
+              variant="secondary"
+            >
+              <ActionForm
+                action={createUser}
+                className="form"
+                actionName="create-user"
+                submitLabel="Créer l’utilisateur"
+              >
+                <h3>Créer directement</h3>
+                <UserFields organizations={organizations} roles={roles} />
+                <label>
+                  Mot de passe temporaire
+                  <input
+                    name="password"
+                    type="password"
+                    minLength={8}
+                    required
+                    autoComplete="new-password"
+                  />
+                </label>
+              </ActionForm>
+            </FormDrawer>
+          </>
+        }
       />
       {params.success && <PageNotice>{params.success}</PageNotice>}
       <section className="section-block">
@@ -222,43 +270,6 @@ export default async function UsersPage({
             />
           )}
         </Card>
-      </section>
-      <section className="section-block">
-        <SectionHeader
-          eyebrow="Accès"
-          title="Ajouter un compte"
-          description="L’invitation envoie un lien par e-mail ; la création directe définit un mot de passe temporaire."
-        />
-        <div className="grid-2">
-          <ActionForm
-            action={inviteUser}
-            className="card form"
-            actionName="invite-user"
-            submitLabel="Inviter l’utilisateur"
-          >
-            <h3>Inviter un utilisateur</h3>
-            <UserFields organizations={organizations} roles={roles} />
-          </ActionForm>
-          <ActionForm
-            action={createUser}
-            className="card form"
-            actionName="create-user"
-            submitLabel="Créer l’utilisateur"
-          >
-            <h3>Créer directement</h3>
-            <UserFields organizations={organizations} roles={roles} />
-            <label>
-              Mot de passe temporaire
-              <input
-                name="password"
-                type="password"
-                minLength={8}
-                required
-                autoComplete="new-password"
-              />
-            </label>
-          </ActionForm>
-        </div>
       </section>
       {identity.profile.role === "team_admin" && (
         <form action={updateTeamName} className="card form" data-action="team">

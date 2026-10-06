@@ -153,13 +153,14 @@ const field = (label: string, input: unknown, wide = false): DetailField => ({
   wide,
 });
 
-type Ref = { code: string; archived: boolean };
+type Ref = { id: string; code: string; archived: boolean };
 
-const refs = <T extends { deleted_at: string | null }>(
+const refs = <T extends { id: string; deleted_at: string | null }>(
   records: T[],
   code: (record: T) => string,
 ): Ref[] =>
   records.map((record) => ({
+    id: record.id,
     code: code(record),
     archived: Boolean(record.deleted_at),
   }));

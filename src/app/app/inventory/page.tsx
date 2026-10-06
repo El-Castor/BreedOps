@@ -1,4 +1,5 @@
 import { ActionForm } from "@/components/action-form";
+import { FormDrawer } from "@/components/form-drawer";
 import {
   Breadcrumbs,
   Card,
@@ -151,6 +152,209 @@ export default async function Inventory({
         eyebrow={`Laboratoire · ${team.name}`}
         title="Inventaire et mouvements"
         description="Articles, lots, stocks et mouvements dans un registre transactionnel. Les quantités sont recalculées par PostgreSQL."
+        actions={
+          <>
+            <FormDrawer
+              label="Nouvel article"
+              title="Nouvel article"
+              description="Article de laboratoire suivi en stock."
+              icon="add"
+            >
+              <ActionForm
+                action={createInventoryItem}
+                className="form"
+                actionName="inventory-item"
+                submitLabel="Créer l’article"
+              >
+                <h3>Nouvel article</h3>
+                <input type="hidden" name="organization_id" value={team.id} />
+                <label>
+                  Nom
+                  <input name="name" required maxLength={160} />
+                </label>
+                <div className="fields-3">
+                  <label>
+                    Catégorie
+                    <input name="category" required maxLength={80} />
+                  </label>
+                  <label>
+                    Unité
+                    <input
+                      name="default_unit"
+                      required
+                      maxLength={30}
+                      defaultValue="units"
+                    />
+                  </label>
+                  <label>
+                    Stock minimal
+                    <input
+                      name="minimum_stock"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      required
+                    />
+                  </label>
+                </div>
+                <fieldset className="form-section">
+                  <legend>Références</legend>
+                  <div className="fields-2">
+                    <label>
+                      CAS
+                      <input name="cas_number" maxLength={80} />
+                    </label>
+                    <label>
+                      Référence fournisseur
+                      <input name="supplier_reference" maxLength={120} />
+                    </label>
+                  </div>
+                  <label>
+                    Stockage
+                    <input name="storage_requirements" maxLength={300} />
+                  </label>
+                </fieldset>
+              </ActionForm>
+            </FormDrawer>
+            <FormDrawer
+              label="Nouveau lot"
+              title="Nouveau lot et réception"
+              description="La réception crée le premier mouvement du lot."
+              icon="lot"
+              variant="secondary"
+              disabled={!items?.length}
+              disabledReason="Créez d’abord un article"
+            >
+              <ActionForm
+                action={createInventoryLot}
+                className="form"
+                actionName="inventory-lot"
+                submitLabel="Créer et réceptionner"
+                disabled={!items?.length}
+              >
+                <h3>Nouveau lot et réception</h3>
+                <label>
+                  Article
+                  <select name="inventory_item_id" required>
+                    <option value="">Choisir</option>
+                    {items?.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="fields-3">
+                  <label>
+                    Lot
+                    <input name="batch_number" required maxLength={120} />
+                  </label>
+                  <label>
+                    Réception
+                    <input name="received_at" type="date" required />
+                  </label>
+                  <label>
+                    Péremption
+                    <input name="expiration_date" type="date" />
+                  </label>
+                </div>
+                <div className="fields-2">
+                  <label>
+                    Quantité reçue
+                    <input
+                      name="quantity"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Emplacement
+                    <input name="storage_location" maxLength={160} />
+                  </label>
+                </div>
+                {!items?.length && (
+                  <p className="form-hint blocked">Créez d’abord un article.</p>
+                )}
+              </ActionForm>
+            </FormDrawer>
+            <FormDrawer
+              label="Mouvement"
+              title="Mouvement traçable"
+              description="Consommation, retour, ajustement ou destruction."
+              icon="history"
+              variant="secondary"
+              disabled={!lots?.length}
+              disabledReason="Réceptionnez d’abord un lot"
+            >
+              <ActionForm
+                action={recordInventoryMovement}
+                className="form"
+                actionName="inventory-movement"
+                submitLabel="Enregistrer le mouvement"
+                disabled={!lots?.length}
+              >
+                <h3>Mouvement traçable</h3>
+                <label>
+                  Lot
+                  <select name="inventory_lot_id" required>
+                    <option value="">Choisir</option>
+                    {lots?.map((lot) => (
+                      <option key={lot.id} value={lot.id}>
+                        {itemName(lot.inventory_item_id)} · {lot.batch_number}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="fields-2">
+                  <label>
+                    Type
+                    <select name="movement_type" required>
+                      <option value="consumption">Consommation</option>
+                      <option value="receipt">Réception complémentaire</option>
+                      <option value="return">Retour</option>
+                      <option value="positive_adjustment">
+                        Ajustement positif
+                      </option>
+                      <option value="negative_adjustment">
+                        Ajustement négatif
+                      </option>
+                      <option value="destruction">Destruction</option>
+                    </select>
+                  </label>
+                  <label>
+                    Quantité
+                    <input
+                      name="quantity"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      required
+                    />
+                  </label>
+                </div>
+                <label>
+                  Date
+                  <input name="movement_date" type="date" required />
+                </label>
+                <label>
+                  Motif (obligatoire pour ajustement)
+                  <input name="reason" maxLength={300} />
+                </label>
+                <label>
+                  Notes
+                  <input name="notes" maxLength={500} />
+                </label>
+                {!lots?.length && (
+                  <p className="form-hint blocked">
+                    Réceptionnez d’abord un lot.
+                  </p>
+                )}
+              </ActionForm>
+            </FormDrawer>
+          </>
+        }
       />
       <section className="metrics-grid" aria-label="Synthèse de l’inventaire">
         <MetricCard label="Articles" value={items.length} />
@@ -250,7 +454,7 @@ export default async function Inventory({
         </Card>
       </section>
 
-      <section className="register-layout">
+      <section>
         <Card className="flush">
           <div className="card-heading">
             <h2>Historique des mouvements</h2>
@@ -296,182 +500,6 @@ export default async function Inventory({
             />
           )}
         </Card>
-        <ActionForm
-          action={recordInventoryMovement}
-          className="card form"
-          actionName="inventory-movement"
-          submitLabel="Enregistrer le mouvement"
-          disabled={!lots?.length}
-        >
-          <h3>Mouvement traçable</h3>
-          <label>
-            Lot
-            <select name="inventory_lot_id" required>
-              <option value="">Choisir</option>
-              {lots?.map((lot) => (
-                <option key={lot.id} value={lot.id}>
-                  {itemName(lot.inventory_item_id)} · {lot.batch_number}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="fields-2">
-            <label>
-              Type
-              <select name="movement_type" required>
-                <option value="consumption">Consommation</option>
-                <option value="receipt">Réception complémentaire</option>
-                <option value="return">Retour</option>
-                <option value="positive_adjustment">Ajustement positif</option>
-                <option value="negative_adjustment">Ajustement négatif</option>
-                <option value="destruction">Destruction</option>
-              </select>
-            </label>
-            <label>
-              Quantité
-              <input
-                name="quantity"
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-              />
-            </label>
-          </div>
-          <label>
-            Date
-            <input name="movement_date" type="date" required />
-          </label>
-          <label>
-            Motif (obligatoire pour ajustement)
-            <input name="reason" maxLength={300} />
-          </label>
-          <label>
-            Notes
-            <input name="notes" maxLength={500} />
-          </label>
-          {!lots?.length && (
-            <p className="form-hint blocked">Réceptionnez d’abord un lot.</p>
-          )}
-        </ActionForm>
-      </section>
-
-      <section className="section-block">
-        <SectionHeader
-          eyebrow="Référentiel"
-          title="Articles et réceptions"
-          description="Déclarez un article puis réceptionnez ses lots."
-        />
-        <div className="grid-2">
-          <ActionForm
-            action={createInventoryItem}
-            className="card form"
-            actionName="inventory-item"
-            submitLabel="Créer l’article"
-          >
-            <h3>Nouvel article</h3>
-            <input type="hidden" name="organization_id" value={team.id} />
-            <label>
-              Nom
-              <input name="name" required maxLength={160} />
-            </label>
-            <div className="fields-3">
-              <label>
-                Catégorie
-                <input name="category" required maxLength={80} />
-              </label>
-              <label>
-                Unité
-                <input
-                  name="default_unit"
-                  required
-                  maxLength={30}
-                  defaultValue="units"
-                />
-              </label>
-              <label>
-                Stock minimal
-                <input
-                  name="minimum_stock"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  required
-                />
-              </label>
-            </div>
-            <fieldset className="form-section">
-              <legend>Références</legend>
-              <div className="fields-2">
-                <label>
-                  CAS
-                  <input name="cas_number" maxLength={80} />
-                </label>
-                <label>
-                  Référence fournisseur
-                  <input name="supplier_reference" maxLength={120} />
-                </label>
-              </div>
-              <label>
-                Stockage
-                <input name="storage_requirements" maxLength={300} />
-              </label>
-            </fieldset>
-          </ActionForm>
-          <ActionForm
-            action={createInventoryLot}
-            className="card form"
-            actionName="inventory-lot"
-            submitLabel="Créer et réceptionner"
-            disabled={!items?.length}
-          >
-            <h3>Nouveau lot et réception</h3>
-            <label>
-              Article
-              <select name="inventory_item_id" required>
-                <option value="">Choisir</option>
-                {items?.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="fields-3">
-              <label>
-                Lot
-                <input name="batch_number" required maxLength={120} />
-              </label>
-              <label>
-                Réception
-                <input name="received_at" type="date" required />
-              </label>
-              <label>
-                Péremption
-                <input name="expiration_date" type="date" />
-              </label>
-            </div>
-            <div className="fields-2">
-              <label>
-                Quantité reçue
-                <input
-                  name="quantity"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  required
-                />
-              </label>
-              <label>
-                Emplacement
-                <input name="storage_location" maxLength={160} />
-              </label>
-            </div>
-            {!items?.length && (
-              <p className="form-hint blocked">Créez d’abord un article.</p>
-            )}
-          </ActionForm>
-        </div>
       </section>
     </div>
   );

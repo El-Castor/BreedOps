@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import {
   useEffect,
   useRef,
@@ -25,6 +26,7 @@ export function ActionForm({
   disabled = false,
   submitLabel = "Enregistrer",
   revealOnFlash = true,
+  submitContent,
 }: {
   action: FormAction;
   children: ReactNode;
@@ -35,9 +37,12 @@ export function ActionForm({
   submitLabel?: string;
   /** Open an enclosing menu so a restored success/error message is visible. */
   revealOnFlash?: boolean;
+  /** Compact visual content (e.g. an icon); submitLabel stays the accessible name. */
+  submitContent?: ReactNode;
 }) {
   const [state, setState] = useState(initialActionState);
   const [pending, setPending] = useState(false);
+  const [toast, setToast] = useState<ActionState | null>(null);
   const ref = useRef<HTMLFormElement>(null);
   const progressiveAction = action.bind(
     null,
@@ -55,13 +60,21 @@ export function ActionForm({
       if (flash.actionName === actionName && flash.state) {
         setState(flash.state);
         window.sessionStorage.removeItem(flashKey);
-        if (revealOnFlash)
+        // Feedback restored after the reload must stay visible: forms in a
+        // closed drawer report through a toast, forms in a menu reopen it.
+        if (ref.current?.closest("dialog")) setToast(flash.state);
+        else if (revealOnFlash)
           ref.current?.closest("details")?.setAttribute("open", "");
       }
     } catch {
       window.sessionStorage.removeItem(flashKey);
     }
   }, [actionName, revealOnFlash]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   useEffect(() => {
     if (state.status === "success") {
       if (resetOnSuccess) ref.current?.reset();
@@ -139,10 +152,26 @@ export function ActionForm({
           )}
         </div>
       )}
+      {toast?.message &&
+        createPortal(
+          <div className={`toast ${toast.status}`} role="status">
+            {toast.message}
+            <button
+              type="button"
+              className="toast-close"
+              aria-label="Fermer la notification"
+              onClick={() => setToast(null)}
+            >
+              ×
+            </button>
+          </div>,
+          document.body,
+        )}
       <SubmitButton
         disabled={disabled || pending}
         label={pending ? "Enregistrement…" : submitLabel}
         pending={pending}
+        content={submitContent}
       />
     </form>
   );
@@ -152,12 +181,24 @@ function SubmitButton({
   disabled,
   label,
   pending,
+  content,
 }: {
   disabled: boolean;
   label: string;
   pending: boolean;
+  content?: ReactNode;
 }) {
-  return (
+  return content ? (
+    <button
+      type="submit"
+      disabled={disabled}
+      aria-busy={pending}
+      aria-label={label}
+      title={label}
+    >
+      {content}
+    </button>
+  ) : (
     <button type="submit" disabled={disabled} aria-busy={pending}>
       {label}
     </button>

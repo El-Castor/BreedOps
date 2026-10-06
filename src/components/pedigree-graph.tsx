@@ -5,6 +5,7 @@ import {
   type BreedingEntityDetail,
   useEntityInspector,
 } from "@/components/entity-inspector";
+import { Icon } from "@/components/icons";
 
 export type PedigreeNode = {
   id: string;
@@ -40,27 +41,18 @@ const TOP = 36;
 const truncate = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
-// Shape glyphs keep node kinds distinguishable without relying on color.
+// Kind icons (plant, merge, lineage group, seed package) keep node types
+// distinguishable without relying on colour alone.
 function NodeGlyph({ kind }: { kind: PedigreeNode["kind"] }) {
-  if (kind === "cross")
-    return (
-      <rect
-        className="node-glyph"
-        x="157"
-        y="9"
-        width="8"
-        height="8"
-        transform="rotate(45 161 13)"
-      />
-    );
-  if (kind === "family")
-    return <circle className="node-glyph" cx="161" cy="13" r="4.5" />;
-  if (kind === "lot")
-    return (
-      <rect className="node-glyph" x="156" y="9" width="10" height="7" rx="1" />
-    );
   return (
-    <rect className="node-glyph" x="157" y="9" width="8" height="8" rx="1" />
+    <Icon
+      name={kind}
+      className="node-icon"
+      x={NODE_W - 26}
+      y={8}
+      width={16}
+      height={16}
+    />
   );
 }
 
@@ -73,7 +65,10 @@ export function PedigreeGraph({
   edges: PedigreeEdge[];
   initialSelectedId?: string | null;
 }) {
-  const { open } = useEntityInspector();
+  const { open, register } = useEntityInspector();
+  useEffect(() => {
+    for (const node of nodes) register(node.entity);
+  }, [nodes, register]);
   const [selected, setSelected] = useState<string | null>(
     initialSelectedId ?? null,
   );
@@ -151,15 +146,19 @@ export function PedigreeGraph({
         <div className="graph-toolbar" aria-label="Contrôles du graphe">
           <button
             type="button"
+            aria-label="Zoom +"
+            data-tooltip="Zoom +"
             onClick={() => setScale((v) => Math.min(2, v + 0.15))}
           >
-            Zoom +
+            <Icon name="zoomIn" />
           </button>
           <button
             type="button"
+            aria-label="Zoom −"
+            data-tooltip="Zoom −"
             onClick={() => setScale((v) => Math.max(0.45, v - 0.15))}
           >
-            Zoom −
+            <Icon name="zoomOut" />
           </button>
           <button
             type="button"
@@ -168,6 +167,7 @@ export function PedigreeGraph({
               setOffset({ x: 30, y: 35 });
             }}
           >
+            <Icon name="fit" />
             Ajuster la vue
           </button>
         </div>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
+import { FormDrawer } from "@/components/form-drawer";
 import {
   Breadcrumbs,
   Card,
@@ -182,6 +183,125 @@ export default async function Operations({
         eyebrow="Planification"
         title="Opérations et indicateurs"
         description="Cycles expérimentaux, tâches assignées et indicateurs réels du programme."
+        actions={
+          program ? (
+            <>
+              <FormDrawer
+                label="Nouveau cycle"
+                title="Nouveau cycle expérimental"
+                description="Un cycle regroupe les tâches planifiées."
+                icon="calendar"
+                variant="secondary"
+                disabled={!program}
+              >
+                <ActionForm
+                  action={createCycle}
+                  className="form"
+                  actionName="cycle"
+                  submitLabel="Créer le cycle"
+                >
+                  <h3>Nouveau cycle</h3>
+                  <input type="hidden" name="program_id" value={programId} />
+                  <label>
+                    Nom
+                    <input name="name" required maxLength={160} />
+                  </label>
+                  <div className="fields-2">
+                    <label>
+                      Début
+                      <input name="start_date" type="date" required />
+                    </label>
+                    <label>
+                      Fin
+                      <input name="end_date" type="date" required />
+                    </label>
+                  </div>
+                </ActionForm>
+              </FormDrawer>
+              <FormDrawer
+                label="Nouvelle tâche"
+                title="Nouvelle tâche"
+                description="Assignez une tâche datée à un cycle."
+                icon="add"
+                disabled={!program || !cycles.length}
+                disabledReason="Créez d’abord un cycle expérimental"
+              >
+                <ActionForm
+                  action={createTask}
+                  className="form"
+                  actionName="task"
+                  submitLabel="Créer la tâche"
+                  disabled={!cycles.length}
+                >
+                  <h3>Nouvelle tâche</h3>
+                  <input type="hidden" name="program_id" value={programId} />
+                  <div className="fields-2">
+                    <label>
+                      Cycle
+                      <select name="experimental_cycle_id" required>
+                        <option value="">Choisir</option>
+                        {cycles.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Titre
+                      <input name="title" required maxLength={200} />
+                    </label>
+                  </div>
+                  <label>
+                    Description
+                    <input name="description" maxLength={500} />
+                  </label>
+                  <div className="fields-3">
+                    <label>
+                      Planifiée
+                      <input name="planned_date" type="date" required />
+                    </label>
+                    <label>
+                      Échéance
+                      <input name="due_date" type="date" required />
+                    </label>
+                    <label>
+                      Priorité
+                      <select name="priority">
+                        <option value="medium">Moyenne</option>
+                        <option value="low">Basse</option>
+                        <option value="high">Haute</option>
+                        <option value="critical">Critique</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="fields-2">
+                    <label>
+                      Responsable
+                      <select name="assigned_to">
+                        <option value="">Non assigné</option>
+                        {profiles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.display_name || p.user_id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Zone
+                      <input name="zone" maxLength={120} />
+                    </label>
+                  </div>
+                  {!cycles.length && (
+                    <p className="form-hint blocked">
+                      Créez d’abord un cycle expérimental.
+                    </p>
+                  )}
+                </ActionForm>
+              </FormDrawer>
+            </>
+          ) : undefined
+        }
       />
       <ProgramContext team={team.name} program={program} />
       <ProgramSwitch
@@ -349,110 +469,6 @@ export default async function Operations({
                 </DataTable>
               )}
             </Card>
-          </section>
-          <section className="section-block">
-            <SectionHeader
-              eyebrow="Planification"
-              title="Cycles et tâches"
-              description="Un cycle expérimental regroupe les tâches planifiées."
-            />
-            <div className="grid-2">
-              <ActionForm
-                action={createCycle}
-                className="card form"
-                actionName="cycle"
-                submitLabel="Créer le cycle"
-              >
-                <h3>Nouveau cycle</h3>
-                <input type="hidden" name="program_id" value={programId} />
-                <label>
-                  Nom
-                  <input name="name" required maxLength={160} />
-                </label>
-                <div className="fields-2">
-                  <label>
-                    Début
-                    <input name="start_date" type="date" required />
-                  </label>
-                  <label>
-                    Fin
-                    <input name="end_date" type="date" required />
-                  </label>
-                </div>
-              </ActionForm>
-              <ActionForm
-                action={createTask}
-                className="card form"
-                actionName="task"
-                submitLabel="Créer la tâche"
-                disabled={!cycles.length}
-              >
-                <h3>Nouvelle tâche</h3>
-                <input type="hidden" name="program_id" value={programId} />
-                <div className="fields-2">
-                  <label>
-                    Cycle
-                    <select name="experimental_cycle_id" required>
-                      <option value="">Choisir</option>
-                      {cycles.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Titre
-                    <input name="title" required maxLength={200} />
-                  </label>
-                </div>
-                <label>
-                  Description
-                  <input name="description" maxLength={500} />
-                </label>
-                <div className="fields-3">
-                  <label>
-                    Planifiée
-                    <input name="planned_date" type="date" required />
-                  </label>
-                  <label>
-                    Échéance
-                    <input name="due_date" type="date" required />
-                  </label>
-                  <label>
-                    Priorité
-                    <select name="priority">
-                      <option value="medium">Moyenne</option>
-                      <option value="low">Basse</option>
-                      <option value="high">Haute</option>
-                      <option value="critical">Critique</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="fields-2">
-                  <label>
-                    Responsable
-                    <select name="assigned_to">
-                      <option value="">Non assigné</option>
-                      {profiles.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.display_name || p.user_id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Zone
-                    <input name="zone" maxLength={120} />
-                  </label>
-                </div>
-                {!cycles.length && (
-                  <p className="form-hint blocked">
-                    Créez d’abord un cycle expérimental.
-                  </p>
-                )}
-              </ActionForm>
-            </div>
           </section>
         </>
       )}
