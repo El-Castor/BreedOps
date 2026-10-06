@@ -14,7 +14,7 @@ npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
 Open http://localhost:3107/login. Supabase uses API port 55421 and database port 55422.
-CLI 2.75.0 is pinned by the scripts. Initial startup applies migrations 000001–000011
+CLI 2.75.0 is pinned by the scripts. Initial startup applies migrations 000001–000013
 to a new local database; demo seeding is disabled. Never reset a retained database
 containing user records. `supabase/seed.sql` is optional synthetic demo material,
 not a prerequisite for the application or tests.
@@ -69,13 +69,21 @@ HTTP integration tests require local configuration and the running production ap
 They create randomly identified synthetic users/teams and clean them up afterward.
 RLS tests run inside a transaction and roll back. Neither suite supports hosted targets.
 Playwright Chromium executes the complete login → breeding → phenotyping → inventory
-→ task → dashboard → logout journey. HTTP integration tests also validate real session
+→ task → dashboard → reload → logout/login journey, including the real pedigree and
+responsive shell at 1440, 1024 and 768 pixels. HTTP integration tests also validate real session
 cookies and native Server Actions, including stale admin forms after role revocation.
 
 Login, refresh-by-page-request and logout checks pass on the production build; realtime
 subscriptions are outside V1. Cookies are HttpOnly, SameSite=Lax and Secure
 in production. Hosted use requires HTTPS and APP_ORIGIN set to the exact application
 origin. Local validation uses the localhost loopback origin.
+
+The production build sends CSP, anti-framing, MIME-sniffing and referrer headers.
+HSTS is intentionally omitted from the local HTTP configuration; enable it only at an
+HTTPS deployment boundary. The current dependency audit retains findings in build-only
+Tailwind/ESLint glob tooling because their advertised fixes require breaking major-version
+changes. The validated audit reports 0 critical, 7 high and 2 moderate findings;
+compatible `brace-expansion` and `source-map-js` fixes are applied in the lockfile.
 
 Technical references: [Supabase cookie-based SSR](https://supabase.com/docs/guides/auth/server-side)
 and [server identity validation](https://supabase.com/docs/guides/getting-started/tutorials/with-nextjs).

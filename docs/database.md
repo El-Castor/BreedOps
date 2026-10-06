@@ -19,7 +19,8 @@ Manages breeding programs within organizations.
 Migration 000003 removes program_members. Each profile belongs to one organization/team;
 program access inherits that team. V1 uses system_admin, team_admin and user.
 Migration 000005 guards profile identity and privileged-role boundaries and restricts
-trigger-only calculation functions. The final 21 auth/RLS assertions pass locally.
+trigger-only calculation functions. Migrations 000012–000013 implement pending-account
+assignment and audited user administration. The final 25 auth/RLS assertions pass locally.
 
 ### Parent Lines
 Stores information about parent lines used in crosses.
@@ -119,7 +120,8 @@ All tables follow the naming conventions:
 Row-Level Security (RLS) policies are implemented on all tables to ensure proper data isolation:
 - Users can only access data within their organization
 - Program access inherits the authenticated profile's team
-- Sensitive-action audit instrumentation remains future work; no blanket logging claim is made
+- Pending Auth identities have no profile, tenant membership or business-data access
+- User invitation, creation, activation, role/team changes and administrator password resets are audited
 
 ## Calculations and Functions
 

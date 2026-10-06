@@ -16,8 +16,8 @@
   - Frontend: Next.js (App Router), TypeScript strict, React, Tailwind CSS, React Hook Form, Zod, TanStack Table, Recharts, date-fns.
   - Backend/données: Supabase, PostgreSQL, Supabase Auth, Row-Level Security, migrations SQL versionnées, fonctions PostgreSQL pour les calculs critiques.
   - Qualité: ESLint, Prettier, Vitest, Playwright, `tsc --noEmit` strict, GitHub Actions CI si dépôt GitHub.
-- **État actuel**: V1 PASS. Les cinq domaines utilisent le backend PostgreSQL réel; le parcours Playwright critique, la reconstruction des migrations et tous les contrôles finaux configurés passent.
-- **Date de dernière mise à jour**: 2026-09-20
+- **État actuel**: MVP pilote PASS. Les cinq domaines utilisent PostgreSQL réel; le shell partagé, les prérequis guidés, le pedigree interactif et les parcours Playwright de production sont validés.
+- **Date de dernière mise à jour**: 2026-10-06
 - **Version cible**: MVP V1
 - **Environnement concerné**: Développement local (aucun projet Supabase lié, aucune CI; dépôt distant GitHub configuré).
 - **Liens utiles vers la documentation interne**: `docs/architecture.md`, `docs/database.md`; `docs/security.md`, `docs/user-guide.md` et `docs/deployment.md` restent à créer.
@@ -262,7 +262,8 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 
 | ID | Élément | Risque | Priorité | Version cible | Statut |
 | -- | ------- | ------ | -------- | ------------- | ------ |
-| (aucune pour le moment) | | | | | |
+| TD-001 | Les mutations pilotées rechargent la route courante après succès afin d’éviter le blocage RSC observé avec `useActionState` sur le build de production | Faible: navigation plus coûteuse, données immédiatement relues depuis PostgreSQL | P2 | Post-MVP | Accepté |
+| TD-002 | `npm audit` conserve 7 avis high et 2 moderate dans les chaînes Tailwind/ESLint de build | Faible pour le runtime; les correctifs proposés imposent Tailwind 4 ou une régression majeure d’ESLint/Next | P2 | Maintenance | Surveillé |
 
 ---
 
@@ -418,6 +419,21 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Validation**: Vitest 47/47; Playwright principal 3 PASS + 1 SKIP conditionnel; mode `ALLOW_SELF_SIGNUP=true` 1 PASS + 1 SKIP conditionnel; browser du compte existant PASS; TypeScript PASS; ESLint PASS; Prettier PASS; build PASS; recherche de clé service-role dans les artefacts client PASS; npm audit 0 vulnérabilité.
 - **Limites non bloquantes**: l’envoi réel d’e-mails hors environnement local dépendra du SMTP du projet Supabase hébergé; Mailpit capture les e-mails en local. Aucun MFA dans ce jalon.
 - **Prochaine étape exacte**: préparer la configuration Supabase hébergée (SMTP, variables serveur, URL de redirection HTTPS) et exécuter le même gate Auth sur l’environnement de préproduction avant déploiement.
+
+### Session 2026-10-06 — MVP utilisable par des pilotes — PASS
+
+- **M0 baseline**: l’implémentation PostgreSQL/Supabase existante et les cinq P1 ont été reproduits; aucun schéma ni modèle d’autorisation n’a été remplacé.
+- **M1–M3 flux et UX**: shell `/app` partagé, menu utilisateur permanent, contexte équipe/programme, tableau de bord d’entrée, progression Parents → Croisements → Familles → Lots → Germination → Phénotypage, prérequis expliqués avec CTA, registres et formulaires homogènes. Les mutations conservent les Server Actions natives pour le repli progressif et rechargent la route après succès afin de relire immédiatement PostgreSQL.
+- **M4 pedigree**: route `/app/pedigree` alimentée par les relations réelles parent/croisement/famille/lot, avec pan, zoom, ajustement, centrage, sélection, surbrillance des relations et panneau de détail.
+- **M5–M6 robustesse**: états lecture SUCCESS/EMPTY/ERROR distincts, résultats de mutation typés sans erreur brute, dates de test relatives, CSP et en-têtes de sécurité, ordre password/audit corrigé avec compensation, tests d’échec, audit de dépendances compatibles appliqué.
+- **M7 parcours pilote**: Chromium production valide connexion → programme → deux parents → croisement → famille → lot → germination → pedigree → phénotype/Elite → inventaire/mouvement → cycle/tâche → KPI → reload → logout/login → persistance, plus le shell à 1440/1024/768 px.
+- **M8 documentation**: README, guides local/database et `docs/PILOT_GUIDE.md` réconciliés avec les migrations 000001–000013 et le workflow réel.
+- **Validation finale**: Vitest 51/51 dans 11 fichiers (20 tests unitaires/scripts et 31 intégrations HTTP); RLS 25/25; Playwright par défaut 3 PASS + 1 SKIP conditionnel; mode `ALLOW_SELF_SIGNUP=true` 1 PASS; TypeScript, ESLint, Prettier, build Next.js production et scan de secrets client PASS.
+- **Audit dépendances**: 0 critical, 7 high et 2 moderate résiduels dans l’outillage Tailwind/ESLint; `brace-expansion` et `source-map-js` corrigés de façon compatible. Les remédiations restantes demandent des changements majeurs et sont différées.
+- **Migrations**: aucune migration ajoutée pendant ce jalon; la dernière reconstruction validée des migrations 000001–000013 reste applicable, et le schéma n’a pas changé.
+- **Limites non bloquantes**: rechargement complet après mutation; SMTP hébergé non configuré; Gantt avancé, import/export, MFA, notifications, équipement spécialisé et statistiques avancées restent post-MVP.
+- **Statut**: M0 à M9 PASS; `MVP_USER_TEST_READY=PASS`.
+- **Prochaine étape exacte**: configurer une préproduction Supabase/Vercel HTTPS avec SMTP, variables serveur et URLs de redirection, puis rejouer sans modification le gate pilote complet.
 
 ---
 

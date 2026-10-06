@@ -193,7 +193,7 @@ BreedOps provides a high-level view of breeding progress and operational bottlen
 | 🧬 Genetics | Cross registry | ✅ | — |
 | 🧬 Genetics | Families | ✅ | — |
 | 🧬 Genetics | Seed lots | ✅ | — |
-| 🧬 Genetics | Interactive pedigree | — | 🔜 |
+| 🧬 Genetics | Interactive pedigree | ✅ | — |
 | 🌱 Phenotyping | Weighted scoring | ✅ | — |
 | 🌱 Phenotyping | Selection models | ✅ | — |
 | 🌱 Phenotyping | Image-assisted scoring | — | 🔜 |
@@ -403,6 +403,7 @@ no team or business profile and grants no `/app` or database access until a
 `system_admin` assigns an existing team, selects a role, and activates it.
 
 See `docs/local-development.md` for security and validation details.
+The complete pilot journey is documented in [`docs/PILOT_GUIDE.md`](docs/PILOT_GUIDE.md).
 
 ---
 
@@ -412,14 +413,13 @@ BreedOps is being developed in structured phases.
 
 | Phase | Scope |
 |---|---|
-| **MVP** | Authentication & roles · cross registry · families & seed lots · phenotype scoring · inventory & stock movements · calendar/list · dashboard & alerts |
-| **V1** | Interactive pedigree · QR codes · photograph/image workflows · notifications |
+| **MVP** | Authentication & roles · cross registry · families & seed lots · interactive pedigree · phenotype scoring · inventory & stock movements · calendar/list · dashboard & alerts |
+| **V1** | QR codes · photograph/image workflows · notifications |
 | **V2** | Advanced statistical analysis · multi-year comparison · genotype × environment exploration · offline-first synchronization |
 | **Future** | Genomics integration · genomic prediction · AI-assisted breeding intelligence |
 
 ### Planned future modules
 
-- Interactive pedigree
 - QR codes
 - Photograph workflows
 - Notifications
@@ -440,6 +440,7 @@ Project documentation is intended to be organized into:
 - `docs/security.md`
 - `docs/deployment.md`
 - `docs/user-guide.md`
+- `docs/PILOT_GUIDE.md`
 
 Additional operational planning is tracked in `agend.md`.
 
