@@ -187,8 +187,9 @@ describe.sequential("transactional inventory workflow", () => {
       await request(`/app/inventory?q=CAS-${marker}`)
     ).text();
     expect(rendered).toContain(`LOT-${marker}`);
-    expect(rendered).toContain("urgent");
-    expect(rendered).toContain("consumption");
+    // PostgreSQL alert levels and movement types are rendered as French labels.
+    expect(rendered).toContain("Péremption &lt; 30 j");
+    expect(rendered).toContain("<td>Consommation</td>");
     expect(
       await (await request(`/app/inventory?q=LOT-${marker}`)).text(),
     ).toContain(`Synthetic reagent ${marker}`);

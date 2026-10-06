@@ -1,4 +1,16 @@
-import { Breadcrumbs, PageHeader, StatusBadge } from "@/components/ui";
+import {
+  Breadcrumbs,
+  Card,
+  PageHeader,
+  PageNotice,
+  StatusBadge,
+} from "@/components/ui";
+
+const roleLabels: Record<string, string> = {
+  system_admin: "Administrateur système",
+  team_admin: "Administrateur d’équipe",
+  user: "Membre",
+};
 import { requireIdentity } from "@/lib/auth";
 import { updateDisplayName } from "../actions";
 import { changePassword } from "./actions";
@@ -21,25 +33,33 @@ export default async function ProfilePage({
         description="Consultez votre identité, votre périmètre d’accès et vos paramètres de sécurité."
       />
       {params.error && (
-        <p role="alert">
+        <PageNotice tone="error">
           {params.error === "mismatch"
             ? "Les mots de passe ne correspondent pas."
             : "Modification impossible."}
-        </p>
+        </PageNotice>
       )}
-      {params.success && <p role="status">Mot de passe modifié.</p>}
+      {params.success && <PageNotice>Mot de passe modifié.</PageNotice>}
       <section className="grid-2">
-        <section className="card">
+        <Card>
           <h2>Identité</h2>
-          <dl>
-            <dt>Email</dt>
-            <dd>{user.email}</dd>
-            <dt>Rôle</dt>
-            <dd>
-              <StatusBadge>{profile.role}</StatusBadge>
-            </dd>
-            <dt>Équipe</dt>
-            <dd>{team.name}</dd>
+          <dl className="detail-list">
+            <div>
+              <dt>Email</dt>
+              <dd>{user.email}</dd>
+            </div>
+            <div>
+              <dt>Équipe</dt>
+              <dd>{team.name}</dd>
+            </div>
+            <div>
+              <dt>Rôle</dt>
+              <dd>
+                <StatusBadge tone="info">
+                  {roleLabels[profile.role] ?? profile.role}
+                </StatusBadge>
+              </dd>
+            </div>
           </dl>
           <form
             action={updateDisplayName}
@@ -57,36 +77,40 @@ export default async function ProfilePage({
             </label>
             <button>Enregistrer</button>
           </form>
-        </section>
-        <section className="card">
+        </Card>
+        <Card>
           <h2>Sécurité</h2>
           <form action={changePassword} className="form">
-            <label>
-              Nouveau mot de passe
-              <input
-                name="password"
-                type="password"
-                minLength={8}
-                required
-                autoComplete="new-password"
-              />
-            </label>
-            <label>
-              Confirmation
-              <input
-                name="confirmation"
-                type="password"
-                minLength={8}
-                required
-                autoComplete="new-password"
-              />
-            </label>
+            <div className="fields-2">
+              <label>
+                Nouveau mot de passe
+                <input
+                  name="password"
+                  type="password"
+                  minLength={8}
+                  required
+                  autoComplete="new-password"
+                />
+              </label>
+              <label>
+                Confirmation
+                <input
+                  name="confirmation"
+                  type="password"
+                  minLength={8}
+                  required
+                  autoComplete="new-password"
+                />
+              </label>
+            </div>
+            <p className="form-hint">Au moins huit caractères.</p>
             <button>Changer le mot de passe</button>
           </form>
+          <hr />
           <form action="/auth/logout" method="post">
-            <button>Déconnexion</button>
+            <button className="secondary">Déconnexion</button>
           </form>
-        </section>
+        </Card>
       </section>
     </div>
   );

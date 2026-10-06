@@ -2,11 +2,11 @@ import Link from "next/link";
 import { EntityInspectorWorkspace } from "@/components/entity-inspector";
 import {
   Breadcrumbs,
-  Card,
   EmptyState,
   ErrorState,
   PageHeader,
   ProgramContext,
+  ProgramSwitch,
 } from "@/components/ui";
 import {
   PedigreeGraph,
@@ -60,7 +60,7 @@ export default async function PedigreePage({
     client
       .from("parent_lines")
       .select(
-        "id,parent_code,line_name,generation,origin,description,status,notes,created_at,updated_at,deleted_at",
+        "id,parent_code,line_name,generation,origin,description,accession,source,status,notes,created_at,updated_at,deleted_at",
       )
       .eq("program_id", program.id)
       .order("parent_code"),
@@ -90,6 +90,7 @@ export default async function PedigreePage({
       .select("id,phenotype_code,family_id,seed_lot_id")
       .eq("program_id", program.id)
       .is("deleted_at", null),
+    client.rpc("program_cross_yields", { target_program_id: program.id }),
   ]);
   const states = [
     collectionState(results[0], "Impossible de charger les parents."),
@@ -97,6 +98,7 @@ export default async function PedigreePage({
     collectionState(results[2], "Impossible de charger les familles."),
     collectionState(results[3], "Impossible de charger les lots."),
     collectionState(results[4], "Impossible de charger les phénotypes."),
+    collectionState(results[5], "Impossible de calculer les rendements."),
   ];
   const failed = states.find((state) => state.status === "error");
   if (failed?.status === "error")
@@ -113,6 +115,7 @@ export default async function PedigreePage({
   const families = states[2].data as BreedingDetailSource["families"];
   const lots = states[3].data as BreedingDetailSource["lots"];
   const phenotypes = states[4].data as BreedingDetailSource["phenotypes"];
+  const crossYields = states[5].data as BreedingDetailSource["crossYields"];
   const empty = { data: [], error: null };
   const germinationState = collectionState(
     lots.length
@@ -164,6 +167,7 @@ export default async function PedigreePage({
     crosses,
     families,
     lots,
+    crossYields,
     germinationTests:
       germinationState.data as BreedingDetailSource["germinationTests"],
     phenotypes,
@@ -181,6 +185,7 @@ export default async function PedigreePage({
       code: item.parent_code,
       name: item.line_name,
       generation: item.generation,
+      archived: Boolean(item.deleted_at),
       entity: detail("parent", item.id),
     })),
     ...crosses.map((item) => ({
@@ -188,6 +193,7 @@ export default async function PedigreePage({
       kind: "cross" as const,
       code: item.cross_code,
       generation: item.generation,
+      archived: Boolean(item.deleted_at),
       entity: detail("cross", item.id),
     })),
     ...families.map((item) => ({
@@ -195,12 +201,14 @@ export default async function PedigreePage({
       kind: "family" as const,
       code: item.family_code,
       generation: item.generation,
+      archived: Boolean(item.deleted_at),
       entity: detail("family", item.id),
     })),
     ...lots.map((item) => ({
       id: item.id,
       kind: "lot" as const,
       code: item.seed_lot_code,
+      archived: Boolean(item.deleted_at),
       entity: detail("lot", item.id),
     })),
   ];
@@ -243,20 +251,11 @@ export default async function PedigreePage({
           }
         />
         <ProgramContext team={team.name} program={program} />
-        <Card className="program-picker">
-          <strong>Programme</strong>
-          <nav className="chip-nav" aria-label="Changer de programme">
-            {programs.map((item) => (
-              <Link
-                className={item.id === program.id ? "active" : ""}
-                key={item.id}
-                href={`/app/pedigree?program=${item.id}`}
-              >
-                {item.code}
-              </Link>
-            ))}
-          </nav>
-        </Card>
+        <ProgramSwitch
+          programs={programs}
+          activeId={program.id}
+          basePath="/app/pedigree"
+        />
         {nodes.length ? (
           <PedigreeGraph
             nodes={nodes}

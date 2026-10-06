@@ -165,16 +165,20 @@ describe.sequential("persisted breeding workflow", () => {
         program_id: ids.program,
         line_name: `Synthetic ${suffix}`,
         generation: "4",
+        accession: `ACC-${suffix}-${marker}`,
+        source: "Synthetic breeding station",
       });
       const parent = await inProgram("parent_lines", {
         line_name: `Synthetic ${suffix}`,
       });
       expect(parent.parent_code).toMatch(codePattern("P"));
+      expect(parent.accession).toBe(`ACC-${suffix}-${marker}`);
+      expect(parent.source).toBe("Synthetic breeding station");
       ids[`parent${suffix}`] = parent.id;
       ids[`parentCode${suffix}`] = parent.parent_code;
     }
   });
-  it("creates and updates a cross with database-derived yield inputs", async () => {
+  it("creates a cross with a PostgreSQL-derived yield", async () => {
     let html = await (
       await request(`/app/breeding?program=${ids.program}`)
     ).text();
@@ -193,13 +197,13 @@ describe.sequential("persisted breeding workflow", () => {
     ids.crossCode = row.cross_code;
     expect(row.female_parent_id).toBe(ids.parentF);
     expect(row.male_parent_id).toBe(ids.parentM);
-    html = await (await request(`/app/breeding?program=${ids.program}`)).text();
-    await submit(html, "cross-update", {
-      id: ids.cross,
-      status: "completed",
-      notes: "Synthetic validated update",
+    const yields = await admin.rpc("program_cross_yields", {
+      target_program_id: ids.program,
     });
-    expect((await one("crosses", "id", ids.cross)).status).toBe("completed");
+    if (yields.error) throw yields.error;
+    expect(Number(yields.data?.[0]?.seed_yield)).toBe(48);
+    html = await (await request(`/app/breeding?program=${ids.program}`)).text();
+    expect(html).toContain(">48<");
   });
   it("rejects invalid cross lineage in PostgreSQL", async () => {
     const result = await admin.from("crosses").insert({
@@ -288,11 +292,13 @@ describe.sequential("persisted breeding workflow", () => {
     );
     html = await (await request(`/app/breeding?program=${ids.program}`)).text();
     expect(html).not.toContain(option);
-    expect(html).not.toContain(`<strong>${ids.parentCodeF}</strong>`);
+    expect(html).not.toContain(
+      `aria-label="Voir le détail de ${ids.parentCodeF}"`,
+    );
     html = await (
       await request(`/app/breeding?program=${ids.program}&archived=1`)
     ).text();
-    expect(html).toContain(`<strong>${ids.parentCodeF}</strong>`);
+    expect(html).toContain(`aria-label="Voir le détail de ${ids.parentCodeF}"`);
     await submit(html, `lifecycle-parent-${ids.parentF}`, {
       entity: "parent_lines",
       id: ids.parentF,

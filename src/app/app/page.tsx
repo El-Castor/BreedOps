@@ -5,11 +5,15 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  KindBadge,
   MetricCard,
   PageHeader,
   ProgramContext,
+  ProgramSwitch,
+  SectionHeader,
   StatusBadge,
 } from "@/components/ui";
+import { formatDay } from "@/lib/breeding-entity-details";
 import { requireIdentity } from "@/lib/auth";
 import { collectionState } from "@/lib/query-state";
 import { createProgram } from "./breeding-actions";
@@ -129,69 +133,103 @@ export default async function Dashboard({
     status: string;
     created_at: string;
   }[];
+  // Germination tests are counted from their own table, not inferred from lots.
+  const germinationResult = lots.length
+    ? await client
+        .from("germination_tests")
+        .select("id", { count: "exact", head: true })
+        .in(
+          "seed_lot_id",
+          lots.map((lot) => lot.id),
+        )
+        .is("deleted_at", null)
+    : { count: 0, error: null };
+  if (germinationResult.error)
+    return (
+      <div className="page">
+        <ErrorState
+          message="Impossible de charger les tests de germination."
+          retryHref={programId ? `/app?program=${programId}` : "/app"}
+        />
+      </div>
+    );
+  const germinationCount = germinationResult.count ?? 0;
   const base = programId ? `?program=${programId}` : "";
   const workflow = [
     {
-      label: "Parents",
+      label: "Lignées parentales",
       count: parents.length,
       href: `/app/breeding${base}#parents`,
       ready: true,
+      requirement: "",
     },
     {
       label: "Croisements",
       count: crosses.length,
       href: `/app/breeding${base}#crosses`,
       ready: parents.length >= 2,
+      requirement: "Deux lignées actives nécessaires",
     },
     {
       label: "Familles",
       count: families.length,
       href: `/app/breeding${base}#families`,
       ready: crosses.length > 0,
+      requirement: "Un croisement actif nécessaire",
     },
     {
-      label: "Lots",
+      label: "Lots de graines",
       count: lots.length,
       href: `/app/breeding${base}#lots`,
       ready: families.length > 0,
+      requirement: "Une famille active nécessaire",
     },
     {
       label: "Germination",
-      count: lots.length,
+      count: germinationCount,
       href: `/app/breeding${base}#germination`,
       ready: lots.length > 0,
+      requirement: "Un lot actif nécessaire",
+    },
+    {
+      label: "Phénotypage",
+      count: phenotypes.length,
+      href: `/app/phenotypes${base}`,
+      ready: lots.length > 0,
+      requirement: "Une famille et un lot nécessaires",
     },
   ];
   const recent = [
-    ...parents
-      .slice(0, 2)
-      .map((item: { id: string; parent_code: string; created_at: string }) => ({
-        id: item.id,
-        label: item.parent_code,
-        type: "Lignée",
-        date: item.created_at,
-      })),
-    ...crosses
-      .slice(0, 2)
-      .map((item: { id: string; cross_code: string; created_at: string }) => ({
-        id: item.id,
-        label: item.cross_code,
-        type: "Croisement",
-        date: item.created_at,
-      })),
-    ...lots
-      .slice(0, 2)
-      .map(
-        (item: { id: string; seed_lot_code: string; created_at: string }) => ({
-          id: item.id,
-          label: item.seed_lot_code,
-          type: "Lot",
-          date: item.created_at,
-        }),
-      ),
+    ...parents.slice(0, 3).map((item) => ({
+      id: item.id,
+      label: item.parent_code,
+      kind: "parent" as const,
+      date: item.created_at,
+    })),
+    ...crosses.slice(0, 3).map((item) => ({
+      id: item.id,
+      label: item.cross_code,
+      kind: "cross" as const,
+      date: item.created_at,
+    })),
+    ...families.slice(0, 3).map((item) => ({
+      id: item.id,
+      label: item.family_code,
+      kind: "family" as const,
+      date: item.created_at,
+    })),
+    ...lots.slice(0, 3).map((item) => ({
+      id: item.id,
+      label: item.seed_lot_code,
+      kind: "lot" as const,
+      date: item.created_at,
+    })),
   ]
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 5);
+    .slice(0, 6);
+  const openTasks = tasks.filter(
+    (task) => task.status !== "completed" && task.status !== "cancelled",
+  ).length;
 
   return (
     <div className="page">
@@ -199,72 +237,77 @@ export default async function Dashboard({
       <PageHeader
         eyebrow="Tableau de bord"
         title="Vue d’ensemble"
-        description="Votre programme actif, ses prochaines étapes et les données récemment enregistrées."
+        description="État du programme actif, progression du workflow et derniers enregistrements."
+        actions={
+          program ? (
+            <Link className="button-link" href={`/app/breeding${base}`}>
+              Ouvrir les registres
+            </Link>
+          ) : undefined
+        }
       />
       <ProgramContext team={team.name} program={program} />
       {program ? (
         <>
-          <Card className="program-picker">
-            <div>
-              <h2>Programme actif</h2>
-              <p>Changez de programme sans mélanger les registres.</p>
-            </div>
-            <nav className="chip-nav" aria-label="Programmes">
-              {programs.map((item) => (
-                <Link
-                  key={item.id}
-                  className={item.id === programId ? "active" : ""}
-                  href={`/app?program=${item.id}`}
-                >
-                  {item.code}
-                </Link>
-              ))}
-            </nav>
-          </Card>
-          <section>
-            <h2>Résumé rapide</h2>
-            <div className="metrics-grid">
-              <MetricCard
-                label="Parents"
-                value={parents.length}
-                href={`/app/breeding${base}#parents`}
-              />
-              <MetricCard
-                label="Croisements"
-                value={crosses.length}
-                href={`/app/breeding${base}#crosses`}
-              />
-              <MetricCard
-                label="Familles"
-                value={families.length}
-                href={`/app/breeding${base}#families`}
-              />
-              <MetricCard
-                label="Lots de graines"
-                value={lots.length}
-                href={`/app/breeding${base}#lots`}
-              />
-              <MetricCard
-                label="Phénotypes"
-                value={phenotypes.length}
-                href={`/app/phenotypes${base}`}
-              />
-              <MetricCard
-                label="Tâches"
-                value={tasks.length}
-                href={`/app/operations${base}`}
-              />
-            </div>
+          <ProgramSwitch
+            programs={programs}
+            activeId={programId}
+            basePath="/app"
+          />
+          <section
+            className="metrics-grid"
+            aria-label="Indicateurs du programme"
+          >
+            <MetricCard
+              label="Parents"
+              value={parents.length}
+              href={`/app/breeding${base}#parents`}
+            />
+            <MetricCard
+              label="Croisements"
+              value={crosses.length}
+              href={`/app/breeding${base}#crosses`}
+            />
+            <MetricCard
+              label="Familles"
+              value={families.length}
+              href={`/app/breeding${base}#families`}
+            />
+            <MetricCard
+              label="Lots de graines"
+              value={lots.length}
+              href={`/app/breeding${base}#lots`}
+            />
+            <MetricCard
+              label="Tests de germination"
+              value={germinationCount}
+              href={`/app/breeding${base}#germination`}
+            />
+            <MetricCard
+              label="Phénotypes"
+              value={phenotypes.length}
+              href={`/app/phenotypes${base}`}
+            />
+            <MetricCard
+              label="Tâches ouvertes"
+              value={openTasks}
+              href={`/app/operations${base}`}
+            />
           </section>
           <section className="dashboard-grid">
             <Card>
-              <h2>Workflow d’élevage</h2>
+              <SectionHeader
+                title="Workflow d’élevage"
+                description="Chaque étape débloque la suivante."
+              />
               <div className="workflow-list">
                 {workflow.map((step, index) => (
                   <Link
                     href={step.href}
                     key={step.label}
-                    className={!step.ready ? "locked" : ""}
+                    className={
+                      !step.ready ? "locked" : step.count ? "done" : ""
+                    }
                   >
                     <span>{index + 1}</span>
                     <div>
@@ -272,7 +315,7 @@ export default async function Dashboard({
                       <small>
                         {step.ready
                           ? `${step.count} enregistré${step.count > 1 ? "s" : ""}`
-                          : "Prérequis à compléter"}
+                          : step.requirement}
                       </small>
                     </div>
                     <StatusBadge
@@ -285,7 +328,7 @@ export default async function Dashboard({
                       }
                     >
                       {step.count
-                        ? "Actif"
+                        ? "En cours"
                         : step.ready
                           ? "À commencer"
                           : "En attente"}
@@ -294,42 +337,61 @@ export default async function Dashboard({
                 ))}
               </div>
             </Card>
-            <Card>
-              <h2>Activité récente</h2>
-              {recent.length ? (
-                <ul className="activity-list">
-                  {recent.map((item) => (
-                    <li key={`${item.type}-${item.id}`}>
-                      <StatusBadge>{item.type}</StatusBadge>
-                      <strong>{item.label}</strong>
-                      <time>
-                        {new Intl.DateTimeFormat("fr-FR").format(
-                          new Date(item.date),
-                        )}
-                      </time>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState
-                  title="Aucune activité"
-                  message="Les derniers enregistrements apparaîtront ici."
-                />
-              )}
-            </Card>
-          </section>
-          <section>
-            <h2>Actions rapides</h2>
-            <div className="quick-actions">
-              <Link href={`/app/breeding${base}#parents`}>
-                Ajouter un parent
-              </Link>
-              <Link href={`/app/breeding${base}#crosses`}>
-                Créer un croisement
-              </Link>
-              <Link href={`/app/breeding${base}#lots`}>Enregistrer un lot</Link>
-              <Link href={`/app/phenotypes${base}`}>Noter un phénotype</Link>
-              <Link href={`/app/operations${base}`}>Créer une tâche</Link>
+            <div className="grid-stack">
+              <Card>
+                <SectionHeader title="Activité récente" />
+                {recent.length ? (
+                  <ul className="activity-list">
+                    {recent.map((item) => (
+                      <li key={`${item.kind}-${item.id}`}>
+                        <KindBadge kind={item.kind} />
+                        <strong className="code">{item.label}</strong>
+                        <time dateTime={item.date}>{formatDay(item.date)}</time>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyState
+                    title="Aucune activité"
+                    message="Les derniers enregistrements apparaîtront ici."
+                  />
+                )}
+              </Card>
+              <Card>
+                <SectionHeader title="Actions rapides" />
+                <div className="quick-actions">
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/breeding${base}#parents`}
+                  >
+                    Ajouter un parent
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/breeding${base}#crosses`}
+                  >
+                    Créer un croisement
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/breeding${base}#lots`}
+                  >
+                    Enregistrer un lot
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/phenotypes${base}`}
+                  >
+                    Noter un phénotype
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/operations${base}`}
+                  >
+                    Créer une tâche
+                  </Link>
+                </div>
+              </Card>
             </div>
           </section>
         </>
@@ -337,26 +399,28 @@ export default async function Dashboard({
         <Card>
           <EmptyState
             title="Commencez avec un programme"
-            message="Un programme isole votre espèce, campagne et matériel végétal."
+            message="Un programme isole votre espèce, votre campagne et votre matériel végétal."
           />
           <ActionForm action={createProgram} actionName="program">
             <h2>Nouveau programme</h2>
-            <label>
-              Code requis
-              <input name="code" required maxLength={80} />
-            </label>
-            <label>
-              Nom requis
-              <input name="name" required maxLength={160} />
-            </label>
-            <label>
-              Espèce requise
-              <input name="species" required maxLength={160} />
-            </label>
-            <label>
-              Campagne
-              <input name="campaign" maxLength={40} />
-            </label>
+            <div className="fields-2">
+              <label>
+                Code
+                <input name="code" required maxLength={80} />
+              </label>
+              <label>
+                Nom
+                <input name="name" required maxLength={160} />
+              </label>
+              <label>
+                Espèce
+                <input name="species" required maxLength={160} />
+              </label>
+              <label>
+                Campagne
+                <input name="campaign" maxLength={40} />
+              </label>
+            </div>
           </ActionForm>
         </Card>
       )}

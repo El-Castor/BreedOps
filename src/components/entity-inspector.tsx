@@ -16,27 +16,72 @@ import {
   useState,
 } from "react";
 import { ActionForm } from "@/components/action-form";
-import { setBreedingEntityArchived } from "@/app/app/breeding-actions";
+import { Icon } from "@/components/icons";
+import { ActionMenu, DecisionBadge } from "@/components/ui";
+import {
+  setBreedingEntityArchived,
+  updateBreedingNotes,
+  updateCross,
+  updateParentLine,
+} from "@/app/app/breeding-actions";
 
 export type BreedingEntityKind = "parent" | "cross" | "family" | "lot";
 
+export type DetailField = { label: string; value: string; wide?: boolean };
+
+export type RelationGroup = {
+  label: string;
+  items: { code: string; archived: boolean }[];
+};
+
+type PhenotypeItem = {
+  code: string;
+  decision: string | null;
+  weightedScore: string | null;
+  normalizedScore: string | null;
+  evaluationDate: string | null;
+};
+
+type EditDescriptor =
+  | {
+      type: "parent";
+      values: Record<
+        | "line_name"
+        | "generation"
+        | "accession"
+        | "source"
+        | "origin"
+        | "description"
+        | "notes",
+        string
+      >;
+    }
+  | { type: "cross"; status: string; notes: string }
+  | { type: "notes"; entity: "families" | "seed_lots"; notes: string };
+
+/** One scientific record as shown by registers and the pedigree. */
 export type BreedingEntityDetail = {
   id: string;
   kind: BreedingEntityKind;
   code: string;
   title: string;
   status: string;
+  generation: number | null;
   archived: boolean;
   lifecycleEntity: "parent_lines" | "crosses" | "families" | "seed_lots";
   pedigreeHref: string;
-  sections: { title: string; fields: { label: string; value: string }[] }[];
-  phenotypeSummary: {
-    code: string;
-    decision: string | null;
-    weightedScore: string | null;
-    normalizedScore: string | null;
-    evaluationDate: string | null;
-  }[];
+  overview: DetailField[];
+  lineageSummary: string;
+  lineage: RelationGroup[];
+  propagation: { title: string; fields: DetailField[] } | null;
+  phenotypes: {
+    count: number;
+    evaluated: number;
+    latest: PhenotypeItem | null;
+    items: PhenotypeItem[];
+  };
+  notes: string | null;
+  edit: EditDescriptor;
 };
 
 type InspectorContextValue = {
@@ -56,7 +101,11 @@ export function EntityInspectorWorkspace({
   return (
     <InspectorContext.Provider value={context}>
       {children}
-      <EntityInspector entity={selected} onClose={close} />
+      <EntityInspector
+        key={selected?.id ?? "none"}
+        entity={selected}
+        onClose={close}
+      />
     </InspectorContext.Provider>
   );
 }
@@ -111,7 +160,7 @@ export function EntityTableRow({
       aria-label={`Voir le détail de ${entity.code}`}
     >
       {children}
-      <td>
+      <td className="cell-actions">
         <EntityActions entity={entity} />
       </td>
     </tr>
@@ -122,23 +171,20 @@ function EntityActions({ entity }: { entity: BreedingEntityDetail }) {
   const { open } = useEntityInspector();
   const menu = useRef<HTMLDetailsElement>(null);
   return (
-    <details className="entity-actions" data-row-control ref={menu}>
-      <summary aria-label={`Actions pour ${entity.code}`}>⋯</summary>
-      <div className="entity-actions-menu">
-        <button
-          type="button"
-          className="quiet"
-          onClick={() => {
-            menu.current?.removeAttribute("open");
-            open(entity);
-          }}
-        >
-          Voir le détail
-        </button>
-        <Link href={entity.pedigreeHref}>Voir le pedigree</Link>
-        <LifecycleForm entity={entity} />
-      </div>
-    </details>
+    <ActionMenu label={`Actions pour ${entity.code}`} ref={menu}>
+      <button
+        type="button"
+        onClick={() => {
+          menu.current?.removeAttribute("open");
+          open(entity);
+        }}
+      >
+        Voir le détail
+      </button>
+      <Link href={entity.pedigreeHref}>Voir le pedigree</Link>
+      <div className="menu-separator" />
+      <LifecycleForm entity={entity} />
+    </ActionMenu>
   );
 }
 
@@ -149,6 +195,7 @@ function LifecycleForm({ entity }: { entity: BreedingEntityDetail }) {
       actionName={`lifecycle-${entity.kind}-${entity.id}`}
       className="entity-lifecycle-form"
       submitLabel={entity.archived ? "Restaurer" : "Archiver"}
+      revealOnFlash={false}
     >
       <input type="hidden" name="entity" value={entity.lifecycleEntity} />
       <input type="hidden" name="id" value={entity.id} />
@@ -169,6 +216,7 @@ export function EntityInspector({
   onClose: () => void;
 }) {
   const closeButton = useRef<HTMLButtonElement>(null);
+  const [editing, setEditing] = useState(false);
   const isOpen = Boolean(entity);
 
   // Focus moves into the panel when it opens and returns to the element that
@@ -214,19 +262,35 @@ export function EntityInspector({
           onClose={onClose}
           closeButton={closeButton}
         />
-        <div className="inspector-body">
-          {entity.sections.map((item) => (
-            <EntityFieldSection key={item.title} {...item} />
-          ))}
-          <EntityPhenotypeSection summary={entity.phenotypeSummary} />
-          <EntityMediaSection />
-        </div>
-        <footer>
-          <Link className="button-link secondary" href={entity.pedigreeHref}>
+        <div className="inspector-actions">
+          <Link className="button-link" href={entity.pedigreeHref}>
             Voir dans le pedigree
           </Link>
+          {!entity.archived && (
+            <button
+              type="button"
+              aria-pressed={editing}
+              onClick={() => setEditing((value) => !value)}
+            >
+              {editing ? "Annuler la modification" : "Modifier"}
+            </button>
+          )}
           <LifecycleForm entity={entity} />
-        </footer>
+        </div>
+        <div className="inspector-body">
+          {editing && <EntityEditSection entity={entity} />}
+          <EntityFieldSection title="Aperçu" fields={entity.overview} />
+          <EntityLineageSection entity={entity} />
+          {entity.propagation && (
+            <EntityFieldSection
+              title={entity.propagation.title}
+              fields={entity.propagation.fields}
+            />
+          )}
+          <EntityPhenotypeSection phenotypes={entity.phenotypes} />
+          <EntityMediaSection />
+          <EntityNotesSection notes={entity.notes} />
+        </div>
       </aside>
     </div>,
     document.body,
@@ -251,18 +315,25 @@ function EntityInspectorHeader({
         </h2>
         <p>{entity.title}</p>
         <div className="inspector-badges">
-          {entity.archived ? (
+          {entity.archived && (
             <span className="inspector-badge archived">Archivé</span>
-          ) : (
-            <span className="inspector-badge">Actif</span>
           )}
-          <span className="inspector-badge muted">{entity.status}</span>
+          <span
+            className={`inspector-badge${entity.archived ? "" : " success"}`}
+          >
+            {entity.status}
+          </span>
+          {entity.generation != null && (
+            <span className="inspector-badge">
+              Génération {entity.generation}
+            </span>
+          )}
         </div>
       </div>
       <button
         ref={closeButton}
         type="button"
-        className="quiet close"
+        className="close"
         onClick={onClose}
         aria-label="Fermer le détail"
       >
@@ -275,15 +346,56 @@ function EntityInspectorHeader({
 function EntityFieldSection({
   title,
   fields,
-}: BreedingEntityDetail["sections"][number]) {
+}: {
+  title: string;
+  fields: DetailField[];
+}) {
   return (
     <section>
       <h3>{title}</h3>
       <dl className="inspector-fields">
         {fields.map((field) => (
-          <div key={field.label}>
+          <div key={field.label} className={field.wide ? "wide" : undefined}>
             <dt>{field.label}</dt>
-            <dd>{field.value || "—"}</dd>
+            <dd className={field.value === "—" ? "empty" : undefined}>
+              {field.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function EntityLineageSection({ entity }: { entity: BreedingEntityDetail }) {
+  return (
+    <section>
+      <h3>Lignée</h3>
+      <p className="inspector-note">{entity.lineageSummary}</p>
+      <dl>
+        {entity.lineage.map((group) => (
+          <div className="relation-group" key={group.label}>
+            <dt>{group.label}</dt>
+            <dd>
+              <ul className="relation-list">
+                {group.items.length ? (
+                  group.items.map((item) => (
+                    <li
+                      key={item.code}
+                      className={item.archived ? "archived" : undefined}
+                      title={item.archived ? "Archivé" : undefined}
+                    >
+                      {item.code}
+                      {item.archived && (
+                        <span className="sr-only"> (archivé)</span>
+                      )}
+                    </li>
+                  ))
+                ) : (
+                  <li className="none">Aucun</li>
+                )}
+              </ul>
+            </dd>
           </div>
         ))}
       </dl>
@@ -292,27 +404,48 @@ function EntityFieldSection({
 }
 
 function EntityPhenotypeSection({
-  summary,
+  phenotypes,
 }: {
-  summary: BreedingEntityDetail["phenotypeSummary"];
+  phenotypes: BreedingEntityDetail["phenotypes"];
 }) {
+  const latest = phenotypes.latest;
   return (
     <section>
-      <h3>Phénotypage</h3>
-      {summary.length ? (
+      <h3>Phénotypage et sélection</h3>
+      {phenotypes.count ? (
         <>
-          <p className="inspector-note">
-            {summary.length} phénotype(s) relié(s) · dernière évaluation
-            calculée par PostgreSQL
-          </p>
+          <dl className="phenotype-stats">
+            <div>
+              <dt>Phénotypes</dt>
+              <dd>{phenotypes.count}</dd>
+            </div>
+            <div>
+              <dt>Évalués</dt>
+              <dd>{phenotypes.evaluated}</dd>
+            </div>
+            <div>
+              <dt>Dernier score</dt>
+              <dd>
+                {latest?.normalizedScore != null
+                  ? `${latest.normalizedScore} %`
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+          {latest && (
+            <p className="inspector-note">
+              Dernière évaluation {latest.evaluationDate} · {latest.code} ·{" "}
+              {latest.weightedScore} pts pondérés
+            </p>
+          )}
           <ul className="phenotype-summary">
-            {summary.map((item) => (
+            {phenotypes.items.map((item) => (
               <li key={item.code}>
                 <strong>{item.code}</strong>
-                <span>{item.decision ?? "Non évalué"}</span>
+                <DecisionBadge decision={item.decision} />
                 <small>
                   {item.weightedScore == null
-                    ? "Aucun score"
+                    ? "Aucune évaluation"
                     : `${item.weightedScore} pts · ${item.normalizedScore ?? "—"} % · ${item.evaluationDate ?? "date non renseignée"}`}
                 </small>
               </li>
@@ -332,7 +465,164 @@ function EntityMediaSection() {
   return (
     <section>
       <h3>Images</h3>
-      <p className="inspector-note">Aucune image enregistrée.</p>
+      <div className="media-empty">
+        <Icon name="image" />
+        <p>
+          Aucune image enregistrée.
+          <br />
+          L’ajout de photos de plantes sera disponible dans un prochain jalon.
+        </p>
+        <button
+          type="button"
+          className="secondary"
+          disabled
+          title="Le stockage des images est prévu dans un prochain jalon."
+        >
+          Ajouter une image · bientôt
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function EntityNotesSection({ notes }: { notes: string | null }) {
+  return (
+    <section>
+      <h3>Notes</h3>
+      {notes ? (
+        <p className="inspector-prose">{notes}</p>
+      ) : (
+        <p className="inspector-note">Aucune note.</p>
+      )}
+    </section>
+  );
+}
+
+function EntityEditSection({ entity }: { entity: BreedingEntityDetail }) {
+  const edit = entity.edit;
+  return (
+    <section className="inspector-edit" aria-label="Modifier la fiche">
+      <h3>Modifier la fiche</h3>
+      {edit.type === "parent" && (
+        <ActionForm
+          action={updateParentLine}
+          actionName={`edit-parent-${entity.id}`}
+          submitLabel="Enregistrer la fiche"
+          resetOnSuccess={false}
+        >
+          <input type="hidden" name="id" value={entity.id} />
+          <label>
+            Nom de la lignée
+            <input
+              name="line_name"
+              defaultValue={edit.values.line_name}
+              required
+              maxLength={160}
+            />
+          </label>
+          <div className="fields-2">
+            <label>
+              Génération
+              <input
+                name="generation"
+                type="number"
+                min="0"
+                defaultValue={edit.values.generation}
+              />
+            </label>
+            <label>
+              Accession
+              <input
+                name="accession"
+                defaultValue={edit.values.accession}
+                maxLength={120}
+              />
+            </label>
+          </div>
+          <label>
+            Source
+            <input
+              name="source"
+              defaultValue={edit.values.source}
+              maxLength={160}
+            />
+          </label>
+          <label>
+            Origine / provenance
+            <input
+              name="origin"
+              defaultValue={edit.values.origin}
+              maxLength={160}
+            />
+          </label>
+          <label>
+            Description
+            <textarea
+              name="description"
+              defaultValue={edit.values.description}
+              maxLength={1000}
+              rows={2}
+            />
+          </label>
+          <label>
+            Notes
+            <textarea
+              name="notes"
+              defaultValue={edit.values.notes}
+              maxLength={1000}
+              rows={3}
+            />
+          </label>
+        </ActionForm>
+      )}
+      {edit.type === "cross" && (
+        <ActionForm
+          action={updateCross}
+          actionName={`edit-cross-${entity.id}`}
+          submitLabel="Enregistrer"
+          resetOnSuccess={false}
+        >
+          <input type="hidden" name="id" value={entity.id} />
+          <label>
+            État du croisement
+            <select name="status" defaultValue={edit.status}>
+              <option value="planned">Planifié</option>
+              <option value="active">Actif</option>
+              <option value="completed">Terminé</option>
+              <option value="cancelled">Annulé</option>
+            </select>
+          </label>
+          <label>
+            Notes
+            <textarea
+              name="notes"
+              defaultValue={edit.notes}
+              maxLength={1000}
+              rows={3}
+            />
+          </label>
+        </ActionForm>
+      )}
+      {edit.type === "notes" && (
+        <ActionForm
+          action={updateBreedingNotes}
+          actionName={`edit-notes-${entity.id}`}
+          submitLabel="Enregistrer les notes"
+          resetOnSuccess={false}
+        >
+          <input type="hidden" name="entity" value={edit.entity} />
+          <input type="hidden" name="id" value={entity.id} />
+          <label>
+            Notes
+            <textarea
+              name="notes"
+              defaultValue={edit.notes}
+              maxLength={1000}
+              rows={4}
+            />
+          </label>
+        </ActionForm>
+      )}
     </section>
   );
 }

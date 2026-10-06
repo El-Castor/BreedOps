@@ -90,7 +90,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await create.getByLabel("Email").fill(memberEmail);
   await create.getByLabel("Nom affiché").fill("Synthetic managed member");
   await create.getByLabel("Rôle").selectOption("user");
-  await create.getByLabel("Équipe").selectOption(ids.teama);
+  await create.locator('select[name="organization_id"]').selectOption(ids.teama);
   await create.getByLabel("Mot de passe temporaire").fill(oldPassword);
   await create.getByRole("button", { name: "Créer l’utilisateur" }).click();
   await expect(page.getByRole("status")).toContainText("Utilisateur créé");
@@ -101,7 +101,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await invite.getByLabel("Email").fill(inviteEmail);
   await invite.getByLabel("Nom affiché").fill("Synthetic invited member");
   await invite.getByLabel("Rôle").selectOption("user");
-  await invite.getByLabel("Équipe").selectOption(ids.teama);
+  await invite.locator('select[name="organization_id"]').selectOption(ids.teama);
   await invite.getByRole("button", { name: "Inviter l’utilisateur" }).click();
   await expect(page.getByRole("status")).toContainText("Invitation envoyée");
   const invited = await admin.auth.admin.listUsers();
@@ -119,8 +119,9 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await invitedContext.close();
 
   let row = page.getByRole("row").filter({ hasText: memberEmail });
-  const reset = row.locator('form[data-action="reset-user-password"]');
-  await reset.getByPlaceholder("Nouveau mot de passe").fill(newPassword);
+  await row.locator("summary").click();
+  const reset = row.locator('form[data-action^="reset-user-password-"]');
+  await reset.getByLabel("Nouveau mot de passe").fill(newPassword);
   await reset
     .getByRole("button", { name: "Réinitialiser le mot de passe" })
     .click();
@@ -139,7 +140,8 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await signIn(page, systemEmail, systemPassword);
   await page.goto("/app/admin/users");
   row = page.getByRole("row").filter({ hasText: memberEmail });
-  const update = row.locator('form[data-action="update-user"]');
+  await row.locator("summary").click();
+  const update = row.locator('form[data-action^="update-user-"]');
   await update.locator('select[name="is_active"]').selectOption("false");
   await update.getByRole("button", { name: "Enregistrer" }).click();
   await expect(page.getByRole("status")).toContainText("Utilisateur mis à jour");
@@ -150,6 +152,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await signIn(page, systemEmail, systemPassword);
   await page.goto("/app/admin/users");
   row = page.getByRole("row").filter({ hasText: memberEmail });
+  await row.locator("summary").click();
   await row.locator('select[name="is_active"]').selectOption("true");
   await row.locator('select[name="role"]').selectOption("team_admin");
   await Promise.all([

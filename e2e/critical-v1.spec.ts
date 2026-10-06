@@ -182,6 +182,15 @@ test("critical V1 journey persists through every module and changes KPIs", async
     inspector.getByRole("heading", { name: code("X") }),
   ).toBeVisible();
   await expect(inspector).toContainText(`${prefix}-P-0001`);
+  await expect(inspector).toContainText("Rendement (graines / unité)");
+  await inspector.getByRole("button", { name: "Modifier" }).click();
+  await inspector.getByLabel("État du croisement").selectOption("completed");
+  await Promise.all([
+    page.waitForEvent("load"),
+    inspector.getByRole("button", { name: "Enregistrer" }).click(),
+  ]);
+  await page.getByRole("button", { name: `cross ${code("X")}` }).click();
+  await expect(inspector).toContainText("Terminé");
   await inspector.getByRole("button", { name: "Fermer le détail" }).click();
   await expect(inspector).toHaveCount(0);
 
@@ -207,7 +216,7 @@ test("critical V1 journey persists through every module and changes KPIs", async
   ])
     await form.getByLabel(label).fill("9");
   await form.getByRole("button").click();
-  await expect(page.getByText("elite", { exact: true })).toBeVisible();
+  await expect(page.getByText("Elite", { exact: true })).toBeVisible();
 
   await page.goto("/app/inventory");
   form = page.locator('form[data-action="inventory-item"]');

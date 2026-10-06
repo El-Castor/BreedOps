@@ -12,17 +12,57 @@ export type PedigreeNode = {
   code: string;
   name?: string | null;
   generation?: number | null;
+  archived?: boolean;
   entity: BreedingEntityDetail;
 };
 
 export type PedigreeEdge = { from: string; to: string };
 
-const colors = {
-  parent: "#1f766e",
-  cross: "#975a16",
-  family: "#5b5aa5",
-  lot: "#5f6f52",
-};
+const kinds = ["parent", "cross", "family", "lot"] as const;
+const kindLabels = {
+  parent: "Lignée",
+  cross: "Croisement",
+  family: "Famille",
+  lot: "Lot",
+} as const;
+const columnLabels = {
+  parent: "LIGNÉES PARENTALES",
+  cross: "CROISEMENTS",
+  family: "FAMILLES",
+  lot: "LOTS DE GRAINES",
+} as const;
+const NODE_W = 176;
+const NODE_H = 52;
+const COL_W = 260;
+const ROW_H = 96;
+const TOP = 36;
+
+const truncate = (text: string, max: number) =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+// Shape glyphs keep node kinds distinguishable without relying on color.
+function NodeGlyph({ kind }: { kind: PedigreeNode["kind"] }) {
+  if (kind === "cross")
+    return (
+      <rect
+        className="node-glyph"
+        x="157"
+        y="9"
+        width="8"
+        height="8"
+        transform="rotate(45 161 13)"
+      />
+    );
+  if (kind === "family")
+    return <circle className="node-glyph" cx="161" cy="13" r="4.5" />;
+  if (kind === "lot")
+    return (
+      <rect className="node-glyph" x="156" y="9" width="10" height="7" rx="1" />
+    );
+  return (
+    <rect className="node-glyph" x="157" y="9" width="8" height="8" rx="1" />
+  );
+}
 
 export function PedigreeGraph({
   nodes,
@@ -46,14 +86,16 @@ export function PedigreeGraph({
   const [offset, setOffset] = useState({ x: 30, y: 35 });
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const positions = useMemo(() => {
-    const columns = ["parent", "cross", "family", "lot"] as const;
     return new Map(
-      columns.flatMap((kind, column) =>
+      kinds.flatMap((kind, column) =>
         nodes
           .filter((node) => node.kind === kind)
           .map(
             (node, row) =>
-              [node.id, { x: column * 260 + 30, y: row * 105 + 35 }] as const,
+              [
+                node.id,
+                { x: column * COL_W + 30, y: row * ROW_H + TOP },
+              ] as const,
           ),
       ),
     );
@@ -76,8 +118,9 @@ export function PedigreeGraph({
   }, [edges, selected]);
   const height = Math.max(
     420,
-    ...(["parent", "cross", "family", "lot"] as const).map(
-      (kind) => nodes.filter((node) => node.kind === kind).length * 105 + 80,
+    ...kinds.map(
+      (kind) =>
+        nodes.filter((node) => node.kind === kind).length * ROW_H + TOP + 40,
     ),
   );
   const center = (id: string) => {
@@ -90,6 +133,17 @@ export function PedigreeGraph({
   };
   return (
     <div className="pedigree-layout">
+      <div className="pedigree-legend" aria-label="Légende du pedigree">
+        {kinds.map((kind) => (
+          <span key={kind} className={`kind-badge ${kind}`}>
+            {kindLabels[kind]}
+          </span>
+        ))}
+        <span className="status-badge archived">Archivé</span>
+        <span>
+          Sélectionnez un nœud pour ouvrir sa fiche et suivre sa lignée.
+        </span>
+      </div>
       <section
         className="pedigree-stage"
         aria-label="Graphe de pedigree interactif"
@@ -139,17 +193,28 @@ export function PedigreeGraph({
           onPointerLeave={() => setDrag(null)}
         >
           <g transform={`translate(${offset.x} ${offset.y}) scale(${scale})`}>
+            {kinds.map((kind, column) => (
+              <text
+                key={kind}
+                className="graph-column-label"
+                x={column * COL_W + 30}
+                y={TOP - 14}
+              >
+                {columnLabels[kind]}
+              </text>
+            ))}
             {edges.map((edge) => {
               const from = positions.get(edge.from);
               const to = positions.get(edge.to);
               if (!from || !to) return null;
-              const muted =
-                selected && !(related.has(edge.from) && related.has(edge.to));
+              const linked = related.has(edge.from) && related.has(edge.to);
+              const state = !selected ? "" : linked ? " active" : " muted";
+              const mid = NODE_H / 2;
               return (
                 <path
                   key={`${edge.from}-${edge.to}`}
-                  d={`M ${from.x + 170} ${from.y + 28} C ${from.x + 215} ${from.y + 28}, ${to.x - 45} ${to.y + 28}, ${to.x} ${to.y + 28}`}
-                  className={muted ? "graph-edge muted" : "graph-edge"}
+                  d={`M ${from.x + NODE_W} ${from.y + mid} C ${from.x + NODE_W + 42} ${from.y + mid}, ${to.x - 42} ${to.y + mid}, ${to.x} ${to.y + mid}`}
+                  className={`graph-edge${state}`}
                 />
               );
             })}
@@ -159,12 +224,12 @@ export function PedigreeGraph({
               return (
                 <g
                   key={node.id}
-                  className={`graph-node ${selected === node.id ? "selected" : ""} ${muted ? "muted" : ""}`}
+                  className={`graph-node ${node.kind}${selected === node.id ? " selected" : ""}${muted ? " muted" : ""}${node.archived ? " archived" : ""}`}
                   transform={`translate(${position.x} ${position.y})`}
                   onClick={() => center(node.id)}
                   role="button"
                   tabIndex={0}
-                  aria-label={`${node.kind} ${node.code}`}
+                  aria-label={`${node.kind} ${node.code}${node.archived ? " (archivé)" : ""}`}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       // Without this the key's default activation lands on
@@ -175,17 +240,26 @@ export function PedigreeGraph({
                   }}
                 >
                   <rect
-                    width="170"
-                    height="58"
-                    rx="10"
-                    fill={colors[node.kind]}
+                    className="node-body"
+                    width={NODE_W}
+                    height={NODE_H}
+                    rx="6"
                   />
-                  <text x="12" y="23">
+                  <rect
+                    className="node-accent"
+                    width="4"
+                    height={NODE_H}
+                    rx="2"
+                  />
+                  <NodeGlyph kind={node.kind} />
+                  <text x="14" y="22">
                     {node.code}
                   </text>
-                  <text className="node-kind" x="12" y="43">
-                    {node.kind}
+                  <text className="node-kind" x="14" y="40">
+                    {kindLabels[node.kind]}
                     {node.generation != null ? ` · G${node.generation}` : ""}
+                    {node.archived ? " · archivé" : ""}
+                    {node.name ? ` · ${truncate(node.name, 12)}` : ""}
                   </text>
                 </g>
               );

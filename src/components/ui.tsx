@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 export function PageHeader({
   eyebrow,
@@ -51,15 +51,41 @@ export function Card({
   return <section className={`card ${className}`.trim()}>{children}</section>;
 }
 
+export function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  aside,
+}: {
+  eyebrow?: string;
+  title: string;
+  description?: string;
+  aside?: ReactNode;
+}) {
+  return (
+    <div className="section-title">
+      <div>
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h2>{title}</h2>
+        {description && <p>{description}</p>}
+      </div>
+      {aside}
+    </div>
+  );
+}
+
 export function MetricCard({
   label,
   value,
   href,
+  attention = false,
 }: {
   label: string;
   value: ReactNode;
   href?: string;
+  attention?: boolean;
 }) {
+  const className = `metric${attention ? " attention" : ""}`;
   const content = (
     <>
       <small>{label}</small>
@@ -67,11 +93,11 @@ export function MetricCard({
     </>
   );
   return href ? (
-    <Link className="metric metric-link" href={href}>
+    <Link className={`${className} metric-link`} href={href}>
       {content}
     </Link>
   ) : (
-    <article className="metric">{content}</article>
+    <article className={className}>{content}</article>
   );
 }
 
@@ -80,9 +106,105 @@ export function StatusBadge({
   tone = "neutral",
 }: {
   children: ReactNode;
-  tone?: "neutral" | "success" | "warning" | "danger";
+  tone?: "neutral" | "success" | "warning" | "danger" | "info" | "archived";
 }) {
   return <span className={`status-badge ${tone}`}>{children}</span>;
+}
+
+const decisionLabels: Record<string, string> = {
+  elite: "Elite",
+  advance: "Advance",
+  reserve: "Reserve",
+  eliminate: "Eliminate",
+};
+
+// Selection decisions computed by PostgreSQL, with one shared visual scale.
+export function DecisionBadge({ decision }: { decision: string | null }) {
+  if (!decision) return <span className="status-badge">Non évalué</span>;
+  return (
+    <span className={`decision-badge ${decision}`}>
+      {decisionLabels[decision] ?? decision}
+    </span>
+  );
+}
+
+const kindLabels = {
+  parent: "Lignée",
+  cross: "Croisement",
+  family: "Famille",
+  lot: "Lot",
+} as const;
+
+export function KindBadge({ kind }: { kind: keyof typeof kindLabels }) {
+  return <span className={`kind-badge ${kind}`}>{kindLabels[kind]}</span>;
+}
+
+export function ActionMenu({
+  label,
+  children,
+  wide = false,
+  ref,
+}: {
+  label: string;
+  children: ReactNode;
+  wide?: boolean;
+  ref?: Ref<HTMLDetailsElement>;
+}) {
+  return (
+    <details className="action-menu" data-row-control ref={ref}>
+      <summary aria-label={label} title={label}>
+        ⋯
+      </summary>
+      <div className={`action-menu-panel${wide ? " wide" : ""}`}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
+export function PageNotice({
+  children,
+  tone = "success",
+}: {
+  children: ReactNode;
+  tone?: "success" | "error";
+}) {
+  return (
+    <p
+      className={`page-notice${tone === "error" ? " error" : ""}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      {children}
+    </p>
+  );
+}
+
+export function ProgramSwitch({
+  programs,
+  activeId,
+  basePath,
+}: {
+  programs: { id: string; code: string }[];
+  activeId?: string;
+  basePath: string;
+}) {
+  if (programs.length < 2) return null;
+  return (
+    <div className="program-switch">
+      <span>Programme</span>
+      <nav className="chip-nav" aria-label="Changer de programme">
+        {programs.map((program) => (
+          <Link
+            key={program.id}
+            className={program.id === activeId ? "active" : ""}
+            href={`${basePath}?program=${program.id}`}
+          >
+            {program.code}
+          </Link>
+        ))}
+      </nav>
+    </div>
+  );
 }
 
 export function EmptyState({
@@ -97,7 +219,7 @@ export function EmptyState({
   return (
     <div className="empty-state">
       <div className="empty-icon" aria-hidden="true">
-        ○
+        –
       </div>
       <h3>{title}</h3>
       <p>{message}</p>

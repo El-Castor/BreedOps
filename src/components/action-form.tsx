@@ -24,6 +24,7 @@ export function ActionForm({
   resetOnSuccess = true,
   disabled = false,
   submitLabel = "Enregistrer",
+  revealOnFlash = true,
 }: {
   action: FormAction;
   children: ReactNode;
@@ -32,6 +33,8 @@ export function ActionForm({
   resetOnSuccess?: boolean;
   disabled?: boolean;
   submitLabel?: string;
+  /** Open an enclosing menu so a restored success/error message is visible. */
+  revealOnFlash?: boolean;
 }) {
   const [state, setState] = useState(initialActionState);
   const [pending, setPending] = useState(false);
@@ -52,16 +55,40 @@ export function ActionForm({
       if (flash.actionName === actionName && flash.state) {
         setState(flash.state);
         window.sessionStorage.removeItem(flashKey);
+        if (revealOnFlash)
+          ref.current?.closest("details")?.setAttribute("open", "");
       }
     } catch {
       window.sessionStorage.removeItem(flashKey);
     }
-  }, [actionName]);
+  }, [actionName, revealOnFlash]);
   useEffect(() => {
     if (state.status === "success") {
       if (resetOnSuccess) ref.current?.reset();
     }
   }, [state.status, resetOnSuccess]);
+  // Inline validation: server-side Zod errors mark the matching controls and
+  // are listed under their visible label next to the form message.
+  const invalidKey = Object.keys(state.fieldErrors ?? {}).join(",");
+  const invalidFields = invalidKey ? invalidKey.split(",") : [];
+  useEffect(() => {
+    const form = ref.current;
+    if (!form) return;
+    form
+      .querySelectorAll("[aria-invalid]")
+      .forEach((element) => element.removeAttribute("aria-invalid"));
+    for (const name of invalidKey ? invalidKey.split(",") : []) {
+      const control = form.elements.namedItem(name);
+      if (control instanceof HTMLElement)
+        control.setAttribute("aria-invalid", "true");
+    }
+  }, [invalidKey]);
+  const fieldLabel = (name: string) => {
+    const control = ref.current?.elements.namedItem(name);
+    const label =
+      control instanceof HTMLElement ? control.closest("label") : null;
+    return label?.firstChild?.textContent?.trim() || name;
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -98,12 +125,19 @@ export function ActionForm({
     >
       {children}
       {state.message && (
-        <p
+        <div
           className={`form-message ${state.status}`}
           role={state.status === "error" ? "alert" : "status"}
         >
           {state.message}
-        </p>
+          {invalidFields.length > 0 && (
+            <ul>
+              {invalidFields.map((name) => (
+                <li key={name}>{fieldLabel(name)}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       <SubmitButton
         disabled={disabled || pending}
