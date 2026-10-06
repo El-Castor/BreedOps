@@ -1,6 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  type BreedingEntityDetail,
+  useEntityInspector,
+} from "@/components/entity-inspector";
 
 export type PedigreeNode = {
   id: string;
@@ -8,7 +12,7 @@ export type PedigreeNode = {
   code: string;
   name?: string | null;
   generation?: number | null;
-  details: string[];
+  entity: BreedingEntityDetail;
 };
 
 export type PedigreeEdge = { from: string; to: string };
@@ -23,11 +27,21 @@ const colors = {
 export function PedigreeGraph({
   nodes,
   edges,
+  initialSelectedId,
 }: {
   nodes: PedigreeNode[];
   edges: PedigreeEdge[];
+  initialSelectedId?: string | null;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
+  const { open } = useEntityInspector();
+  const [selected, setSelected] = useState<string | null>(
+    initialSelectedId ?? null,
+  );
+  // A pedigree link from the inspector (?entity=kind:id) reopens that record.
+  useEffect(() => {
+    const entity = nodes.find((node) => node.id === initialSelectedId)?.entity;
+    if (entity) open(entity);
+  }, [initialSelectedId, nodes, open]);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 30, y: 35 });
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
@@ -60,7 +74,6 @@ export function PedigreeGraph({
     }
     return found;
   }, [edges, selected]);
-  const active = nodes.find((node) => node.id === selected);
   const height = Math.max(
     420,
     ...(["parent", "cross", "family", "lot"] as const).map(
@@ -71,6 +84,8 @@ export function PedigreeGraph({
     const position = positions.get(id);
     if (!position) return;
     setSelected(id);
+    const entity = nodes.find((node) => node.id === id)?.entity;
+    if (entity) open(entity);
     setOffset({ x: 430 - position.x * scale, y: 220 - position.y * scale });
   };
   return (
@@ -151,8 +166,12 @@ export function PedigreeGraph({
                   tabIndex={0}
                   aria-label={`${node.kind} ${node.code}`}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ")
+                    if (event.key === "Enter" || event.key === " ") {
+                      // Without this the key's default activation lands on
+                      // the inspector close button that just received focus.
+                      event.preventDefault();
                       center(node.id);
+                    }
                   }}
                 >
                   <rect
@@ -174,37 +193,6 @@ export function PedigreeGraph({
           </g>
         </svg>
       </section>
-      <aside className="card pedigree-detail" aria-live="polite">
-        {active ? (
-          <>
-            <span className="eyebrow">{active.kind}</span>
-            <h2>{active.code}</h2>
-            {active.name && <p>{active.name}</p>}
-            <dl>
-              {active.details.map((detail) => (
-                <div key={detail}>
-                  <dt>Détail</dt>
-                  <dd>{detail}</dd>
-                </div>
-              ))}
-            </dl>
-            <button type="button" onClick={() => center(active.id)}>
-              Centrer ce nœud
-            </button>
-            <p className="form-hint">
-              Les ancêtres et descendants reliés restent mis en évidence.
-            </p>
-          </>
-        ) : (
-          <>
-            <h2>Détail du pedigree</h2>
-            <p>
-              Sélectionnez un nœud pour voir sa lignée et mettre en évidence ses
-              relations.
-            </p>
-          </>
-        )}
-      </aside>
     </div>
   );
 }
