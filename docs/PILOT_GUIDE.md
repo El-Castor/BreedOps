@@ -80,10 +80,28 @@ the programme registers.
 
 ## Phenotyping and selection
 
-Open **Phénotypes**, create the initial selection model, then create a phenotype linked
-to its family and seed lot. Enter every criterion score in **Nouvelle évaluation**.
-PostgreSQL stores criterion scores and calculates the weighted score, normalized score
-and automatic decision. The **Classement** table orders persisted evaluations.
+Phenotyping is configurable per programme: a team keeps a reusable **trait library**
+(any data type, unit, bounds and selection direction), groups traits into reusable
+**modules**, and each programme activates only the modules it follows. The evaluation
+form always reflects that programme's active traits — never a fixed list.
+
+1. Open **Phénotypes → Configuration du programme** and **Créer le modèle**: this creates
+   the initial "Sélection V1" module (six library traits — Vigueur, Architecture,
+   Rendement, Qualité sanitaire, Qualité analytique, Stabilité) and activates it for the
+   current programme. Existing teams can instead compose their own traits
+   (**Bibliothèque de traits** → **Nouveau trait**) and modules (**Modules** → **Nouveau
+   module**), then activate/deactivate them per programme from **Configuration du
+   programme**.
+2. In **Évaluations**, create a phenotype linked to its family and seed lot, then fill
+   **Nouvelle évaluation**: the form renders one row per active trait, grouped by module,
+   with the input type, unit and bounds driven by the trait's metadata. A trait with a
+   weight in the active selection model also shows its coefficient.
+3. PostgreSQL (`submit_trait_evaluation`) validates every value against its trait and
+   stores typed observations. When every weighted trait of the active model is measured,
+   the same call computes the weighted score, normalized score and automatic decision;
+   otherwise the evaluation is kept as an unscored observation. Traits can be reweighted,
+   or removed from the score while staying observed, from **Configuration du programme**.
+   The **Classement** table orders persisted, scored evaluations.
 
 ## Inventory
 
