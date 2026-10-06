@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" package.json eslint.config.js",
     "test": "vitest run",
-    "test:unit": "vitest run tests/auth.test.ts tests/request-security.test.ts",
+    "test:unit": "vitest run tests/auth.test.ts tests/request-security.test.ts tests/security-headers.test.ts tests/query-state.test.ts tests/user-management.test.ts",
     "test:auth": "vitest run tests/auth.integration.test.ts",
     "test:breeding": "vitest run tests/breeding.integration.test.ts",
     "test:phenotypes": "vitest run tests/phenotypes.integration.test.ts",

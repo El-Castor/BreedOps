@@ -276,16 +276,31 @@ export async function resetManagedUserPassword(input: unknown) {
       profile.role !== "user")
   )
     throw new Error("Action non autorisée.");
-  await audit(
-    identity,
-    values.userId,
-    profile.organization_id,
-    "admin_password_reset",
-  );
   const result = await admin.auth.admin.updateUserById(values.userId, {
     password: values.password,
   });
   if (result.error) throw new Error("Réinitialisation impossible.");
+  try {
+    await audit(
+      identity,
+      values.userId,
+      profile.organization_id,
+      "admin_password_reset",
+    );
+  } catch (error) {
+    const compensation = await admin.auth.admin.updateUserById(values.userId, {
+      ban_duration: "876000h",
+    });
+    if (compensation.error)
+      console.error("Password reset audit and compensation failed", {
+        targetUserId: values.userId,
+        auditError: error instanceof Error ? error.message : "unknown",
+        compensationError: compensation.error.message,
+      });
+    throw new Error(
+      "Le mot de passe a changé mais la journalisation a échoué. Le compte a été désactivé par sécurité.",
+    );
+  }
 }
 
 export async function listOrganizations() {

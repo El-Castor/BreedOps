@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendServerActionFields } from "./server-action";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
@@ -74,11 +75,13 @@ describe.sequential("real Supabase authentication over HTTP", () => {
   });
   it("rejects cross-origin login", async () => {
     const response = await request("/auth/login", {
-          method: "POST",
-          headers: { origin: "https://attacker.example" },
-        });
+      method: "POST",
+      headers: { origin: "https://attacker.example" },
+    });
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe(`${base}/login?error=unexpected`);
+    expect(response.headers.get("location")).toBe(
+      `${base}/login?error=unexpected`,
+    );
   });
   it("rejects invalid credentials", async () => {
     const response = await request("/auth/login", {
@@ -109,18 +112,17 @@ describe.sequential("real Supabase authentication over HTTP", () => {
     }
   });
   it("persists an allowed profile Server Action", async () => {
-    const html = await (await request("/app")).text();
+    const html = await (await request("/app/profile")).text();
     const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
       .map((match) => match[0])
       .find((value) => value.includes('data-action="profile"'));
-    const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
-    expect(action).toBeTruthy();
+    expect(form).toBeTruthy();
     const body = new FormData();
-    body.set(action!, "");
+    appendServerActionFields(body, html, "profile");
     body.set("display_name", "Synthetic updated profile");
     expect(
       (
-        await request("/app", {
+        await request("/app/profile", {
           method: "POST",
           headers: { origin: base },
           body,
@@ -140,18 +142,17 @@ describe.sequential("real Supabase authentication over HTTP", () => {
       .update({ role: "team_admin" })
       .eq("user_id", userId!);
     if (error) throw error;
-    const html = await (await request("/app")).text();
+    const html = await (await request("/app/admin/users")).text();
     const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
       .map((x) => x[0])
       .find((x) => x.includes('data-action="team"'));
-    const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
-    expect(action).toBeTruthy();
+    expect(form).toBeTruthy();
     const body = new FormData();
-    body.set(action!, "");
+    appendServerActionFields(body, html, "team");
     body.set("name", "Synthetic renamed team");
     expect(
       (
-        await request("/app", {
+        await request("/app/admin/users", {
           method: "POST",
           headers: { origin: base },
           body,
@@ -164,11 +165,11 @@ describe.sequential("real Supabase authentication over HTTP", () => {
       .eq("user_id", userId!);
     if (demotionError) throw demotionError;
     body.set("name", "Forbidden team rename");
-    const denied = await request("/app", {
-          method: "POST",
-          headers: { origin: base },
-          body,
-        });
+    const denied = await request("/app/admin/users", {
+      method: "POST",
+      headers: { origin: base },
+      body,
+    });
     expect(denied.status).toBe(303);
     expect(denied.headers.get("location")).toContain("error=forbidden");
     const { data } = await admin

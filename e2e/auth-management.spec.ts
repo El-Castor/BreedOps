@@ -24,6 +24,14 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByRole("button", { name: "Se connecter" }).click();
 }
 
+async function signOut(page: Page) {
+  await page.locator("header details > summary").click();
+  await Promise.all([
+    page.waitForURL(/\/login/),
+    page.getByRole("button", { name: "Déconnexion" }).click(),
+  ]);
+}
+
 async function emailLink(recipient: string, subject: string) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const listing = await (await fetch("http://127.0.0.1:55424/api/v1/messages")).json();
@@ -84,7 +92,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await create.getByLabel("Rôle").selectOption("user");
   await create.getByLabel("Équipe").selectOption(ids.teama);
   await create.getByLabel("Mot de passe temporaire").fill(oldPassword);
-  await create.getByRole("button", { name: "Create user" }).click();
+  await create.getByRole("button", { name: "Créer l’utilisateur" }).click();
   await expect(page.getByRole("status")).toContainText("Utilisateur créé");
   const created = await admin.auth.admin.listUsers();
   ids.member = created.data.users.find((user) => user.email === memberEmail)!.id;
@@ -94,7 +102,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await invite.getByLabel("Nom affiché").fill("Synthetic invited member");
   await invite.getByLabel("Rôle").selectOption("user");
   await invite.getByLabel("Équipe").selectOption(ids.teama);
-  await invite.getByRole("button", { name: "Invite user" }).click();
+  await invite.getByRole("button", { name: "Inviter l’utilisateur" }).click();
   await expect(page.getByRole("status")).toContainText("Invitation envoyée");
   const invited = await admin.auth.admin.listUsers();
   ids.invited = invited.data.users.find((user) => user.email === inviteEmail)!.id;
@@ -113,10 +121,12 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   let row = page.getByRole("row").filter({ hasText: memberEmail });
   const reset = row.locator('form[data-action="reset-user-password"]');
   await reset.getByPlaceholder("Nouveau mot de passe").fill(newPassword);
-  await reset.getByRole("button", { name: "Reset password" }).click();
+  await reset
+    .getByRole("button", { name: "Réinitialiser le mot de passe" })
+    .click();
   await expect(page.getByRole("status")).toContainText("Mot de passe réinitialisé");
 
-  await page.locator('form[action="/auth/logout"]').getByRole("button").click();
+  await signOut(page);
   await signIn(page, memberEmail, oldPassword);
   await expect(page).toHaveURL(/error=invalid/);
   await signIn(page, memberEmail, newPassword);
@@ -124,7 +134,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await expect(page.getByRole("link", { name: "Utilisateurs" })).toHaveCount(0);
   await page.goto("/app/admin/users");
   await expect(page).toHaveURL(/\/app\?error=forbidden/);
-  await page.locator('form[action="/auth/logout"]').getByRole("button").click();
+  await signOut(page);
 
   await signIn(page, systemEmail, systemPassword);
   await page.goto("/app/admin/users");
@@ -133,7 +143,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await update.locator('select[name="is_active"]').selectOption("false");
   await update.getByRole("button", { name: "Enregistrer" }).click();
   await expect(page.getByRole("status")).toContainText("Utilisateur mis à jour");
-  await page.locator('form[action="/auth/logout"]').getByRole("button").click();
+  await signOut(page);
   await signIn(page, memberEmail, newPassword);
   await expect(page).toHaveURL(/error=disabled/);
 
@@ -142,14 +152,17 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   row = page.getByRole("row").filter({ hasText: memberEmail });
   await row.locator('select[name="is_active"]').selectOption("true");
   await row.locator('select[name="role"]').selectOption("team_admin");
-  await row.getByRole("button", { name: "Enregistrer" }).click();
-  await page.locator('form[action="/auth/logout"]').getByRole("button").click();
+  await Promise.all([
+    page.waitForNavigation(),
+    row.getByRole("button", { name: "Enregistrer" }).click(),
+  ]);
+  await signOut(page);
 
   await signIn(page, memberEmail, newPassword);
   await page.goto("/app/admin/users");
   await expect(page.getByText(`foreign-${marker}@example.test`)).toHaveCount(0);
   await expect(page.locator('select[name="role"]').first()).toHaveValue("user");
-  await page.locator('form[action="/auth/logout"]').getByRole("button").click();
+  await signOut(page);
   await expect(page).toHaveURL(/\/login/);
   await page.goto("/app");
   await expect(page).toHaveURL(/\/login/);
