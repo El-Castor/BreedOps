@@ -97,12 +97,12 @@ export default async function Phenotypes({
     client
       .from("phenotype_traits")
       .select(
-        "id,code,name,description,category,data_type,unit,minimum_value,maximum_value,decimal_places,allowed_values,direction,target_value,protocol,is_active",
+        "id,organization_id,code,name,description,category,data_type,unit,minimum_value,maximum_value,decimal_places,allowed_values,direction,target_value,protocol,is_active",
       )
       .order("name"),
     client
       .from("phenotyping_modules")
-      .select("id,name,description,is_active")
+      .select("id,organization_id,name,description,is_active")
       .order("name"),
     client
       .from("phenotyping_module_traits")
@@ -148,6 +148,7 @@ export default async function Phenotypes({
           .is("deleted_at", null)
           .order("phenotype_code")
       : Promise.resolve(empty),
+    client.from("organizations").select("id,name"),
   ]);
   const labels = [
     "Impossible de charger la bibliothèque de traits.",
@@ -159,6 +160,7 @@ export default async function Phenotypes({
     "Impossible de charger les familles.",
     "Impossible de charger les lots.",
     "Impossible de charger les phénotypes.",
+    "Impossible de charger les équipes.",
   ];
   const states = results.map((result, index) =>
     collectionState(result, labels[index]),
@@ -180,6 +182,7 @@ export default async function Phenotypes({
   const traits = states[0].data as Trait[];
   const modules = states[1].data as {
     id: string;
+    organization_id: string;
     name: string;
     description: string | null;
     is_active: boolean;
@@ -216,6 +219,7 @@ export default async function Phenotypes({
     replicate: number | null;
     location: string | null;
   }[];
+  const teams = states[9].data as { id: string; name: string }[];
   const evaluationsState = collectionState(
     phenotypes.length
       ? await client
@@ -282,6 +286,17 @@ export default async function Phenotypes({
 
   const model = models.find((item) => item.is_active) ?? models[0];
   const traitById = new Map(traits.map((trait) => [trait.id, trait]));
+  const teamName = (value: string) =>
+    teams.find((item) => item.id === value)?.name ?? "—";
+  // A system_admin sees every team's traits/modules; without a visible team
+  // label, two teams' independent "Architecture" trait or "Sélection V1"
+  // module look like duplicates. Shown only when more than one team is
+  // actually present so the common single-team case stays uncluttered.
+  const multiTeam =
+    new Set([
+      ...traits.map((trait) => trait.organization_id),
+      ...modules.map((module) => module.organization_id),
+    ]).size > 1;
   const phenotypeName = (value: string) =>
     phenotypes.find((item) => item.id === value)?.phenotype_code ?? "—";
   const familyName = (value: string | null) =>
@@ -558,6 +573,7 @@ export default async function Phenotypes({
                   <thead>
                     <tr>
                       <th>Trait</th>
+                      {multiTeam && <th>Équipe</th>}
                       <th>Catégorie</th>
                       <th>Type</th>
                       <th>Plage / valeurs</th>
@@ -581,6 +597,11 @@ export default async function Phenotypes({
                             {trait.code}
                           </span>
                         </td>
+                        {multiTeam && (
+                          <td className="secondary-line">
+                            {teamName(trait.organization_id)}
+                          </td>
+                        )}
                         <td>{categoryLabels[trait.category]}</td>
                         <td>
                           <span className="chip type">
@@ -758,6 +779,11 @@ export default async function Phenotypes({
                         <h3>
                           <Icon name="module" />
                           {module.name}
+                          {multiTeam && (
+                            <span className="chip">
+                              {teamName(module.organization_id)}
+                            </span>
+                          )}
                         </h3>
                         <p>
                           {module.description ?? "Sans description"} ·{" "}

@@ -974,16 +974,18 @@ td strong.code {
   border-color: var(--border-strong);
   background: var(--surface);
 }
-.program-selector-trigger .code {
-  color: var(--teal);
-  font-family: var(--font-mono);
-  font-weight: 650;
-}
 .program-selector-trigger .name {
   overflow: hidden;
   max-width: 24ch;
-  color: var(--text-secondary);
+  color: var(--text);
+  font-weight: 650;
   text-overflow: ellipsis;
+}
+.program-selector-trigger .code {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 .program-selector-menu {
   position: absolute;
@@ -1001,7 +1003,7 @@ td strong.code {
 }
 .program-selector-menu a {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-3);
@@ -1014,9 +1016,10 @@ td strong.code {
   background: var(--surface-sunken);
 }
 .program-selector-menu .code {
-  color: var(--teal);
+  color: var(--text-muted);
   font-family: var(--font-mono);
-  font-weight: 650;
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 .header-spacer {
   flex: 1;
@@ -1198,6 +1201,12 @@ td strong.code {
 }
 .context-bar strong {
   font-weight: 600;
+}
+.context-code {
+  margin-left: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 .program-switch {
   display: flex;

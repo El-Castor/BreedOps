@@ -15,7 +15,12 @@ type Identity = {
   teamName: string;
 };
 
-type Program = { id: string; code: string; name: string };
+type Program = {
+  id: string;
+  code: string;
+  name: string;
+  teamName: string;
+};
 
 const roleLabels: Record<Role, string> = {
   system_admin: "Administrateur système",
@@ -91,6 +96,7 @@ export function AppShell({
   const activeProgram = scoped
     ? programs.find((item) => item.id === program) ?? programs[0]
     : undefined;
+  const multiTeam = new Set(programs.map((item) => item.teamName)).size > 1;
   const href = (path: string) =>
     program && programScoped.has(path) ? `${path}?program=${program}` : path;
   const initials =
@@ -190,8 +196,8 @@ export function AppShell({
                 title="Programme actif"
               >
                 <Icon name="program" />
-                <span className="code">{activeProgram.code}</span>
                 <span className="name">{activeProgram.name}</span>
+                <span className="code">{activeProgram.code}</span>
                 <Icon name="expand" size={14} />
               </button>
               {programMenu && (
@@ -205,8 +211,15 @@ export function AppShell({
                       href={`${pathname}?program=${item.id}`}
                       className={item.id === activeProgram.id ? "active" : ""}
                     >
+                      <span>
+                        {item.name}
+                        {multiTeam && (
+                          <small className="context-code">
+                            {item.teamName}
+                          </small>
+                        )}
+                      </span>
                       <span className="code">{item.code}</span>
-                      <span>{item.name}</span>
                       {item.id === activeProgram.id && (
                         <Icon name="check" size={14} />
                       )}

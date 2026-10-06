@@ -184,7 +184,7 @@ export function ProgramSwitch({
   activeId,
   basePath,
 }: {
-  programs: { id: string; code: string }[];
+  programs: { id: string; code: string; name: string }[];
   activeId?: string;
   basePath: string;
 }) {
@@ -198,8 +198,9 @@ export function ProgramSwitch({
             key={program.id}
             className={program.id === activeId ? "active" : ""}
             href={`${basePath}?program=${program.id}`}
+            title={program.code}
           >
-            {program.code}
+            {program.name}
           </Link>
         ))}
       </nav>
@@ -288,7 +289,10 @@ export function ProgramContext({
       <div>
         <span>Programme</span>
         <strong>
-          {program ? `${program.code} · ${program.name}` : "Aucun programme"}
+          {program ? program.name : "Aucun programme"}
+          {program && (
+            <small className="context-code code">{program.code}</small>
+          )}
         </strong>
       </div>
       <div>
