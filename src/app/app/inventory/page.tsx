@@ -1,5 +1,13 @@
-import Link from "next/link";
+import { ActionForm } from "@/components/action-form";
+import {
+  Breadcrumbs,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  StatusBadge,
+} from "@/components/ui";
 import { requireIdentity } from "@/lib/auth";
+import { collectionState } from "@/lib/query-state";
 import {
   createInventoryItem,
   createInventoryLot,
@@ -13,25 +21,45 @@ export default async function Inventory({
 }) {
   const { client, team } = await requireIdentity();
   const query = (await searchParams).q?.trim() ?? "";
-  const { data: items = [] } = await client
-    .from("inventory_items")
-    .select(
-      "id,category,name,cas_number,supplier_reference,default_unit,minimum_stock",
-    )
-    .eq("organization_id", team.id)
-    .is("deleted_at", null)
-    .order("name");
-  const itemIds = items?.map((item) => item.id) ?? [];
-  const { data: lots = [] } = itemIds.length
-    ? await client
-        .from("inventory_lots")
-        .select(
-          "id,inventory_item_id,batch_number,received_at,expiration_date,current_quantity,storage_location,status",
-        )
-        .in("inventory_item_id", itemIds)
-        .is("deleted_at", null)
-        .order("expiration_date")
-    : { data: [] };
+  const itemsState = collectionState(
+    await client
+      .from("inventory_items")
+      .select(
+        "id,category,name,cas_number,supplier_reference,default_unit,minimum_stock",
+      )
+      .eq("organization_id", team.id)
+      .is("deleted_at", null)
+      .order("name"),
+    "Impossible de charger les articles d’inventaire.",
+  );
+  if (itemsState.status === "error")
+    return (
+      <div className="page">
+        <ErrorState message={itemsState.message} retryHref="/app/inventory" />
+      </div>
+    );
+  const items = itemsState.data;
+  const itemIds = items.map((item) => item.id);
+  const lotsState = collectionState(
+    itemIds.length
+      ? await client
+          .from("inventory_lots")
+          .select(
+            "id,inventory_item_id,batch_number,received_at,expiration_date,current_quantity,storage_location,status",
+          )
+          .in("inventory_item_id", itemIds)
+          .is("deleted_at", null)
+          .order("expiration_date")
+      : { data: [], error: null },
+    "Impossible de charger les lots d’inventaire.",
+  );
+  if (lotsState.status === "error")
+    return (
+      <div className="page">
+        <ErrorState message={lotsState.message} retryHref="/app/inventory" />
+      </div>
+    );
+  const lots = lotsState.data;
   const needle = query.toLocaleLowerCase();
   const displayLots = query
     ? lots?.filter((lot) => {
@@ -46,26 +74,43 @@ export default async function Inventory({
       })
     : lots;
   const displayLotIds = displayLots?.map((lot) => lot.id) ?? [];
-  const [{ data: movements = [] }, { data: statuses = [] }] = await Promise.all(
-    [
-      displayLotIds.length
-        ? client
-            .from("inventory_movements")
-            .select(
-              "id,inventory_lot_id,movement_type,quantity,unit,movement_date,reason,created_at",
-            )
-            .in("inventory_lot_id", displayLotIds)
-            .is("deleted_at", null)
-            .order("created_at", { ascending: false })
-        : Promise.resolve({ data: [] }),
-      displayLotIds.length
-        ? client
-            .from("inventory_lot_status")
-            .select("inventory_lot_id,days_before_expiration,alert_level")
-            .in("inventory_lot_id", displayLotIds)
-        : Promise.resolve({ data: [] }),
-    ],
+  const [movementsResult, statusesResult] = await Promise.all([
+    displayLotIds.length
+      ? client
+          .from("inventory_movements")
+          .select(
+            "id,inventory_lot_id,movement_type,quantity,unit,movement_date,reason,created_at",
+          )
+          .in("inventory_lot_id", displayLotIds)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    displayLotIds.length
+      ? client
+          .from("inventory_lot_status")
+          .select("inventory_lot_id,days_before_expiration,alert_level")
+          .in("inventory_lot_id", displayLotIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const movementsState = collectionState(
+    movementsResult,
+    "Impossible de charger les mouvements.",
   );
+  const statusesState = collectionState(
+    statusesResult,
+    "Impossible de charger les alertes de stock.",
+  );
+  const failed = [movementsState, statusesState].find(
+    (state) => state.status === "error",
+  );
+  if (failed?.status === "error")
+    return (
+      <div className="page">
+        <ErrorState message={failed.message} retryHref="/app/inventory" />
+      </div>
+    );
+  const movements = movementsState.data;
+  const statuses = statusesState.data;
   const itemName = (id: string) =>
     items?.find((item) => item.id === id)?.name ?? "—";
   const lotName = (id: string) =>
@@ -74,19 +119,21 @@ export default async function Inventory({
     statuses?.find((status) => status.inventory_lot_id === id);
 
   return (
-    <main className="workspace">
-      <header>
-        <div>
-          <p className="eyebrow">{team.name}</p>
-          <h1>Inventaire et mouvements</h1>
-        </div>
-        <Link href="/app">Retour au programme</Link>
-      </header>
+    <div className="page">
+      <Breadcrumbs
+        items={[{ label: "Accueil", href: "/app" }, { label: "Inventaire" }]}
+      />
+      <PageHeader
+        eyebrow={team.name}
+        title="Inventaire et mouvements"
+        description="Suivez les articles, lots, stocks et mouvements dans un registre transactionnel."
+      />
       <section className="grid-2">
-        <form
+        <ActionForm
           action={createInventoryItem}
           className="card form"
-          data-action="inventory-item"
+          actionName="inventory-item"
+          submitLabel="Créer l’article"
         >
           <h2>Nouvel article</h2>
           <input type="hidden" name="organization_id" value={team.id} />
@@ -133,12 +180,13 @@ export default async function Inventory({
               <input name="storage_requirements" maxLength={300} />
             </label>
           </div>
-          <button>Créer l’article</button>
-        </form>
-        <form
+        </ActionForm>
+        <ActionForm
           action={createInventoryLot}
           className="card form"
-          data-action="inventory-lot"
+          actionName="inventory-lot"
+          submitLabel="Créer et réceptionner"
+          disabled={!items?.length}
         >
           <h2>Nouveau lot et réception</h2>
           <label>
@@ -182,15 +230,19 @@ export default async function Inventory({
               <input name="storage_location" maxLength={160} />
             </label>
           </div>
-          <button disabled={!items?.length}>Créer et réceptionner</button>
-        </form>
+          {!items?.length && (
+            <p className="form-hint">Créez d’abord un article.</p>
+          )}
+        </ActionForm>
       </section>
       <section className="card">
         <h2>Mouvement traçable</h2>
-        <form
+        <ActionForm
           action={recordInventoryMovement}
           className="form"
-          data-action="inventory-movement"
+          actionName="inventory-movement"
+          submitLabel="Enregistrer le mouvement"
+          disabled={!lots?.length}
         >
           <div className="fields-3">
             <label>
@@ -240,8 +292,10 @@ export default async function Inventory({
               <input name="notes" maxLength={500} />
             </label>
           </div>
-          <button disabled={!lots?.length}>Enregistrer le mouvement</button>
-        </form>
+          {!lots?.length && (
+            <p className="form-hint">Réceptionnez d’abord un lot.</p>
+          )}
+        </ActionForm>
       </section>
       <section className="card table-wrap">
         <div className="section-heading">
@@ -281,7 +335,13 @@ export default async function Inventory({
                   </td>
                   <td>{lot.expiration_date ?? "—"}</td>
                   <td>
-                    <strong>{alert?.alert_level ?? "ok"}</strong>
+                    <StatusBadge
+                      tone={
+                        alert?.alert_level === "urgent" ? "danger" : "neutral"
+                      }
+                    >
+                      {alert?.alert_level ?? "ok"}
+                    </StatusBadge>
                     {alert?.days_before_expiration != null
                       ? ` · ${alert.days_before_expiration} j`
                       : ""}
@@ -292,7 +352,12 @@ export default async function Inventory({
             })}
           </tbody>
         </table>
-        {!displayLots?.length && <p>Aucun lot.</p>}
+        {!displayLots?.length && (
+          <EmptyState
+            title="Aucun lot"
+            message="Créez un article puis réceptionnez son premier lot."
+          />
+        )}
       </section>
       <section className="card table-wrap">
         <h2>Historique des mouvements</h2>
@@ -320,8 +385,13 @@ export default async function Inventory({
             ))}
           </tbody>
         </table>
-        {!movements?.length && <p>Aucun mouvement.</p>}
+        {!movements?.length && (
+          <EmptyState
+            title="Aucun mouvement"
+            message="Les réceptions, consommations et ajustements apparaîtront ici."
+          />
+        )}
       </section>
-    </main>
+    </div>
   );
 }

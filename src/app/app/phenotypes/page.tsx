@@ -1,5 +1,15 @@
 import Link from "next/link";
+import { ActionForm } from "@/components/action-form";
+import {
+  Breadcrumbs,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  ProgramContext,
+  StatusBadge,
+} from "@/components/ui";
 import { requireIdentity } from "@/lib/auth";
+import { collectionState } from "@/lib/query-state";
 import {
   createInitialModel,
   createPhenotype,
@@ -14,11 +24,24 @@ export default async function Phenotypes({
 }) {
   const { client, team } = await requireIdentity();
   const params = await searchParams;
-  const { data: programs = [] } = await client
-    .from("programs")
-    .select("id,code,name")
-    .is("deleted_at", null)
-    .order("code");
+  const programsState = collectionState(
+    await client
+      .from("programs")
+      .select("id,code,name")
+      .is("deleted_at", null)
+      .order("code"),
+    "Impossible de charger les programmes.",
+  );
+  if (programsState.status === "error")
+    return (
+      <div className="page">
+        <ErrorState
+          message={programsState.message}
+          retryHref="/app/phenotypes"
+        />
+      </div>
+    );
+  const programs = programsState.data;
   const program =
     programs?.find((item) => item.id === params.program) ?? programs?.[0];
   const programId = program?.id;
@@ -51,33 +74,93 @@ export default async function Phenotypes({
           .is("deleted_at", null)
           .order("created_at"),
       ])
-    : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
-  const families = familiesResult.data ?? [];
-  const lots = lotsResult.data ?? [];
-  const phenotypes = phenotypesResult.data ?? [];
-  const models = modelsResult.data ?? [];
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+      ];
+  const familiesState = collectionState(
+    familiesResult,
+    "Impossible de charger les familles.",
+  );
+  const lotsState = collectionState(
+    lotsResult,
+    "Impossible de charger les lots.",
+  );
+  const phenotypesState = collectionState(
+    phenotypesResult,
+    "Impossible de charger les phénotypes.",
+  );
+  const modelsState = collectionState(
+    modelsResult,
+    "Impossible de charger les modèles.",
+  );
+  const initialFailure = [
+    familiesState,
+    lotsState,
+    phenotypesState,
+    modelsState,
+  ].find((state) => state.status === "error");
+  if (initialFailure?.status === "error")
+    return (
+      <div className="page">
+        <ErrorState
+          message={initialFailure.message}
+          retryHref={
+            programId
+              ? `/app/phenotypes?program=${programId}`
+              : "/app/phenotypes"
+          }
+        />
+      </div>
+    );
+  const families = familiesState.data;
+  const lots = lotsState.data;
+  const phenotypes = phenotypesState.data;
+  const models = modelsState.data;
   const model = models.find((item) => item.id === params.model) ?? models[0];
-  const { data: criteria = [] } = model
-    ? await client
-        .from("selection_criteria")
-        .select(
-          "id,code,name,coefficient,minimum_value,maximum_value,display_order",
-        )
-        .eq("selection_model_id", model.id)
-        .is("deleted_at", null)
-        .order("display_order")
-    : { data: [] };
+  const criteriaState = collectionState(
+    model
+      ? await client
+          .from("selection_criteria")
+          .select(
+            "id,code,name,coefficient,minimum_value,maximum_value,display_order",
+          )
+          .eq("selection_model_id", model.id)
+          .is("deleted_at", null)
+          .order("display_order")
+      : { data: [], error: null },
+    "Impossible de charger les critères.",
+  );
   const phenotypeIds = phenotypes.map((item) => item.id);
-  const { data: evaluations = [] } = phenotypeIds.length
-    ? await client
-        .from("phenotype_evaluations")
-        .select(
-          "id,phenotype_id,selection_model_id,evaluation_date,weighted_score,normalized_score,automatic_decision,validation_status",
-        )
-        .in("phenotype_id", phenotypeIds)
-        .is("deleted_at", null)
-        .order("weighted_score", { ascending: false })
-    : { data: [] };
+  const evaluationsState = collectionState(
+    phenotypeIds.length
+      ? await client
+          .from("phenotype_evaluations")
+          .select(
+            "id,phenotype_id,selection_model_id,evaluation_date,weighted_score,normalized_score,automatic_decision,validation_status",
+          )
+          .in("phenotype_id", phenotypeIds)
+          .is("deleted_at", null)
+          .order("weighted_score", { ascending: false })
+      : { data: [], error: null },
+    "Impossible de charger les évaluations.",
+  );
+  const laterFailure = [criteriaState, evaluationsState].find(
+    (state) => state.status === "error",
+  );
+  if (laterFailure?.status === "error")
+    return (
+      <div className="page">
+        <ErrorState
+          message={laterFailure.message}
+          retryHref={`/app/phenotypes?program=${programId}`}
+        />
+      </div>
+    );
+  const criteria = criteriaState.data;
+  const evaluations = evaluationsState.data;
   const familyName = (value: string | null) =>
     families.find((item) => item.id === value)?.family_code ?? "—";
   const lotName = (value: string | null) =>
@@ -87,16 +170,16 @@ export default async function Phenotypes({
   const modelName = (value: string) =>
     models.find((item) => item.id === value)?.name ?? "—";
   return (
-    <main className="workspace">
-      <header>
-        <div>
-          <p className="eyebrow">{team.name}</p>
-          <h1>Notation phénotypique</h1>
-        </div>
-        <Link href={programId ? `/app?program=${programId}` : "/app"}>
-          Retour aux croisements
-        </Link>
-      </header>
+    <div className="page">
+      <Breadcrumbs
+        items={[{ label: "Accueil", href: "/app" }, { label: "Phénotypes" }]}
+      />
+      <PageHeader
+        eyebrow="Sélection"
+        title="Notation phénotypique"
+        description="Configurez le modèle, évaluez les individus et comparez les décisions calculées par PostgreSQL."
+      />
+      <ProgramContext team={team.name} program={program} />
       <nav className="program-nav">
         {programs?.map((item) => (
           <Link
@@ -109,16 +192,19 @@ export default async function Phenotypes({
         ))}
       </nav>
       {!program ? (
-        <section className="card">
-          <p>Créez d’abord un programme.</p>
-        </section>
+        <EmptyState
+          title="Aucun programme"
+          message="Créez un programme avant d’enregistrer des phénotypes."
+          action={{ label: "Créer un programme", href: "/app" }}
+        />
       ) : (
         <>
           <section className="grid-2">
-            <form
+            <ActionForm
               action={createInitialModel}
               className="card form"
-              data-action="model"
+              actionName="model"
+              submitLabel="Créer le modèle"
             >
               <h2>Nouveau modèle initial</h2>
               <input type="hidden" name="program_id" value={programId} />
@@ -132,12 +218,13 @@ export default async function Phenotypes({
                   Reserve, Eliminate.
                 </small>
               </p>
-              <button>Créer le modèle</button>
-            </form>
-            <form
+            </ActionForm>
+            <ActionForm
               action={createPhenotype}
               className="card form"
-              data-action="phenotype"
+              actionName="phenotype"
+              submitLabel="Créer le phénotype"
+              disabled={!families.length || !lots.length}
             >
               <h2>Nouveau phénotype</h2>
               <input type="hidden" name="program_id" value={programId} />
@@ -181,8 +268,12 @@ export default async function Phenotypes({
                   <input name="location" maxLength={160} />
                 </label>
               </div>
-              <button disabled={!families.length || !lots.length}>Créer</button>
-            </form>
+              {(!families.length || !lots.length) && (
+                <p className="form-hint">
+                  Créez d’abord une famille et un lot de graines.
+                </p>
+              )}
+            </ActionForm>
           </section>
           <section className="card">
             <h2>Modèles et critères</h2>
@@ -200,10 +291,11 @@ export default async function Phenotypes({
             {model && (
               <div className="criteria-grid">
                 {criteria?.map((item) => (
-                  <form
+                  <ActionForm
                     action={updateCriterion}
                     className="form"
-                    data-action={`criterion-${item.code}`}
+                    actionName={`criterion-${item.code}`}
+                    submitLabel="Modifier"
                     key={item.id}
                   >
                     <input type="hidden" name="criterion_id" value={item.id} />
@@ -222,8 +314,7 @@ export default async function Phenotypes({
                     <small>
                       Note {item.minimum_value}–{item.maximum_value}
                     </small>
-                    <button>Modifier</button>
-                  </form>
+                  </ActionForm>
                 ))}
               </div>
             )}
@@ -254,15 +345,22 @@ export default async function Phenotypes({
                 ))}
               </tbody>
             </table>
-            {!phenotypes.length && <p>Aucun phénotype.</p>}
+            {!phenotypes.length && (
+              <EmptyState
+                title="Aucun phénotype"
+                message="Créez un phénotype lié à une famille et un lot."
+              />
+            )}
           </section>
           {model && (
             <section className="card">
               <h2>Nouvelle évaluation — {model.name}</h2>
-              <form
+              <ActionForm
                 action={evaluatePhenotype}
                 className="form"
-                data-action="evaluation"
+                actionName="evaluation"
+                submitLabel="Calculer et enregistrer"
+                disabled={!phenotypes.length || !criteria?.length}
               >
                 <label>
                   Phénotype
@@ -295,10 +393,13 @@ export default async function Phenotypes({
                     </label>
                   ))}
                 </div>
-                <button disabled={!phenotypes.length || !criteria?.length}>
-                  Calculer et enregistrer
-                </button>
-              </form>
+                {(!phenotypes.length || !criteria?.length) && (
+                  <p className="form-hint">
+                    Créez un phénotype et configurez un modèle avant
+                    l’évaluation.
+                  </p>
+                )}
+              </ActionForm>
             </section>
           )}
           <section className="card table-wrap">
@@ -324,17 +425,30 @@ export default async function Phenotypes({
                     <td>{item.weighted_score}</td>
                     <td>{item.normalized_score} %</td>
                     <td>
-                      <strong>{item.automatic_decision}</strong>
+                      <StatusBadge
+                        tone={
+                          item.automatic_decision === "elite"
+                            ? "success"
+                            : "neutral"
+                        }
+                      >
+                        {item.automatic_decision}
+                      </StatusBadge>
                     </td>
                     <td>{item.evaluation_date}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!evaluations?.length && <p>Aucune évaluation.</p>}
+            {!evaluations?.length && (
+              <EmptyState
+                title="Aucune évaluation"
+                message="Les résultats classés apparaîtront après la première notation."
+              />
+            )}
           </section>
         </>
       )}
-    </main>
+    </div>
   );
 }

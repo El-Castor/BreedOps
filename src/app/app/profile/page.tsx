@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Breadcrumbs, PageHeader, StatusBadge } from "@/components/ui";
 import { requireIdentity } from "@/lib/auth";
 import { updateDisplayName } from "../actions";
 import { changePassword } from "./actions";
@@ -11,14 +11,15 @@ export default async function ProfilePage({
   const { user, profile, team } = await requireIdentity();
   const params = await searchParams;
   return (
-    <main className="workspace">
-      <header>
-        <div>
-          <p className="eyebrow">Compte</p>
-          <h1>Mon profil</h1>
-        </div>
-        <Link href="/app">Retour à BreedOps</Link>
-      </header>
+    <div className="page">
+      <Breadcrumbs
+        items={[{ label: "Accueil", href: "/app" }, { label: "Mon profil" }]}
+      />
+      <PageHeader
+        eyebrow="Compte"
+        title="Mon profil"
+        description="Consultez votre identité, votre périmètre d’accès et vos paramètres de sécurité."
+      />
       {params.error && (
         <p role="alert">
           {params.error === "mismatch"
@@ -34,11 +35,17 @@ export default async function ProfilePage({
             <dt>Email</dt>
             <dd>{user.email}</dd>
             <dt>Rôle</dt>
-            <dd>{profile.role}</dd>
+            <dd>
+              <StatusBadge>{profile.role}</StatusBadge>
+            </dd>
             <dt>Équipe</dt>
             <dd>{team.name}</dd>
           </dl>
-          <form action={updateDisplayName} className="form">
+          <form
+            action={updateDisplayName}
+            className="form"
+            data-action="profile"
+          >
             <label>
               Nom affiché
               <input
@@ -81,6 +88,6 @@ export default async function ProfilePage({
           </form>
         </section>
       </section>
-    </main>
+    </div>
   );
 }

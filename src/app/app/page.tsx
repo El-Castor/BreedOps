@@ -1,563 +1,365 @@
 import Link from "next/link";
-import { requireIdentity } from "@/lib/auth";
-import { updateDisplayName, updateTeamName } from "./actions";
+import { ActionForm } from "@/components/action-form";
 import {
-  createCross,
-  createFamily,
-  createGerminationTest,
-  createParentLine,
-  createProgram,
-  createSeedLot,
-  updateCross,
-} from "./breeding-actions";
+  Breadcrumbs,
+  Card,
+  EmptyState,
+  ErrorState,
+  MetricCard,
+  PageHeader,
+  ProgramContext,
+  StatusBadge,
+} from "@/components/ui";
+import { requireIdentity } from "@/lib/auth";
+import { collectionState } from "@/lib/query-state";
+import { createProgram } from "./breeding-actions";
 
-type Params = { program?: string; q?: string; error?: string };
-export default async function Application({
+export default async function Dashboard({
   searchParams,
 }: {
-  searchParams: Promise<Params>;
+  searchParams: Promise<{ program?: string }>;
 }) {
-  const { client, user, profile, team } = await requireIdentity();
+  const { client, team } = await requireIdentity();
   const params = await searchParams;
-  const { data: programs = [] } = await client
-    .from("programs")
-    .select("id,code,name,species,campaign")
-    .is("deleted_at", null)
-    .order("code");
-  const selected =
-    programs?.find((program) => program.id === params.program) ?? programs?.[0];
-  const programId = selected?.id;
-  let parentsQuery = client
-    .from("parent_lines")
-    .select("id,parent_code,line_name,generation,status")
-    .is("deleted_at", null)
-    .order("parent_code");
-  let crossesQuery = client
-    .from("crosses")
-    .select(
-      "id,cross_code,female_parent_id,male_parent_id,pollination_date,pollinated_units,total_seeds,status,notes",
-    )
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
-  let familiesQuery = client
-    .from("families")
-    .select("id,family_code,cross_id,generation,status")
-    .is("deleted_at", null)
-    .order("family_code");
-  let lotsQuery = client
-    .from("seed_lots")
-    .select(
-      "id,seed_lot_code,cross_id,family_id,harvest_date,total_quantity,quantity_unit,storage_location,status",
-    )
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
-  if (programId) {
-    parentsQuery = parentsQuery.eq("program_id", programId);
-    crossesQuery = crossesQuery.eq("program_id", programId);
-    familiesQuery = familiesQuery.eq("program_id", programId);
-    lotsQuery = lotsQuery.eq("program_id", programId);
-  } else {
-    parentsQuery = parentsQuery.limit(0);
-    crossesQuery = crossesQuery.limit(0);
-    familiesQuery = familiesQuery.limit(0);
-    lotsQuery = lotsQuery.limit(0);
-  }
-  if (params.q?.trim())
-    crossesQuery = crossesQuery.ilike(
-      "cross_code",
-      `%${params.q.trim().replace(/[%_]/g, "\\$&")}%`,
+  const programsState = collectionState(
+    await client
+      .from("programs")
+      .select("id,code,name,species,campaign")
+      .is("deleted_at", null)
+      .order("code"),
+    "Impossible de charger vos programmes.",
+  );
+  if (programsState.status === "error")
+    return (
+      <div className="page">
+        <ErrorState message={programsState.message} retryHref="/app" />
+      </div>
     );
-  const [
-    { data: parents = [] },
-    { data: crosses = [] },
-    { data: families = [] },
-    { data: lots = [] },
-  ] = await Promise.all([parentsQuery, crossesQuery, familiesQuery, lotsQuery]);
-  const lotIds = lots?.map((lot) => lot.id) ?? [];
-  const { data: tests = [] } = lotIds.length
-    ? await client
-        .from("germination_tests")
-        .select(
-          "id,seed_lot_id,test_date,evaluation_day,seeds_tested,seeds_germinated,germination_rate,method",
-        )
-        .in("seed_lot_id", lotIds)
-        .is("deleted_at", null)
-        .order("test_date", { ascending: false })
-    : { data: [] };
-  const parentName = (value: string) =>
-    parents?.find((parent) => parent.id === value)?.parent_code ?? "—";
-  const crossName = (value: string | null) =>
-    crosses?.find((cross) => cross.id === value)?.cross_code ?? "—";
-  const familyName = (value: string | null) =>
-    families?.find((family) => family.id === value)?.family_code ?? "—";
-  const lotName = (value: string) =>
-    lots?.find((lot) => lot.id === value)?.seed_lot_code ?? "—";
+  const programs = programsState.data;
+  const program =
+    programs.find((item) => item.id === params.program) ?? programs[0];
+  const programId = program?.id;
+  const empty = { data: [], error: null };
+  const results = programId
+    ? await Promise.all([
+        client
+          .from("parent_lines")
+          .select("id,parent_code,created_at")
+          .eq("program_id", programId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        client
+          .from("crosses")
+          .select("id,cross_code,created_at")
+          .eq("program_id", programId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        client
+          .from("families")
+          .select("id,family_code,created_at")
+          .eq("program_id", programId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        client
+          .from("seed_lots")
+          .select("id,seed_lot_code,created_at")
+          .eq("program_id", programId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        client
+          .from("phenotypes")
+          .select("id,phenotype_code,created_at")
+          .eq("program_id", programId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+        client
+          .from("tasks")
+          .select("id,title,status,created_at")
+          .eq("program_id", programId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false }),
+      ])
+    : [empty, empty, empty, empty, empty, empty];
+  const states = [
+    collectionState(results[0], "Impossible de charger les parents."),
+    collectionState(results[1], "Impossible de charger les croisements."),
+    collectionState(results[2], "Impossible de charger les familles."),
+    collectionState(results[3], "Impossible de charger les lots."),
+    collectionState(results[4], "Impossible de charger les phénotypes."),
+    collectionState(results[5], "Impossible de charger les tâches."),
+  ];
+  const failed = states.find((state) => state.status === "error");
+  if (failed?.status === "error")
+    return (
+      <div className="page">
+        <ErrorState
+          message={failed.message}
+          retryHref={programId ? `/app?program=${programId}` : "/app"}
+        />
+      </div>
+    );
+  const parents = states[0].data as {
+    id: string;
+    parent_code: string;
+    created_at: string;
+  }[];
+  const crosses = states[1].data as {
+    id: string;
+    cross_code: string;
+    created_at: string;
+  }[];
+  const families = states[2].data as {
+    id: string;
+    family_code: string;
+    created_at: string;
+  }[];
+  const lots = states[3].data as {
+    id: string;
+    seed_lot_code: string;
+    created_at: string;
+  }[];
+  const phenotypes = states[4].data as {
+    id: string;
+    phenotype_code: string;
+    created_at: string;
+  }[];
+  const tasks = states[5].data as {
+    id: string;
+    title: string;
+    status: string;
+    created_at: string;
+  }[];
+  const base = programId ? `?program=${programId}` : "";
+  const workflow = [
+    {
+      label: "Parents",
+      count: parents.length,
+      href: `/app/breeding${base}#parents`,
+      ready: true,
+    },
+    {
+      label: "Croisements",
+      count: crosses.length,
+      href: `/app/breeding${base}#crosses`,
+      ready: parents.length >= 2,
+    },
+    {
+      label: "Familles",
+      count: families.length,
+      href: `/app/breeding${base}#families`,
+      ready: crosses.length > 0,
+    },
+    {
+      label: "Lots",
+      count: lots.length,
+      href: `/app/breeding${base}#lots`,
+      ready: families.length > 0,
+    },
+    {
+      label: "Germination",
+      count: lots.length,
+      href: `/app/breeding${base}#germination`,
+      ready: lots.length > 0,
+    },
+  ];
+  const recent = [
+    ...parents
+      .slice(0, 2)
+      .map((item: { id: string; parent_code: string; created_at: string }) => ({
+        id: item.id,
+        label: item.parent_code,
+        type: "Lignée",
+        date: item.created_at,
+      })),
+    ...crosses
+      .slice(0, 2)
+      .map((item: { id: string; cross_code: string; created_at: string }) => ({
+        id: item.id,
+        label: item.cross_code,
+        type: "Croisement",
+        date: item.created_at,
+      })),
+    ...lots
+      .slice(0, 2)
+      .map(
+        (item: { id: string; seed_lot_code: string; created_at: string }) => ({
+          id: item.id,
+          label: item.seed_lot_code,
+          type: "Lot",
+          date: item.created_at,
+        }),
+      ),
+  ]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5);
 
   return (
-    <main className="workspace">
-      {params.error === "forbidden" && (
-        <p role="alert">Action non autorisée.</p>
-      )}
-      <header>
-        <div>
-          <p className="eyebrow">{team.name}</p>
-          <h1>BreedOps</h1>
-          <p>
-            {profile.display_name || user.email} — {profile.role}
-          </p>
-        </div>
-        <form action="/auth/logout" method="post">
-          <button>Déconnexion</button>
-        </form>
-      </header>
-      <nav className="program-nav" aria-label="Programmes">
-        <Link href="/app/profile">Mon profil</Link>
-        {profile.role !== "user" && (
-          <Link href="/app/admin/users">Utilisateurs</Link>
-        )}
-        <Link
-          href={
-            programId
-              ? `/app/phenotypes?program=${programId}`
-              : "/app/phenotypes"
-          }
-        >
-          Notation phénotypique
-        </Link>
-        <Link href="/app/inventory">Inventaire</Link>
-        <Link
-          href={
-            programId
-              ? `/app/operations?program=${programId}`
-              : "/app/operations"
-          }
-        >
-          Opérations
-        </Link>
-        {programs?.map((program) => (
-          <Link
-            key={program.id}
-            className={program.id === programId ? "active" : ""}
-            href={`/app?program=${program.id}`}
-          >
-            {program.code}
-          </Link>
-        ))}
-      </nav>
-      <section className="grid-2">
-        <form
-          action={createProgram}
-          className="card form"
-          data-action="program"
-        >
-          <h2>Nouveau programme</h2>
-          <label>
-            Code
-            <input name="code" required maxLength={80} />
-          </label>
-          <label>
-            Nom
-            <input name="name" required maxLength={160} />
-          </label>
-          <label>
-            Espèce
-            <input name="species" required maxLength={160} />
-          </label>
-          <label>
-            Campagne
-            <input name="campaign" maxLength={40} />
-          </label>
-          <button>Créer le programme</button>
-        </form>
-        <section className="card">
-          <h2>Compte et équipe</h2>
-          <form
-            action={updateDisplayName}
-            className="form"
-            data-action="profile"
-          >
-            <label>
-              Nom affiché
-              <input
-                name="display_name"
-                defaultValue={profile.display_name || ""}
-                required
-                maxLength={120}
-              />
-            </label>
-            <button>Enregistrer mon profil</button>
-          </form>
-          {profile.role !== "user" && (
-            <form
-              action={updateTeamName}
-              className="form compact"
-              data-action="team"
-            >
-              <label>
-                Nom de l’équipe
-                <input
-                  name="name"
-                  defaultValue={team.name}
-                  required
-                  maxLength={120}
-                />
-              </label>
-              <button>Enregistrer l’équipe</button>
-            </form>
-          )}
-        </section>
-      </section>
-      {!selected ? (
-        <section className="card empty">
-          <h2>Commencez par créer un programme</h2>
-          <p>Les lignées et les lots seront rattachés à ce programme.</p>
-        </section>
-      ) : (
+    <div className="page">
+      <Breadcrumbs items={[{ label: "Accueil" }]} />
+      <PageHeader
+        eyebrow="Tableau de bord"
+        title="Vue d’ensemble"
+        description="Votre programme actif, ses prochaines étapes et les données récemment enregistrées."
+      />
+      <ProgramContext team={team.name} program={program} />
+      {program ? (
         <>
-          <header className="section-header">
+          <Card className="program-picker">
             <div>
-              <p className="eyebrow">{selected.code}</p>
-              <h2>{selected.name}</h2>
-              <small>
-                {selected.species} ·{" "}
-                {selected.campaign || "campagne non renseignée"}
-              </small>
+              <h2>Programme actif</h2>
+              <p>Changez de programme sans mélanger les registres.</p>
             </div>
-            <form className="search">
-              <input name="program" type="hidden" value={programId} />
-              <label>
-                Rechercher un croisement
-                <input name="q" defaultValue={params.q} placeholder="Code" />
-              </label>
-              <button>Rechercher</button>
-            </form>
-          </header>
-          <section className="grid-2">
-            <form
-              action={createParentLine}
-              className="card form"
-              data-action="parent"
-            >
-              <h2>Ajouter une lignée parentale</h2>
-              <input type="hidden" name="program_id" value={programId} />
-              <label>
-                Code
-                <input name="parent_code" required maxLength={80} />
-              </label>
-              <label>
-                Nom de lignée
-                <input name="line_name" required maxLength={160} />
-              </label>
-              <label>
-                Génération
-                <input name="generation" type="number" min="0" />
-              </label>
-              <button>Ajouter la lignée</button>
-            </form>
-            <form
-              action={createCross}
-              className="card form"
-              data-action="cross"
-            >
-              <h2>Créer un croisement</h2>
-              <input type="hidden" name="program_id" value={programId} />
-              <label>
-                Code
-                <input name="cross_code" required maxLength={80} />
-              </label>
-              <label>
-                Parent femelle
-                <select name="female_parent_id" required>
-                  <option value="">Choisir</option>
-                  {parents?.map((parent) => (
-                    <option key={parent.id} value={parent.id}>
-                      {parent.parent_code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Parent mâle
-                <select name="male_parent_id" required>
-                  <option value="">Choisir</option>
-                  {parents?.map((parent) => (
-                    <option key={parent.id} value={parent.id}>
-                      {parent.parent_code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Date de pollinisation
-                <input name="pollination_date" type="date" required />
-              </label>
-              <div className="fields-3">
-                <label>
-                  Unités pollinisées
-                  <input name="pollinated_units" type="number" min="0" />
-                </label>
-                <label>
-                  Unités établies
-                  <input name="established_units" type="number" min="0" />
-                </label>
-                <label>
-                  Graines
-                  <input name="total_seeds" type="number" min="0" />
-                </label>
-              </div>
-              <button disabled={(parents?.length ?? 0) < 2}>
-                Créer le croisement
-              </button>
-            </form>
+            <nav className="chip-nav" aria-label="Programmes">
+              {programs.map((item) => (
+                <Link
+                  key={item.id}
+                  className={item.id === programId ? "active" : ""}
+                  href={`/app?program=${item.id}`}
+                >
+                  {item.code}
+                </Link>
+              ))}
+            </nav>
+          </Card>
+          <section>
+            <h2>Résumé rapide</h2>
+            <div className="metrics-grid">
+              <MetricCard
+                label="Parents"
+                value={parents.length}
+                href={`/app/breeding${base}#parents`}
+              />
+              <MetricCard
+                label="Croisements"
+                value={crosses.length}
+                href={`/app/breeding${base}#crosses`}
+              />
+              <MetricCard
+                label="Familles"
+                value={families.length}
+                href={`/app/breeding${base}#families`}
+              />
+              <MetricCard
+                label="Lots de graines"
+                value={lots.length}
+                href={`/app/breeding${base}#lots`}
+              />
+              <MetricCard
+                label="Phénotypes"
+                value={phenotypes.length}
+                href={`/app/phenotypes${base}`}
+              />
+              <MetricCard
+                label="Tâches"
+                value={tasks.length}
+                href={`/app/operations${base}`}
+              />
+            </div>
           </section>
-          <section className="card table-wrap">
-            <h2>Croisements</h2>
-            {!crosses?.length ? (
-              <p>Aucun croisement.</p>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Parents</th>
-                    <th>Date</th>
-                    <th>Rendement</th>
-                    <th>État</th>
-                    <th>Modification</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {crosses.map((cross) => (
-                    <tr key={cross.id}>
-                      <td>{cross.cross_code}</td>
-                      <td>
-                        {parentName(cross.female_parent_id)} ×{" "}
-                        {parentName(cross.male_parent_id)}
-                      </td>
-                      <td>{cross.pollination_date || "—"}</td>
-                      <td>
-                        {cross.pollinated_units
-                          ? `${(Number(cross.total_seeds || 0) / cross.pollinated_units).toFixed(2)} graines/unité`
-                          : "—"}
-                      </td>
-                      <td>{cross.status}</td>
-                      <td>
-                        <form
-                          action={updateCross}
-                          className="inline-form"
-                          data-action="cross-update"
-                        >
-                          <input type="hidden" name="id" value={cross.id} />
-                          <select name="status" defaultValue={cross.status}>
-                            <option value="planned">Planifié</option>
-                            <option value="active">Actif</option>
-                            <option value="completed">Terminé</option>
-                            <option value="cancelled">Annulé</option>
-                          </select>
-                          <input
-                            name="notes"
-                            defaultValue={cross.notes || ""}
-                            placeholder="Notes"
-                            maxLength={1000}
-                          />
-                          <button>Mettre à jour</button>
-                        </form>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-          <section className="grid-2">
-            <form
-              action={createFamily}
-              className="card form"
-              data-action="family"
-            >
-              <h2>Créer une famille</h2>
-              <input type="hidden" name="program_id" value={programId} />
-              <label>
-                Croisement
-                <select name="cross_id" required>
-                  <option value="">Choisir</option>
-                  {crosses?.map((cross) => (
-                    <option key={cross.id} value={cross.id}>
-                      {cross.cross_code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Code famille
-                <input name="family_code" required maxLength={80} />
-              </label>
-              <label>
-                Génération
-                <input name="generation" type="number" min="0" />
-              </label>
-              <button disabled={!crosses?.length}>Créer la famille</button>
-            </form>
-            <form
-              action={createSeedLot}
-              className="card form"
-              data-action="seed-lot"
-            >
-              <h2>Créer un lot de graines</h2>
-              <input type="hidden" name="program_id" value={programId} />
-              <label>
-                Croisement
-                <select name="cross_id" required>
-                  <option value="">Choisir</option>
-                  {crosses?.map((cross) => (
-                    <option key={cross.id} value={cross.id}>
-                      {cross.cross_code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Famille
-                <select name="family_id" required>
-                  <option value="">Choisir</option>
-                  {families?.map((family) => (
-                    <option key={family.id} value={family.id}>
-                      {family.family_code} ({crossName(family.cross_id)})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Code lot
-                <input name="seed_lot_code" required maxLength={80} />
-              </label>
-              <label>
-                Date de récolte
-                <input name="harvest_date" type="date" required />
-              </label>
-              <label>
-                Quantité (graines)
-                <input
-                  name="total_quantity"
-                  type="number"
-                  min="0"
-                  step="1"
-                  required
-                />
-              </label>
-              <label>
-                Emplacement
-                <input name="storage_location" maxLength={160} />
-              </label>
-              <button disabled={!families?.length}>Créer le lot</button>
-            </form>
-          </section>
-          <section className="card table-wrap">
-            <h2>Familles et lots</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Lot</th>
-                  <th>Famille</th>
-                  <th>Croisement</th>
-                  <th>Récolte</th>
-                  <th>Quantité</th>
-                  <th>Emplacement</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lots?.map((lot) => (
-                  <tr key={lot.id}>
-                    <td>{lot.seed_lot_code}</td>
-                    <td>{familyName(lot.family_id)}</td>
-                    <td>{crossName(lot.cross_id)}</td>
-                    <td>{lot.harvest_date || "—"}</td>
-                    <td>
-                      {lot.total_quantity} {lot.quantity_unit}
-                    </td>
-                    <td>{lot.storage_location || "—"}</td>
-                  </tr>
+          <section className="dashboard-grid">
+            <Card>
+              <h2>Workflow d’élevage</h2>
+              <div className="workflow-list">
+                {workflow.map((step, index) => (
+                  <Link
+                    href={step.href}
+                    key={step.label}
+                    className={!step.ready ? "locked" : ""}
+                  >
+                    <span>{index + 1}</span>
+                    <div>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {step.ready
+                          ? `${step.count} enregistré${step.count > 1 ? "s" : ""}`
+                          : "Prérequis à compléter"}
+                      </small>
+                    </div>
+                    <StatusBadge
+                      tone={
+                        step.count
+                          ? "success"
+                          : step.ready
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {step.count
+                        ? "Actif"
+                        : step.ready
+                          ? "À commencer"
+                          : "En attente"}
+                    </StatusBadge>
+                  </Link>
                 ))}
-              </tbody>
-            </table>
-            {!lots?.length && <p>Aucun lot.</p>}
+              </div>
+            </Card>
+            <Card>
+              <h2>Activité récente</h2>
+              {recent.length ? (
+                <ul className="activity-list">
+                  {recent.map((item) => (
+                    <li key={`${item.type}-${item.id}`}>
+                      <StatusBadge>{item.type}</StatusBadge>
+                      <strong>{item.label}</strong>
+                      <time>
+                        {new Intl.DateTimeFormat("fr-FR").format(
+                          new Date(item.date),
+                        )}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState
+                  title="Aucune activité"
+                  message="Les derniers enregistrements apparaîtront ici."
+                />
+              )}
+            </Card>
           </section>
-          <section className="grid-2">
-            <form
-              action={createGerminationTest}
-              className="card form"
-              data-action="germination"
-            >
-              <h2>Enregistrer un test de germination</h2>
-              <label>
-                Lot
-                <select name="seed_lot_id" required>
-                  <option value="">Choisir</option>
-                  {lots?.map((lot) => (
-                    <option key={lot.id} value={lot.id}>
-                      {lot.seed_lot_code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Date
-                <input name="test_date" type="date" required />
-              </label>
-              <label>
-                Jour d’évaluation
-                <input name="evaluation_day" type="number" min="0" required />
-              </label>
-              <label>
-                Graines testées
-                <input name="seeds_tested" type="number" min="1" required />
-              </label>
-              <label>
-                Graines germées
-                <input name="seeds_germinated" type="number" min="0" required />
-              </label>
-              <label>
-                Méthode
-                <input name="method" required maxLength={160} />
-              </label>
-              <button disabled={!lots?.length}>Enregistrer le test</button>
-            </form>
-            <section className="card table-wrap">
-              <h2>Résultats de germination</h2>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Lot</th>
-                    <th>Date</th>
-                    <th>Résultat</th>
-                    <th>Méthode</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tests?.map((test) => (
-                    <tr key={test.id}>
-                      <td>{lotName(test.seed_lot_id)}</td>
-                      <td>{test.test_date}</td>
-                      <td>
-                        <strong>
-                          {Number(test.germination_rate).toFixed(2)} %
-                        </strong>
-                        <br />
-                        <small>
-                          {test.seeds_germinated}/{test.seeds_tested} à J
-                          {test.evaluation_day}
-                        </small>
-                      </td>
-                      <td>{test.method}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!tests?.length && <p>Aucun test.</p>}
-            </section>
+          <section>
+            <h2>Actions rapides</h2>
+            <div className="quick-actions">
+              <Link href={`/app/breeding${base}#parents`}>
+                Ajouter un parent
+              </Link>
+              <Link href={`/app/breeding${base}#crosses`}>
+                Créer un croisement
+              </Link>
+              <Link href={`/app/breeding${base}#lots`}>Enregistrer un lot</Link>
+              <Link href={`/app/phenotypes${base}`}>Noter un phénotype</Link>
+              <Link href={`/app/operations${base}`}>Créer une tâche</Link>
+            </div>
           </section>
         </>
+      ) : (
+        <Card>
+          <EmptyState
+            title="Commencez avec un programme"
+            message="Un programme isole votre espèce, campagne et matériel végétal."
+          />
+          <ActionForm action={createProgram} actionName="program">
+            <h2>Nouveau programme</h2>
+            <label>
+              Code requis
+              <input name="code" required maxLength={80} />
+            </label>
+            <label>
+              Nom requis
+              <input name="name" required maxLength={160} />
+            </label>
+            <label>
+              Espèce requise
+              <input name="species" required maxLength={160} />
+            </label>
+            <label>
+              Campagne
+              <input name="campaign" maxLength={40} />
+            </label>
+          </ActionForm>
+        </Card>
       )}
-    </main>
+    </div>
   );
 }

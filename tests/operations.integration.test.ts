@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendServerActionFields } from "./server-action";
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
   throw new Error("Tests require isolated local Supabase");
@@ -37,21 +38,13 @@ async function request(path: string, options: RequestInit = {}) {
   cookies = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
   return response;
 }
-function actionFor(html: string, name: string) {
-  const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
-    .map((m) => m[0])
-    .find((v) => v.includes(`data-action="${name}"`));
-  const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
-  if (!action) throw new Error(`Action ${name} not found`);
-  return action;
-}
 async function submit(
   html: string,
   name: string,
   values: Record<string, string>,
 ) {
   const body = new FormData();
-  body.set(actionFor(html, name), "");
+  appendServerActionFields(body, html, name);
   Object.entries(values).forEach(([k, v]) => body.set(k, v));
   expect(
     (
@@ -146,14 +139,12 @@ describe.sequential("experimental operations and database dashboard", () => {
       .select("id")
       .single();
     if (lot.error) throw lot.error;
-    const germ = await admin
-      .from("germination_tests")
-      .insert({
-        seed_lot_id: lot.data.id,
-        test_date: "2026-09-01",
-        seeds_tested: 100,
-        seeds_germinated: 88,
-      });
+    const germ = await admin.from("germination_tests").insert({
+      seed_lot_id: lot.data.id,
+      test_date: "2026-09-01",
+      seeds_tested: 100,
+      seeds_germinated: 88,
+    });
     if (germ.error) throw germ.error;
     const phenotype = await admin
       .from("phenotypes")
@@ -176,17 +167,15 @@ describe.sequential("experimental operations and database dashboard", () => {
       .select("id")
       .single();
     if (model.error) throw model.error;
-    const evaluation = await admin
-      .from("phenotype_evaluations")
-      .insert({
-        phenotype_id: phenotype.data.id,
-        selection_model_id: model.data.id,
-        evaluator_id: ids.profile,
-        evaluation_date: "2026-09-13",
-        weighted_score: 120,
-        normalized_score: 92.31,
-        automatic_decision: "elite",
-      });
+    const evaluation = await admin.from("phenotype_evaluations").insert({
+      phenotype_id: phenotype.data.id,
+      selection_model_id: model.data.id,
+      evaluator_id: ids.profile,
+      evaluation_date: "2026-09-13",
+      weighted_score: 120,
+      normalized_score: 92.31,
+      automatic_decision: "elite",
+    });
     if (evaluation.error) throw evaluation.error;
     const item = await admin
       .from("inventory_items")
@@ -200,15 +189,13 @@ describe.sequential("experimental operations and database dashboard", () => {
     if (item.error) throw item.error;
     const expiry = new Date();
     expiry.setDate(expiry.getDate() + 10);
-    const inventoryLot = await admin
-      .from("inventory_lots")
-      .insert({
-        inventory_item_id: item.data.id,
-        batch_number: `EXP-${marker}`,
-        expiration_date: expiry.toISOString().slice(0, 10),
-        initial_quantity: 0,
-        current_quantity: 0,
-      });
+    const inventoryLot = await admin.from("inventory_lots").insert({
+      inventory_item_id: item.data.id,
+      batch_number: `EXP-${marker}`,
+      expiration_date: expiry.toISOString().slice(0, 10),
+      initial_quantity: 0,
+      current_quantity: 0,
+    });
     if (inventoryLot.error) throw inventoryLot.error;
     expect(
       (

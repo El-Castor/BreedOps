@@ -1,5 +1,16 @@
 import Link from "next/link";
+import { ActionForm } from "@/components/action-form";
+import {
+  Breadcrumbs,
+  EmptyState,
+  ErrorState,
+  MetricCard,
+  PageHeader,
+  ProgramContext,
+  StatusBadge,
+} from "@/components/ui";
 import { requireIdentity } from "@/lib/auth";
+import { collectionState } from "@/lib/query-state";
 import { createCycle, createTask, updateTaskStatus } from "./actions";
 
 type Kpis = {
@@ -21,11 +32,24 @@ export default async function Operations({
 }) {
   const { client, team } = await requireIdentity();
   const params = await searchParams;
-  const { data: programs = [] } = await client
-    .from("programs")
-    .select("id,code,name")
-    .is("deleted_at", null)
-    .order("code");
+  const programsState = collectionState(
+    await client
+      .from("programs")
+      .select("id,code,name")
+      .is("deleted_at", null)
+      .order("code"),
+    "Impossible de charger les programmes.",
+  );
+  if (programsState.status === "error")
+    return (
+      <div className="page">
+        <ErrorState
+          message={programsState.message}
+          retryHref="/app/operations"
+        />
+      </div>
+    );
+  const programs = programsState.data;
   const program =
     programs?.find((item) => item.id === params.program) ?? programs?.[0];
   const programId = program?.id;
@@ -54,10 +78,47 @@ export default async function Operations({
           .order("display_name"),
         client.rpc("get_dashboard_kpis", { target_program_id: programId }),
       ])
-    : [{ data: [] }, { data: [] }, { data: [] }, { data: null }];
-  const cycles = cyclesResult.data ?? [],
-    tasks = tasksResult.data ?? [],
-    profiles = profilesResult.data ?? [];
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: null, error: null },
+      ];
+  const cyclesState = collectionState(
+    cyclesResult,
+    "Impossible de charger les cycles.",
+  );
+  const tasksState = collectionState(
+    tasksResult,
+    "Impossible de charger les tâches.",
+  );
+  const profilesState = collectionState(
+    profilesResult,
+    "Impossible de charger les responsables.",
+  );
+  const failed = [cyclesState, tasksState, profilesState].find(
+    (state) => state.status === "error",
+  );
+  if (failed?.status === "error" || kpiResult.error)
+    return (
+      <div className="page">
+        <ErrorState
+          message={
+            failed?.status === "error"
+              ? failed.message
+              : "Impossible de charger les indicateurs."
+          }
+          retryHref={
+            programId
+              ? `/app/operations?program=${programId}`
+              : "/app/operations"
+          }
+        />
+      </div>
+    );
+  const cycles = cyclesState.data,
+    tasks = tasksState.data,
+    profiles = profilesState.data;
   const kpis = (kpiResult.data ?? {}) as Kpis;
   const profileName = (id: string | null) =>
     profiles.find((p) => p.id === id)?.display_name || "Non assigné";
@@ -82,16 +143,16 @@ export default async function Operations({
     ["Tâches terminées", `${kpis.task_completion_ratio ?? 0} %`],
   ];
   return (
-    <main className="workspace">
-      <header>
-        <div>
-          <p className="eyebrow">{team.name}</p>
-          <h1>Opérations et tableau de bord</h1>
-        </div>
-        <Link href={programId ? `/app?program=${programId}` : "/app"}>
-          Retour au programme
-        </Link>
-      </header>
+    <div className="page">
+      <Breadcrumbs
+        items={[{ label: "Accueil", href: "/app" }, { label: "Opérations" }]}
+      />
+      <PageHeader
+        eyebrow="Planification"
+        title="Opérations et tableau de bord"
+        description="Planifiez les cycles, assignez les tâches et suivez les alertes réelles du programme."
+      />
+      <ProgramContext team={team.name} program={program} />
       <nav className="program-nav">
         {programs?.map((item) => (
           <Link
@@ -104,24 +165,28 @@ export default async function Operations({
         ))}
       </nav>
       {!program ? (
-        <section className="card">
-          <p>Créez d’abord un programme.</p>
-        </section>
+        <EmptyState
+          title="Aucun programme"
+          message="Créez un programme avant de planifier les opérations."
+          action={{ label: "Créer un programme", href: "/app" }}
+        />
       ) : (
         <>
           <section className="metrics-grid">
             {metrics.map(([label, value]) => (
-              <article className="metric" key={String(label)}>
-                <small>{label}</small>
-                <strong>{value}</strong>
-              </article>
+              <MetricCard
+                key={String(label)}
+                label={String(label)}
+                value={String(value)}
+              />
             ))}
           </section>
           <section className="grid-2">
-            <form
+            <ActionForm
               action={createCycle}
               className="card form"
-              data-action="cycle"
+              actionName="cycle"
+              submitLabel="Créer le cycle"
             >
               <h2>Nouveau cycle</h2>
               <input type="hidden" name="program_id" value={programId} />
@@ -139,9 +204,14 @@ export default async function Operations({
                   <input name="end_date" type="date" required />
                 </label>
               </div>
-              <button>Créer le cycle</button>
-            </form>
-            <form action={createTask} className="card form" data-action="task">
+            </ActionForm>
+            <ActionForm
+              action={createTask}
+              className="card form"
+              actionName="task"
+              submitLabel="Créer la tâche"
+              disabled={!cycles.length}
+            >
               <h2>Nouvelle tâche</h2>
               <input type="hidden" name="program_id" value={programId} />
               <label>
@@ -199,8 +269,12 @@ export default async function Operations({
                   <input name="zone" maxLength={120} />
                 </label>
               </div>
-              <button disabled={!cycles.length}>Créer la tâche</button>
-            </form>
+              {!cycles.length && (
+                <p className="form-hint">
+                  Créez d’abord un cycle expérimental.
+                </p>
+              )}
+            </ActionForm>
           </section>
           <section className="card table-wrap">
             <div className="section-heading">
@@ -257,15 +331,29 @@ export default async function Operations({
                         <td>
                           {task.planned_date} → {task.due_date}
                         </td>
-                        <td>{task.priority}</td>
-                        <td>{task.status}</td>
+                        <td>
+                          <StatusBadge>{task.priority}</StatusBadge>
+                        </td>
+                        <td>
+                          <StatusBadge
+                            tone={
+                              task.status === "completed"
+                                ? "success"
+                                : "neutral"
+                            }
+                          >
+                            {task.status}
+                          </StatusBadge>
+                        </td>
                         <td>
                           <strong>{overdue ? "En retard" : "—"}</strong>
                         </td>
                         <td>
-                          <form
+                          <ActionForm
                             action={updateTaskStatus}
-                            data-action={`task-status-${task.id}`}
+                            actionName={`task-status-${task.id}`}
+                            className="inline-action"
+                            submitLabel="Mettre à jour"
                           >
                             <input
                               type="hidden"
@@ -279,8 +367,7 @@ export default async function Operations({
                               <option value="completed">Terminée</option>
                               <option value="cancelled">Annulée</option>
                             </select>
-                            <button>Mettre à jour</button>
-                          </form>
+                          </ActionForm>
                         </td>
                       </tr>
                     );
@@ -288,10 +375,15 @@ export default async function Operations({
                 </tbody>
               </table>
             )}
-            {!tasks.length && <p>Aucune tâche.</p>}
+            {!tasks.length && (
+              <EmptyState
+                title="Aucune tâche"
+                message="Créez un cycle, puis ajoutez sa première tâche."
+              />
+            )}
           </section>
         </>
       )}
-    </main>
+    </div>
   );
 }

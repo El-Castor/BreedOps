@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendServerActionFields } from "./server-action";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
@@ -15,6 +16,10 @@ const email = `inventory-${marker}@example.test`;
 const password = randomUUID() + "Aa9!";
 const ids: Record<string, string> = {};
 let cookies = "";
+
+function day(offset: number) {
+  return new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+}
 
 async function request(path: string, options: RequestInit = {}) {
   const response = await fetch(base + path, {
@@ -40,15 +45,6 @@ async function request(path: string, options: RequestInit = {}) {
   return response;
 }
 
-function actionFor(html: string, markerName: string) {
-  const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
-    .map((match) => match[0])
-    .find((value) => value.includes(`data-action="${markerName}"`));
-  const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
-  if (!action) throw new Error(`Action ${markerName} not found`);
-  return action;
-}
-
 async function submit(
   html: string,
   markerName: string,
@@ -56,7 +52,7 @@ async function submit(
   expected = 200,
 ) {
   const body = new FormData();
-  body.set(actionFor(html, markerName), "");
+  appendServerActionFields(body, html, markerName);
   Object.entries(values).forEach(([key, value]) => body.set(key, value));
   expect(
     (
@@ -134,8 +130,8 @@ describe.sequential("transactional inventory workflow", () => {
     await submit(html, "inventory-lot", {
       inventory_item_id: ids.item,
       batch_number: `LOT-${marker}`,
-      received_at: "2026-09-13",
-      expiration_date: "2026-10-01",
+      received_at: day(-1),
+      expiration_date: day(14),
       quantity: "100",
       storage_location: "A-1",
     });
@@ -165,7 +161,7 @@ describe.sequential("transactional inventory workflow", () => {
       inventory_lot_id: ids.lot,
       movement_type: "consumption",
       quantity: "30",
-      movement_date: "2026-09-13",
+      movement_date: day(0),
       reason: "Synthetic assay",
       notes: "fixture",
     });
@@ -210,11 +206,11 @@ describe.sequential("transactional inventory workflow", () => {
         inventory_lot_id: ids.lot,
         movement_type: "negative_adjustment",
         quantity: "1",
-        movement_date: "2026-09-13",
+        movement_date: day(0),
         reason: "",
         notes: "",
       },
-      500,
+      200,
     );
     html = await (await request("/app/inventory")).text();
     await submit(
@@ -224,11 +220,11 @@ describe.sequential("transactional inventory workflow", () => {
         inventory_lot_id: ids.lot,
         movement_type: "consumption",
         quantity: "1000",
-        movement_date: "2026-09-13",
+        movement_date: day(0),
         reason: "Synthetic invalid",
         notes: "",
       },
-      500,
+      200,
     );
     expect(
       Number(

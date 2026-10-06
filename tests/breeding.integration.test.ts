@@ -40,13 +40,31 @@ async function request(path: string, options: RequestInit = {}) {
   return response;
 }
 
-function actionFor(html: string, marker: string) {
+function decodeHtml(value: string) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function actionFields(html: string, marker: string) {
   const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
     .map((match) => match[0])
     .find((value) => value.includes(`data-action="${marker}"`));
-  const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
-  if (!action) throw new Error(`Server Action for ${marker} not found`);
-  return action;
+  if (!form) throw new Error(`Form for ${marker} not found`);
+  const fields = [...form.matchAll(/<input\b[^>]*>/g)]
+    .map(([input]) => ({
+      name: input.match(/\bname="([^"]+)"/)?.[1],
+      value: input.match(/\bvalue="([^"]*)"/)?.[1] ?? "",
+    }))
+    .filter((field): field is { name: string; value: string } =>
+      Boolean(field.name?.startsWith("$ACTION_")),
+    );
+  if (fields.length === 0)
+    throw new Error(`Server Action fields for ${marker} not found`);
+  return fields;
 }
 
 async function submit(
@@ -55,13 +73,18 @@ async function submit(
   values: Record<string, string>,
 ) {
   const body = new FormData();
-  body.set(actionFor(html, marker), "");
+  actionFields(html, marker).forEach(({ name, value }) =>
+    body.set(decodeHtml(name), decodeHtml(value)),
+  );
   Object.entries(values).forEach(([key, value]) => body.set(key, value));
-  const response = await request("/app", {
-    method: "POST",
-    headers: { origin: base },
-    body,
-  });
+  const response = await request(
+    marker === "program" ? "/app" : "/app/breeding",
+    {
+      method: "POST",
+      headers: { origin: base },
+      body,
+    },
+  );
   expect(response.status).toBe(200);
 }
 
@@ -123,7 +146,9 @@ describe.sequential("persisted breeding workflow", () => {
   });
   it("creates two parent lines", async () => {
     for (const suffix of ["F", "M"]) {
-      const html = await (await request(`/app?program=${ids.program}`)).text();
+      const html = await (
+        await request(`/app/breeding?program=${ids.program}`)
+      ).text();
       await submit(html, "parent", {
         program_id: ids.program,
         parent_code: `${suffix}-${marker}`,
@@ -136,7 +161,9 @@ describe.sequential("persisted breeding workflow", () => {
     }
   });
   it("creates and updates a cross with database-derived yield inputs", async () => {
-    let html = await (await request(`/app?program=${ids.program}`)).text();
+    let html = await (
+      await request(`/app/breeding?program=${ids.program}`)
+    ).text();
     await submit(html, "cross", {
       program_id: ids.program,
       cross_code: `X-${marker}`,
@@ -151,7 +178,7 @@ describe.sequential("persisted breeding workflow", () => {
     ids.cross = row.id;
     expect(row.female_parent_id).toBe(ids.parentF);
     expect(row.male_parent_id).toBe(ids.parentM);
-    html = await (await request(`/app?program=${ids.program}`)).text();
+    html = await (await request(`/app/breeding?program=${ids.program}`)).text();
     await submit(html, "cross-update", {
       id: ids.cross,
       status: "completed",
@@ -170,7 +197,9 @@ describe.sequential("persisted breeding workflow", () => {
     expect(result.error?.code).toBe("23514");
   });
   it("creates a linked family and seed lot", async () => {
-    let html = await (await request(`/app?program=${ids.program}`)).text();
+    let html = await (
+      await request(`/app/breeding?program=${ids.program}`)
+    ).text();
     await submit(html, "family", {
       program_id: ids.program,
       cross_id: ids.cross,
@@ -180,7 +209,7 @@ describe.sequential("persisted breeding workflow", () => {
     const family = await one("families", "family_code", `FAM-${marker}`);
     ids.family = family.id;
     expect(family.cross_id).toBe(ids.cross);
-    html = await (await request(`/app?program=${ids.program}`)).text();
+    html = await (await request(`/app/breeding?program=${ids.program}`)).text();
     await submit(html, "seed-lot", {
       program_id: ids.program,
       cross_id: ids.cross,
@@ -195,7 +224,9 @@ describe.sequential("persisted breeding workflow", () => {
     expect(lot.family_id).toBe(ids.family);
   });
   it("records and displays a generated germination rate", async () => {
-    const html = await (await request(`/app?program=${ids.program}`)).text();
+    const html = await (
+      await request(`/app/breeding?program=${ids.program}`)
+    ).text();
     await submit(html, "germination", {
       seed_lot_id: ids.lot,
       test_date: "2026-09-12",
@@ -207,18 +238,18 @@ describe.sequential("persisted breeding workflow", () => {
     const row = await one("germination_tests", "seed_lot_id", ids.lot);
     expect(Number(row.germination_rate)).toBe(92);
     const rendered = await (
-      await request(`/app?program=${ids.program}`)
+      await request(`/app/breeding?program=${ids.program}`)
     ).text();
     expect(rendered).toContain("92.00");
     expect(rendered).toContain(`LOT-${marker}`);
   });
   it("filters crosses by code", async () => {
     const html = await (
-      await request(`/app?program=${ids.program}&q=X-${marker}`)
+      await request(`/app/breeding?program=${ids.program}&q=X-${marker}`)
     ).text();
     expect(html).toContain(`X-${marker}`);
     const empty = await (
-      await request(`/app?program=${ids.program}&q=NO-MATCH`)
+      await request(`/app/breeding?program=${ids.program}&q=NO-MATCH`)
     ).text();
     expect(empty).toContain("Aucun croisement");
   });

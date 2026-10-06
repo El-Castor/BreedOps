@@ -1,6 +1,13 @@
-import Link from "next/link";
+import { ActionForm } from "@/components/action-form";
+import {
+  Breadcrumbs,
+  EmptyState,
+  PageHeader,
+  StatusBadge,
+} from "@/components/ui";
 import { requireAdministrator } from "@/lib/auth";
 import { listManagedUsers, listOrganizations } from "@/lib/user-management";
+import { updateTeamName } from "../../actions";
 import {
   createUser,
   inviteUser,
@@ -24,34 +31,46 @@ export default async function UsersPage({
       ? ["user", "team_admin", "system_admin"]
       : ["user"];
   return (
-    <main className="workspace">
-      <header>
-        <div>
-          <p className="eyebrow">Administration</p>
-          <h1>Utilisateurs</h1>
-        </div>
-        <div>
-          <Link href="/app">Retour à BreedOps</Link>
-          <form action="/auth/logout" method="post">
-            <button>Déconnexion</button>
-          </form>
-        </div>
-      </header>
+    <div className="page">
+      <Breadcrumbs
+        items={[{ label: "Accueil", href: "/app" }, { label: "Utilisateurs" }]}
+      />
+      <PageHeader
+        eyebrow="Administration"
+        title="Utilisateurs"
+        description="Invitez, affectez et administrez les comptes autorisés pour votre périmètre."
+      />
       {params.success && <p role="status">{params.success}</p>}
+      {identity.profile.role === "team_admin" && (
+        <form action={updateTeamName} className="card form" data-action="team">
+          <h2>Nom de l’équipe</h2>
+          <label>
+            Nom
+            <input
+              name="name"
+              defaultValue={identity.team.name}
+              required
+              maxLength={120}
+            />
+          </label>
+          <button>Mettre à jour l’équipe</button>
+        </form>
+      )}
       <section className="grid-2">
-        <form
+        <ActionForm
           action={inviteUser}
           className="card form"
-          data-action="invite-user"
+          actionName="invite-user"
+          submitLabel="Inviter l’utilisateur"
         >
           <h2>Inviter un utilisateur</h2>
           <UserFields organizations={organizations} roles={roles} />
-          <button>Invite user</button>
-        </form>
-        <form
+        </ActionForm>
+        <ActionForm
           action={createUser}
           className="card form"
-          data-action="create-user"
+          actionName="create-user"
+          submitLabel="Créer l’utilisateur"
         >
           <h2>Créer directement</h2>
           <UserFields organizations={organizations} roles={roles} />
@@ -65,8 +84,7 @@ export default async function UsersPage({
               autoComplete="new-password"
             />
           </label>
-          <button>Create user</button>
-        </form>
+        </ActionForm>
       </section>
       <section className="card">
         <h2>Comptes</h2>
@@ -93,14 +111,28 @@ export default async function UsersPage({
                     <br />
                     <small>{user.organizationName ?? "Non affecté"}</small>
                   </td>
-                  <td>{user.status}</td>
+                  <td>
+                    <StatusBadge
+                      tone={
+                        user.status === "active"
+                          ? "success"
+                          : user.status === "pending_assignment"
+                            ? "warning"
+                            : "neutral"
+                      }
+                    >
+                      {user.status}
+                    </StatusBadge>
+                  </td>
                   <td>{formatDate(user.lastSignInAt)}</td>
                   <td>{formatDate(user.createdAt)}</td>
                   <td>
-                    <form
+                    <ActionForm
                       action={updateUser}
                       className="form compact"
-                      data-action="update-user"
+                      actionName="update-user"
+                      submitLabel="Enregistrer"
+                      resetOnSuccess={false}
                     >
                       <input type="hidden" name="user_id" value={user.id} />
                       <input
@@ -137,13 +169,13 @@ export default async function UsersPage({
                         <option value="true">Actif</option>
                         <option value="false">Désactivé</option>
                       </select>
-                      <button>Enregistrer</button>
-                    </form>
+                    </ActionForm>
                     {user.role && (
-                      <form
+                      <ActionForm
                         action={resetUserPassword}
                         className="form compact"
-                        data-action="reset-user-password"
+                        actionName="reset-user-password"
+                        submitLabel="Réinitialiser le mot de passe"
                       >
                         <input type="hidden" name="user_id" value={user.id} />
                         <input
@@ -154,17 +186,22 @@ export default async function UsersPage({
                           required
                           autoComplete="new-password"
                         />
-                        <button>Reset password</button>
-                      </form>
+                      </ActionForm>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {!users.length && (
+            <EmptyState
+              title="Aucun utilisateur"
+              message="Invitez ou créez le premier compte de cette équipe."
+            />
+          )}
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 

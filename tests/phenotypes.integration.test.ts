@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendServerActionFields } from "./server-action";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
@@ -39,14 +40,6 @@ async function request(path: string, options: RequestInit = {}) {
   cookies = [...jar].map(([key, value]) => `${key}=${value}`).join("; ");
   return response;
 }
-function actionFor(html: string, markerName: string) {
-  const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
-    .map((match) => match[0])
-    .find((value) => value.includes(`data-action="${markerName}"`));
-  const action = form?.match(/name="(\$ACTION_ID_[^"]+)"/)?.[1];
-  if (!action) throw new Error(`Action ${markerName} not found`);
-  return action;
-}
 async function submit(
   html: string,
   markerName: string,
@@ -54,7 +47,7 @@ async function submit(
   expected = 200,
 ) {
   const body = new FormData();
-  body.set(actionFor(html, markerName), "");
+  appendServerActionFields(body, html, markerName);
   Object.entries(values).forEach(([key, value]) => body.set(key, value));
   expect(
     (
@@ -332,7 +325,7 @@ describe.sequential("configured phenotype scoring", () => {
         evaluation_date: "2026-09-13",
         "score:vigor": "5",
       },
-      500,
+      200,
     );
     const after = (
       await admin
