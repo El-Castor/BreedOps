@@ -27,7 +27,7 @@ Mailpit at `http://127.0.0.1:55424`.
 ## Breeding workflow
 
 1. From **Vue d’ensemble**, create a programme with code, name and species.
-2. Choose **Ajouter un parent** and create two distinct parent lines.
+2. Choose **Ajouter un parent** and create two distinct parent lines by name. No code is typed.
 3. In **Croisements**, select both parents and record the pollination date.
 4. In **Familles**, select the new cross and create its family.
 5. In **Lots de graines**, select the cross and family, then record harvest and quantity.
@@ -36,12 +36,37 @@ Mailpit at `http://127.0.0.1:55424`.
 Each completed step immediately populates the selector used by the next step. If a
 prerequisite is missing, the page explains it and links to the required action.
 
+## BreedOps codes, archive and restore
+
+PostgreSQL assigns every new parent, cross, family, seed lot and phenotype a stable
+BreedOps code: `PROGRAMCODE-P-0001` (parent), `-X-` (cross), `-F-` (family), `-L-`
+(seed lot) and `-I-` (phenotype). The prefix is the programme code in upper case with
+non-alphanumeric characters removed (`id-t.st` → `IDTST`). Numbering is per programme and
+entity type, safe under concurrent creation, and the code cannot be edited afterwards.
+The success message shows the code that was assigned. Codes recorded manually before this
+change are kept unchanged. Use the name field for descriptive meaning.
+
+Each register row opens the record inspector on click, Enter or Space. The **⋯** menu offers
+**Voir le détail**, **Voir le pedigree** and **Archiver** (or **Restaurer** for an archived
+record). Archiving hides parents, crosses, families and seed lots from the active registers
+and from every selector used to create new relationships, without deleting anything. Existing
+crosses, families, lots and the pedigree keep showing archived ancestors. **Afficher les
+archives** lists archived records, which can be restored. Any active member of the owning team
+can archive or restore; no hard delete is offered.
+
+The inspector groups the real stored fields (identity, lineage, pollination or seed
+propagation, metadata), lists linked phenotypes with their latest PostgreSQL-calculated score
+and decision, or reports "Pas encore de données phénotypiques." Its **Images** section reads
+"Aucune image enregistrée.": image upload and storage are a separate future milestone.
+
 ## Pedigree
 
 Open **Pedigree** for the active programme. The graph uses persisted parent, cross,
-family and seed-lot relations. Drag the canvas to pan; use **Zoom +**, **Zoom −** and
-**Ajuster la vue** for navigation. Select a node to center it, show its details and
-highlight its connected ancestors and descendants. Editing remains in the programme registers.
+family and seed-lot relations, including archived records that remain part of the lineage.
+Drag the canvas to pan; use **Zoom +**, **Zoom −** and **Ajuster la vue** for navigation.
+Select a node (click, Enter or Space) to center it, highlight its connected ancestors and
+descendants, and open the same record inspector used by the registers. Editing remains in
+the programme registers.
 
 ## Phenotyping and selection
 
@@ -71,6 +96,8 @@ With the production server running, execute:
 ```sh
 npm test
 npm run test:rls
+npm run test:identity
+npm run test:code-concurrency
 npm run test:e2e
 npm run typecheck
 npm run lint

@@ -244,6 +244,9 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 | 2026-08-09 | Mémoriser la séparation `PROMPT.md` / `CLAUDE.md` / `agend.md` | Éviter la confusion des rôles des fichiers | Processus de travail | Décidée |
 | 2026-08-21 | Créer la structure de base du projet | Initialisation complète du dépôt avec configuration et schéma | Base de l'implémentation | Décidée |
 | 2026-09-07 | Réconcilier la roadmap avec l'état local | Les états Git, dépendances, documentation, migrations et validation d'exécution divergeaient de la roadmap | Les éléments non vérifiés restent ouverts; les décisions de sécurité restent à approuver | Décidée |
+| 2026-10-06 | Codes BreedOps générés par PostgreSQL (`PROGRAMCODE-{P,X,F,L,I}-NNNN`) | Les codes saisis à la main servaient d’identifiant unique mais étaient compris comme du texte libre (doublons, erreurs) | UUID inchangés; trigger `BEFORE INSERT`, compteur par programme/type sous verrou consultatif; codes immuables; codes historiques conservés | Décidée |
+| 2026-10-06 | Archivage = `deleted_at` existant, réversible; pas de suppression physique | Le soft delete existait déjà; la lignée scientifique doit rester traçable | Lecture RLS étendue aux archivés du programme; triggers de lignée refusent toujours les archivés pour les nouvelles relations | Décidée |
+| 2026-10-06 | Inspecteur d’entité unique partagé registres/pedigree | Éviter deux interfaces de détail divergentes | `EntityInspectorWorkspace` + `buildBreedingEntityDetails` | Décidée |
 
 ---
 
@@ -264,6 +267,8 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 | -- | ------- | ------ | -------- | ------------- | ------ |
 | TD-001 | Les mutations pilotées rechargent la route courante après succès afin d’éviter le blocage RSC observé avec `useActionState` sur le build de production | Faible: navigation plus coûteuse, données immédiatement relues depuis PostgreSQL | P2 | Post-MVP | Accepté |
 | TD-002 | `npm audit` conserve 7 avis high et 2 moderate dans les chaînes Tailwind/ESLint de build | Faible pour le runtime; les correctifs proposés imposent Tailwind 4 ou une régression majeure d’ESLint/Next | P2 | Maintenance | Surveillé |
+| TD-003 | Sur `/app/breeding`, la navigation client Next.js 15.5 limitée à la query string (`?archived=1`) est interrompue silencieusement en production; le bouton d’archives utilise une navigation document | Faible: rechargement complet sur ce lien; autres liens inchangés | P3 | Mise à niveau Next/React | Contourné |
+| TD-004 | Images de plantes: section inspecteur prête mais sans stockage (Supabase Storage + métadonnées non implémentés) | Fonctionnalité absente, aucune donnée factice | P2 | Jalon médias | Ouvert |
 
 ---
 
@@ -434,6 +439,16 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - **Limites non bloquantes**: rechargement complet après mutation; SMTP hébergé non configuré; Gantt avancé, import/export, MFA, notifications, équipement spécialisé et statistiques avancées restent post-MVP.
 - **Statut**: M0 à M9 PASS; `MVP_USER_TEST_READY=PASS`.
 - **Prochaine étape exacte**: configurer une préproduction Supabase/Vercel HTTPS avec SMTP, variables serveur et URLs de redirection, puis rejouer sans modification le gate pilote complet.
+
+### Session 2026-10-06 — Identité des données, cycle de vie et inspecteur d’entité — PASS
+
+- **Codes automatiques**: migration additive `000014_breeding_identity_and_lifecycle.sql`; `next_breeding_business_code` (SECURITY DEFINER, non exécutable par les clients) sérialise par `pg_advisory_xact_lock` programme/type, s’appuie sur `breeding_code_counters` (RLS active, aucun privilège client) et ignore tout code existant en collision. Les triggers assignent le code seulement s’il est absent; un trigger rend les codes immuables. Les formulaires ne demandent plus de code; le message de succès affiche le code généré. Codes historiques (`Test1`, `Test2`, `Test3`, `TestFamille`) inchangés.
+- **Cycle de vie**: archivage/restauration des lignées, croisements, familles et lots via `deleted_at`; registres actifs et sélecteurs excluent les archivés; « Afficher les archives » et menu « ⋯ » (détail, pedigree, archiver/restaurer); pedigree et lignées historiques conservent les archivés. Autorisation inchangée (écriture programme par l’équipe propriétaire, RLS).
+- **Inspecteur**: panneau latéral unique (desktop/tablette) ou feuille basse (mobile), portail `body`, focus géré, sections Identité/Lignée/Semences ou Pollinisation/Métadonnées, résumé phénotypique réel (dernière évaluation PostgreSQL) ou « Pas encore de données phénotypiques. », section Images vide. Ouvert depuis les lignes des registres (clic, Entrée, Espace) et les nœuds du pedigree.
+- **Défauts trouvés et corrigés pendant la validation**: trigger générique WIP invalide pour les tables autres que `parent_lines` (corrigé par arguments de trigger + `jsonb`, 000014 réappliquée localement avant tout commit); Entrée sur un nœud du pedigree ouvrait puis refermait l’inspecteur; inspecteur masqué sous l’en-tête; lien d’archives inopérant (TD-003).
+- **Validation**: SQL ciblé 24/24 (codes, immutabilité, privilèges, archive/restauration, sélecteurs, lignée, isolation équipe); concurrence 8 sessions × 5 insertions → 40 codes uniques séquentiels; Vitest 52/52 (nouveau scénario HTTP archive → archives → restauration); RLS 25/25; TypeScript, ESLint, Prettier, build production, scan secrets client PASS; Playwright ciblé `critical-v1` PASS (auth/inscription non relancés, code inchangé); UAT navigateur sur la base conservée PASS (création sans code, inspecteur, archive, exclusion des sélecteurs, archives, restauration, croisement/famille/lot, archive croisement avec lignée préservée, pedigree parent/croisement/famille/lot, rechargement, mobile 390 px).
+- **Données UAT laissées dans le programme `Test`**: lignées `TEST-P-0001…0016` (4 archivées), croisements/familles/lots `-0001…0006`; comptes UAT temporaires supprimés.
+- **Prochaine étape recommandée**: jalon médias (Supabase Storage, métadonnées, RLS, téléversement) — en attente de priorisation.
 
 ---
 
