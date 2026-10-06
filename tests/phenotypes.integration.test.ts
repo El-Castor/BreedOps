@@ -215,18 +215,20 @@ describe.sequential("configured phenotype scoring", () => {
       program_id: ids.program,
       family_id: ids.family,
       seed_lot_id: ids.lot,
-      phenotype_code: `PH-${marker}`,
       block: "A",
       replicate: "1",
       location: "Synthetic greenhouse",
     });
     const row = await admin
       .from("phenotypes")
-      .select("id,family_id,seed_lot_id")
-      .eq("phenotype_code", `PH-${marker}`)
+      .select("id,family_id,seed_lot_id,phenotype_code")
+      .eq("program_id", ids.program)
       .single();
     if (row.error) throw row.error;
     ids.phenotype = row.data.id;
+    expect(row.data.phenotype_code).toMatch(
+      new RegExp(`^PP${marker.toUpperCase()}-I-\\d{4}$`),
+    );
     expect(row.data.seed_lot_id).toBe(ids.lot);
   });
   it("persists scores and PostgreSQL calculates ranking fields", async () => {

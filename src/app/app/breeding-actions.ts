@@ -38,6 +38,33 @@ async function insert(table: string, values: Record<string, unknown>) {
   if (error) throw error;
 }
 
+const codeColumns = {
+  parent_lines: "parent_code",
+  crosses: "cross_code",
+  families: "family_code",
+  seed_lots: "seed_lot_code",
+} as const;
+
+// PostgreSQL assigns the business code; the generated value is read back so the
+// user sees the identifier without ever choosing it in the browser.
+async function insertWithGeneratedCode(
+  table: keyof typeof codeColumns,
+  values: Record<string, unknown>,
+) {
+  const { client } = await requireIdentity();
+  const column = codeColumns[table];
+  const { data, error } = await client
+    .from(table)
+    .insert(values)
+    .select(column)
+    .single();
+  if (error || !data) {
+    console.error("BreedOps mutation rejected", { table, code: error?.code });
+    throw error ?? new Error("Generated code unavailable");
+  }
+  return (data as Record<string, string>)[column];
+}
+
 export async function createProgram(
   _previous: ActionState,
   form: FormData,
@@ -73,14 +100,13 @@ export async function createParentLine(
     const values = z
       .object({
         program_id: id,
-        parent_code: code,
         line_name: text,
         generation: optionalInt,
       })
       .parse(Object.fromEntries(form));
-    await insert("parent_lines", values);
+    const generated = await insertWithGeneratedCode("parent_lines", values);
     return actionSuccess(
-      "Lignée ajoutée. Les sélecteurs de croisement ont été actualisés.",
+      `Lignée ${generated} ajoutée. Les sélecteurs de croisement ont été actualisés.`,
     );
   } catch (error) {
     return actionError(error, "Impossible d’ajouter cette lignée.");
@@ -95,7 +121,6 @@ export async function createCross(
     const values = z
       .object({
         program_id: id,
-        cross_code: code,
         female_parent_id: id,
         male_parent_id: id,
         pollination_date: date,
@@ -109,9 +134,9 @@ export async function createCross(
         status: "error",
         message: "Sélectionnez deux lignées parentales différentes.",
       };
-    await insert("crosses", values);
+    const generated = await insertWithGeneratedCode("crosses", values);
     return actionSuccess(
-      "Croisement créé. Il est maintenant disponible pour créer une famille.",
+      `Croisement ${generated} créé. Il est maintenant disponible pour créer une famille.`,
     );
   } catch (error) {
     return actionError(error, "Impossible de créer ce croisement.");
@@ -154,13 +179,12 @@ export async function createFamily(
       .object({
         program_id: id,
         cross_id: id,
-        family_code: code,
         generation: optionalInt,
       })
       .parse(Object.fromEntries(form));
-    await insert("families", values);
+    const generated = await insertWithGeneratedCode("families", values);
     return actionSuccess(
-      "Famille créée. Elle est maintenant disponible pour créer un lot.",
+      `Famille ${generated} créée. Elle est maintenant disponible pour créer un lot.`,
     );
   } catch (error) {
     return actionError(error, "Impossible de créer cette famille.");
@@ -177,18 +201,70 @@ export async function createSeedLot(
         program_id: id,
         cross_id: id,
         family_id: id,
-        seed_lot_code: code,
         harvest_date: date,
         total_quantity: z.coerce.number().nonnegative().max(1_000_000_000),
         storage_location: z.string().trim().max(160),
       })
       .parse(Object.fromEntries(form));
-    await insert("seed_lots", { ...values, quantity_unit: "seeds" });
+    const generated = await insertWithGeneratedCode("seed_lots", {
+      ...values,
+      quantity_unit: "seeds",
+    });
     return actionSuccess(
-      "Lot créé. Vous pouvez enregistrer sa germination ou créer un phénotype.",
+      `Lot ${generated} créé. Vous pouvez enregistrer sa germination ou créer un phénotype.`,
     );
   } catch (error) {
     return actionError(error, "Impossible de créer ce lot.");
+  }
+}
+
+const lifecycleEntity = z.enum([
+  "parent_lines",
+  "crosses",
+  "families",
+  "seed_lots",
+]);
+
+export async function setBreedingEntityArchived(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        entity: lifecycleEntity,
+        id,
+        operation: z.enum(["archive", "restore"]),
+      })
+      .parse(Object.fromEntries(form));
+    const { client } = await requireIdentity();
+    const { data, error } = await client
+      .from(values.entity)
+      .update({
+        deleted_at:
+          values.operation === "archive" ? new Date().toISOString() : null,
+      })
+      .eq("id", values.id)
+      .select("id")
+      .single();
+    if (error || !data) {
+      console.error("BreedOps lifecycle mutation rejected", {
+        entity: values.entity,
+        operation: values.operation,
+        code: error?.code,
+      });
+      throw new Error("Lifecycle mutation rejected");
+    }
+    return actionSuccess(
+      values.operation === "archive"
+        ? "Enregistrement archivé. Son historique reste conservé."
+        : "Enregistrement restauré et de nouveau disponible.",
+    );
+  } catch (error) {
+    return actionError(
+      error,
+      "Impossible de modifier le cycle de vie de cet enregistrement.",
+    );
   }
 }
 

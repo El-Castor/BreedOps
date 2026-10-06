@@ -228,10 +228,10 @@ export default async function Phenotypes({
             >
               <h2>Nouveau phénotype</h2>
               <input type="hidden" name="program_id" value={programId} />
-              <label>
-                Code
-                <input name="phenotype_code" required maxLength={80} />
-              </label>
+              <p className="generated-code-hint">
+                Le code individu sera attribué automatiquement à
+                l’enregistrement.
+              </p>
               <label>
                 Famille
                 <select name="family_id" required>

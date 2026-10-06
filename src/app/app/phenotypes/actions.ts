@@ -9,13 +9,6 @@ import {
 } from "@/lib/action-state";
 
 const id = z.string().uuid();
-const code = z
-  .string()
-  .trim()
-  .min(1)
-  .max(80)
-  .regex(/^[A-Za-z0-9._-]+$/);
-
 export async function createInitialModel(
   _previous: ActionState,
   form: FormData,
@@ -75,7 +68,6 @@ export async function createPhenotype(
         program_id: id,
         family_id: id,
         seed_lot_id: id,
-        phenotype_code: code,
         block: z.string().trim().max(40),
         replicate: z.coerce.number().int().positive().max(1000),
         location: z.string().trim().max(160),

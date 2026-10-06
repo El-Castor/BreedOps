@@ -88,6 +88,18 @@ async function submit(
   expect(response.status).toBe(200);
 }
 
+async function inProgram(table: string, filters: Record<string, string>) {
+  let query = admin.from(table).select("*").eq("program_id", ids.program);
+  for (const [column, value] of Object.entries(filters))
+    query = query.eq(column, value);
+  const { data, error } = await query.single();
+  if (error) throw error;
+  return data;
+}
+
+const codePattern = (type: string) =>
+  new RegExp(`^P${marker.toUpperCase()}-${type}-\\d{4}$`);
+
 async function one(table: string, column: string, value: string) {
   const { data, error } = await admin
     .from(table)
@@ -151,13 +163,15 @@ describe.sequential("persisted breeding workflow", () => {
       ).text();
       await submit(html, "parent", {
         program_id: ids.program,
-        parent_code: `${suffix}-${marker}`,
         line_name: `Synthetic ${suffix}`,
         generation: "4",
       });
-      ids[`parent${suffix}`] = (
-        await one("parent_lines", "parent_code", `${suffix}-${marker}`)
-      ).id;
+      const parent = await inProgram("parent_lines", {
+        line_name: `Synthetic ${suffix}`,
+      });
+      expect(parent.parent_code).toMatch(codePattern("P"));
+      ids[`parent${suffix}`] = parent.id;
+      ids[`parentCode${suffix}`] = parent.parent_code;
     }
   });
   it("creates and updates a cross with database-derived yield inputs", async () => {
@@ -166,7 +180,6 @@ describe.sequential("persisted breeding workflow", () => {
     ).text();
     await submit(html, "cross", {
       program_id: ids.program,
-      cross_code: `X-${marker}`,
       female_parent_id: ids.parentF,
       male_parent_id: ids.parentM,
       pollination_date: "2026-09-01",
@@ -174,8 +187,10 @@ describe.sequential("persisted breeding workflow", () => {
       established_units: "8",
       total_seeds: "480",
     });
-    const row = await one("crosses", "cross_code", `X-${marker}`);
+    const row = await inProgram("crosses", {});
+    expect(row.cross_code).toMatch(codePattern("X"));
     ids.cross = row.id;
+    ids.crossCode = row.cross_code;
     expect(row.female_parent_id).toBe(ids.parentF);
     expect(row.male_parent_id).toBe(ids.parentM);
     html = await (await request(`/app/breeding?program=${ids.program}`)).text();
@@ -203,10 +218,10 @@ describe.sequential("persisted breeding workflow", () => {
     await submit(html, "family", {
       program_id: ids.program,
       cross_id: ids.cross,
-      family_code: `FAM-${marker}`,
       generation: "1",
     });
-    const family = await one("families", "family_code", `FAM-${marker}`);
+    const family = await inProgram("families", {});
+    expect(family.family_code).toMatch(codePattern("F"));
     ids.family = family.id;
     expect(family.cross_id).toBe(ids.cross);
     html = await (await request(`/app/breeding?program=${ids.program}`)).text();
@@ -214,13 +229,14 @@ describe.sequential("persisted breeding workflow", () => {
       program_id: ids.program,
       cross_id: ids.cross,
       family_id: ids.family,
-      seed_lot_code: `LOT-${marker}`,
       harvest_date: "2026-09-10",
       total_quantity: "480",
       storage_location: "Synthetic shelf",
     });
-    const lot = await one("seed_lots", "seed_lot_code", `LOT-${marker}`);
+    const lot = await inProgram("seed_lots", {});
+    expect(lot.seed_lot_code).toMatch(codePattern("L"));
     ids.lot = lot.id;
+    ids.lotCode = lot.seed_lot_code;
     expect(lot.family_id).toBe(ids.family);
   });
   it("records and displays a generated germination rate", async () => {
@@ -241,16 +257,51 @@ describe.sequential("persisted breeding workflow", () => {
       await request(`/app/breeding?program=${ids.program}`)
     ).text();
     expect(rendered).toContain("92.00");
-    expect(rendered).toContain(`LOT-${marker}`);
+    expect(rendered).toContain(ids.lotCode);
   });
   it("filters crosses by code", async () => {
     const html = await (
-      await request(`/app/breeding?program=${ids.program}&q=X-${marker}`)
+      await request(`/app/breeding?program=${ids.program}&q=${ids.crossCode}`)
     ).text();
-    expect(html).toContain(`X-${marker}`);
+    expect(html).toContain(ids.crossCode);
     const empty = await (
       await request(`/app/breeding?program=${ids.program}&q=NO-MATCH`)
     ).text();
     expect(empty).toContain("Aucun croisement");
+  });
+  it("archives and restores a parent without losing lineage", async () => {
+    const option = `<option value="${ids.parentF}"`;
+    let html = await (
+      await request(`/app/breeding?program=${ids.program}`)
+    ).text();
+    expect(html).toContain(option);
+    await submit(html, `lifecycle-parent-${ids.parentF}`, {
+      entity: "parent_lines",
+      id: ids.parentF,
+      operation: "archive",
+    });
+    expect((await one("parent_lines", "id", ids.parentF)).deleted_at).not.toBe(
+      null,
+    );
+    expect((await one("crosses", "id", ids.cross)).female_parent_id).toBe(
+      ids.parentF,
+    );
+    html = await (await request(`/app/breeding?program=${ids.program}`)).text();
+    expect(html).not.toContain(option);
+    expect(html).not.toContain(`<strong>${ids.parentCodeF}</strong>`);
+    html = await (
+      await request(`/app/breeding?program=${ids.program}&archived=1`)
+    ).text();
+    expect(html).toContain(`<strong>${ids.parentCodeF}</strong>`);
+    await submit(html, `lifecycle-parent-${ids.parentF}`, {
+      entity: "parent_lines",
+      id: ids.parentF,
+      operation: "restore",
+    });
+    const restored = await one("parent_lines", "id", ids.parentF);
+    expect(restored.deleted_at).toBe(null);
+    expect(restored.parent_code).toBe(ids.parentCodeF);
+    html = await (await request(`/app/breeding?program=${ids.program}`)).text();
+    expect(html).toContain(option);
   });
 });

@@ -17,7 +17,7 @@ const output = execFileSync(
     "-At",
   ],
   {
-    input: readFileSync("tests/auth-rls.sql", "utf8"),
+    input: readFileSync(process.argv[2] ?? "tests/auth-rls.sql", "utf8"),
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
   },
