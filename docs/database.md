@@ -89,10 +89,14 @@ design (soft delete only), so a PostgREST delete through the service-role client
 relied on for teardown even when it returns no catchable error. `tests/db-cleanup.ts`
 (`hardDeleteOrganization`) instead deletes the row directly against the database as the
 Postgres superuser — the same privileged path `scripts/test-rls.mjs` already uses — which
-now actually cascades, after the 000017 fix above. Phenotyping's integration test and the
-critical E2E journey use this helper; the breeding/inventory/operations/auth suites still
-use the old unchecked PostgREST delete and were left out of this change's scope, so they
-can still leak a synthetic organization per run until they adopt the same helper.
+now actually cascades, after the 000017 fix above. It also verifies the row actually
+disappeared (`DELETE ... RETURNING id` and a check on the result) and throws if not, so a
+cleanup that silently removes nothing fails the test loudly instead of leaking another
+organization. Every suite that creates a synthetic organization
+(`phenotypes.integration.test.ts`, `breeding.integration.test.ts`,
+`inventory.integration.test.ts`, `operations.integration.test.ts`,
+`auth.integration.test.ts`, `critical-v1.spec.ts`, `auth-management.spec.ts`) now tears it
+down through this helper.
 
 ### Phenotyping Modules and Module Traits
 A phenotyping module (`phenotyping_modules`) is a named, reusable, ordered group of traits
