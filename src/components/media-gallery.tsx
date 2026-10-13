@@ -346,6 +346,11 @@ function MediaViewer({
       onClick={(event) => {
         if (event.target === event.currentTarget) dialog.current?.close();
       }}
+      onKeyDown={(event) => {
+        // Let the native dialog handle its own Escape-to-close, but don't
+        // let the key reach the entity inspector's Escape handler too.
+        if (event.key === "Escape") event.stopPropagation();
+      }}
     >
       <div className="media-viewer-panel">
         <button

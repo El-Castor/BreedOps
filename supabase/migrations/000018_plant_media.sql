@@ -132,6 +132,9 @@ CREATE TRIGGER validate_media_asset_target_trigger BEFORE INSERT ON public.media
 -- creation; only presentation metadata, primary status and archive state
 -- may change. This keeps the UPDATE RLS policy simple while still blocking
 -- any attempt to re-point a row at a different entity or team.
+-- created_by is deliberately excluded: it is ON DELETE SET NULL against
+-- profiles, and a guard that also covered it would make that FK action
+-- itself raise "immutable" and block deleting the author's profile.
 CREATE FUNCTION public.guard_media_asset_identity()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
@@ -145,7 +148,6 @@ BEGIN
     OR NEW.storage_path IS DISTINCT FROM OLD.storage_path
     OR NEW.mime_type IS DISTINCT FROM OLD.mime_type
     OR NEW.byte_size IS DISTINCT FROM OLD.byte_size
-    OR NEW.created_by IS DISTINCT FROM OLD.created_by
     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'Media identity and target are immutable' USING ERRCODE = '23514';
   END IF;

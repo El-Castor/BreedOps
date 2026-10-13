@@ -47,6 +47,12 @@ export function FormDrawer({
         onClick={(event) => {
           if (event.target === event.currentTarget) dialog.current?.close();
         }}
+        onKeyDown={(event) => {
+          // The dialog already closes itself natively on Escape; stop the
+          // key from also reaching an ancestor dialog's own Escape handler
+          // (e.g. this drawer opened from inside the entity inspector).
+          if (event.key === "Escape") event.stopPropagation();
+        }}
       >
         <div className="form-drawer-panel">
           <header>
