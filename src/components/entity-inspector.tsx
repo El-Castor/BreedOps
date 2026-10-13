@@ -17,7 +17,9 @@ import {
 } from "react";
 import { ActionForm } from "@/components/action-form";
 import { Icon, type IconName } from "@/components/icons";
+import { MediaGallery } from "@/components/media-gallery";
 import { ActionMenu, DecisionBadge } from "@/components/ui";
+import type { MediaTargetType } from "@/lib/media/types";
 import {
   setBreedingEntityArchived,
   updateBreedingNotes,
@@ -309,7 +311,7 @@ export function EntityInspector({
             />
           )}
           <EntityPhenotypeSection phenotypes={entity.phenotypes} />
-          <EntityMediaSection />
+          <EntityMediaSection entity={entity} />
           <EntityNotesSection notes={entity.notes} />
         </div>
       </aside>
@@ -509,33 +511,19 @@ function EntityPhenotypeSection({
   );
 }
 
-// Media persistence (Supabase Storage + metadata) is a future milestone; this
-// section is the stable boundary where stored plant images will render.
-function EntityMediaSection() {
-  return (
-    <section>
-      <h3 className="icon-heading">
-        <Icon name="image" size={14} />
-        Images
-      </h3>
-      <div className="media-empty">
-        <Icon name="image" />
-        <p>
-          Aucune image enregistrée.
-          <br />
-          L’ajout de photos de plantes sera disponible dans un prochain jalon.
-        </p>
-        <button
-          type="button"
-          className="secondary"
-          disabled
-          title="Le stockage des images est prévu dans un prochain jalon."
-        >
-          Ajouter une image · bientôt
-        </button>
-      </div>
-    </section>
-  );
+// Crosses have no media target in this milestone: a cross is a planning
+// record, not a physical specimen with its own photographs.
+const mediaTargetByKind: Record<BreedingEntityKind, MediaTargetType | null> = {
+  parent: "parent_line",
+  cross: null,
+  family: "family",
+  lot: "seed_lot",
+};
+
+function EntityMediaSection({ entity }: { entity: BreedingEntityDetail }) {
+  const targetType = mediaTargetByKind[entity.kind];
+  if (!targetType) return null;
+  return <MediaGallery targetType={targetType} targetId={entity.id} />;
 }
 
 function EntityNotesSection({ notes }: { notes: string | null }) {

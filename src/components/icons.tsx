@@ -55,6 +55,9 @@ import {
   ZoomIn,
   ZoomOut,
   Scan,
+  Star,
+  Upload,
+  ChevronLeft,
   type LucideProps,
 } from "lucide-react";
 
@@ -120,6 +123,9 @@ const icons = {
   zoomIn: ZoomIn,
   zoomOut: ZoomOut,
   fit: Scan,
+  primary: Star,
+  upload: Upload,
+  previous: ChevronLeft,
 } as const;
 
 export type IconName = keyof typeof icons;
