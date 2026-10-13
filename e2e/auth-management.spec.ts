@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
+import { hardDeleteOrganization } from "../tests/db-cleanup";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421") throw new Error("E2E requires isolated local Supabase");
@@ -66,7 +67,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await admin.from("audit_logs").delete().in("entity_id", Object.values(ids));
   for (const key of ["member", "invited", "teamAdmin", "foreign", "system"]) if (ids[key]) await admin.auth.admin.deleteUser(ids[key]);
-  for (const key of ["teama", "teamb"]) if (ids[key]) await admin.from("organizations").delete().eq("id", ids[key]);
+  for (const key of ["teama", "teamb"]) if (ids[key]) hardDeleteOrganization(ids[key]);
 });
 
 test("AUTH-01..15 real administration, reset, status, and scope journey", async ({ page, request, browser }) => {

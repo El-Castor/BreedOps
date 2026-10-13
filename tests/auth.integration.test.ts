@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { appendServerActionFields } from "./server-action";
+import { hardDeleteOrganization } from "./db-cleanup";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
@@ -66,7 +67,7 @@ describe.sequential("real Supabase authentication over HTTP", () => {
       await admin.from("profiles").delete().eq("user_id", userId);
       await admin.auth.admin.deleteUser(userId);
     }
-    await admin.from("organizations").delete().eq("id", teamId);
+    hardDeleteOrganization(teamId);
   });
   it("redirects anonymous protected requests", async () => {
     const response = await request("/app");

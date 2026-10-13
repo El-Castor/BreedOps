@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hardDeleteOrganization } from "./db-cleanup";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
@@ -142,7 +143,7 @@ describe.sequential("persisted breeding workflow", () => {
   }, 30000);
   afterAll(async () => {
     if (ids.user) await admin.auth.admin.deleteUser(ids.user);
-    if (ids.team) await admin.from("organizations").delete().eq("id", ids.team);
+    if (ids.team) hardDeleteOrganization(ids.team);
   });
   it("creates a team-owned program", async () => {
     const html = await (await request("/app")).text();

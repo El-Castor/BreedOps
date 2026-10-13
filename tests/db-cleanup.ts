@@ -10,9 +10,14 @@ import { execFileSync } from "node:child_process";
 // RLS and actually removes the row and its cascaded children.
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Throws on a real SQL error (e.g. a constraint this helper doesn't expect)
+// and also when the row simply wasn't there to delete -- a cleanup that
+// silently removes nothing is exactly the failure mode that let synthetic
+// organizations accumulate before migration 000017, so "0 rows" must fail
+// loudly here rather than be mistaken for success.
 export function hardDeleteOrganization(id: string) {
   if (!uuid.test(id)) throw new Error(`Not a UUID: ${id}`);
-  execFileSync(
+  const output = execFileSync(
     "docker",
     [
       "exec",
@@ -26,11 +31,16 @@ export function hardDeleteOrganization(id: string) {
       "-v",
       "ON_ERROR_STOP=1",
       "-q",
+      "-At",
     ],
     {
-      input: `DELETE FROM public.organizations WHERE id = '${id}';`,
+      input: `DELETE FROM public.organizations WHERE id = '${id}' RETURNING id;`,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
+  if (output.trim() !== id)
+    throw new Error(
+      `hardDeleteOrganization(${id}) deleted no row -- cleanup did not run, or the organization was already gone`,
+    );
 }
