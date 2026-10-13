@@ -24,6 +24,14 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // Plant Media uploads go through a Server Action and must fit under its
+  // body size limit; the 1 MB default is well below the 10 MiB the media
+  // upload itself enforces.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "11mb",
+    },
+  },
 };
 
 export default nextConfig;
