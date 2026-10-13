@@ -3,6 +3,7 @@
 
 export type Trait = {
   id: string;
+  organization_id: string;
   code: string;
   name: string;
   description: string | null;
@@ -19,7 +20,10 @@ export type Trait = {
   is_active: boolean;
 };
 
-export type ActiveTrait = Omit<Trait, "id" | "is_active"> & {
+export type ActiveTrait = Omit<
+  Trait,
+  "id" | "organization_id" | "is_active"
+> & {
   trait_id: string;
   module_id: string;
   module_name: string;

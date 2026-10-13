@@ -72,6 +72,14 @@ navigation, not client-side route transitions: forms mutate through Server Actio
 reload the current route on success, so document navigation keeps every page consistent
 and avoids stale client-router state (agend TD-003).
 
+**Programme labels are always name-first.** Everywhere a programme is shown as a selector,
+chip or context value (`AppShell`'s top-bar selector, `ProgramSwitch`, `ProgramContext`),
+the programme **name** is the primary, high-contrast label; its business code is secondary
+(muted, smaller, mono). Never show a bare technical code as the only visible label. A
+`system_admin` sees every team's programmes in these same selectors (by design); when more
+than one team is actually present, each entry also carries its team name so a programme
+from another team never reads as an unexplained duplicate of one you already know.
+
 ## 5. Page composition
 
 Every page follows the same order:
@@ -207,6 +215,13 @@ shows one card per visible module with an *Activer*/*Désactiver* `ActionForm` a
 module (`fieldset.measure-group`); each row’s accessible label is the trait name plus type
 and range chips, and the control (`number`/`select`/date input) is chosen from the trait’s
 `data_type`, never hard-coded.
+
+**Bibliothèque de traits** and **Modules** carry an extra **Équipe** column/badge, shown
+only when the traits or modules fetched span more than one `organization_id` (always true
+for a `system_admin` who can see several teams, never true for an ordinary single-team
+view). Without it, two teams' independently-created "Sélection V1" module or "Architecture"
+trait are visually indistinguishable from one duplicated row; the team label is the fix,
+not hiding or merging the rows.
 
 ## 15. Data honesty
 

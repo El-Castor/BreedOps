@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
+import { hardDeleteOrganization } from "../tests/db-cleanup";
 
 const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
 if (backend.API_URL !== "http://127.0.0.1:55421")
@@ -67,7 +68,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (ids.user) await admin.auth.admin.deleteUser(ids.user);
-  if (ids.team) await admin.from("organizations").delete().eq("id", ids.team);
+  if (ids.team) hardDeleteOrganization(ids.team);
 });
 
 test("critical V1 journey persists through every module and changes KPIs", async ({

@@ -59,7 +59,13 @@ const tabs: [Tab, string, IconName][] = [
   ["ranking", "Classement", "score"],
 ];
 
-type Params = { program?: string; tab?: string; q?: string; category?: string };
+type Params = {
+  program?: string;
+  tab?: string;
+  q?: string;
+  category?: string;
+  archived?: string;
+};
 
 export default async function Phenotypes({
   searchParams,
@@ -97,12 +103,12 @@ export default async function Phenotypes({
     client
       .from("phenotype_traits")
       .select(
-        "id,code,name,description,category,data_type,unit,minimum_value,maximum_value,decimal_places,allowed_values,direction,target_value,protocol,is_active",
+        "id,organization_id,code,name,description,category,data_type,unit,minimum_value,maximum_value,decimal_places,allowed_values,direction,target_value,protocol,is_active",
       )
       .order("name"),
     client
       .from("phenotyping_modules")
-      .select("id,name,description,is_active")
+      .select("id,organization_id,name,description,is_active")
       .order("name"),
     client
       .from("phenotyping_module_traits")
@@ -148,6 +154,7 @@ export default async function Phenotypes({
           .is("deleted_at", null)
           .order("phenotype_code")
       : Promise.resolve(empty),
+    client.from("organizations").select("id,name"),
   ]);
   const labels = [
     "Impossible de charger la bibliothèque de traits.",
@@ -159,6 +166,7 @@ export default async function Phenotypes({
     "Impossible de charger les familles.",
     "Impossible de charger les lots.",
     "Impossible de charger les phénotypes.",
+    "Impossible de charger les équipes.",
   ];
   const states = results.map((result, index) =>
     collectionState(result, labels[index]),
@@ -180,6 +188,7 @@ export default async function Phenotypes({
   const traits = states[0].data as Trait[];
   const modules = states[1].data as {
     id: string;
+    organization_id: string;
     name: string;
     description: string | null;
     is_active: boolean;
@@ -216,6 +225,7 @@ export default async function Phenotypes({
     replicate: number | null;
     location: string | null;
   }[];
+  const teams = states[9].data as { id: string; name: string }[];
   const evaluationsState = collectionState(
     phenotypes.length
       ? await client
@@ -282,6 +292,17 @@ export default async function Phenotypes({
 
   const model = models.find((item) => item.is_active) ?? models[0];
   const traitById = new Map(traits.map((trait) => [trait.id, trait]));
+  const teamName = (value: string) =>
+    teams.find((item) => item.id === value)?.name ?? "—";
+  // A system_admin sees every team's traits/modules; without a visible team
+  // label, two teams' independent "Architecture" trait or "Sélection V1"
+  // module look like duplicates. Shown only when more than one team is
+  // actually present so the common single-team case stays uncluttered.
+  const multiTeam =
+    new Set([
+      ...traits.map((trait) => trait.organization_id),
+      ...modules.map((module) => module.organization_id),
+    ]).size > 1;
   const phenotypeName = (value: string) =>
     phenotypes.find((item) => item.id === value)?.phenotype_code ?? "—";
   const familyName = (value: string | null) =>
@@ -327,13 +348,23 @@ export default async function Phenotypes({
     ranking: scored.length,
   };
   const query = params.q?.trim().toLowerCase() ?? "";
+  const showArchived = params.archived === "1";
   const shownTraits = traits.filter(
     (trait) =>
+      (showArchived || trait.is_active) &&
       (!query ||
         trait.name.toLowerCase().includes(query) ||
         trait.code.includes(query)) &&
       (!params.category || trait.category === params.category),
   );
+  const shownModules = showArchived
+    ? modules
+    : modules.filter((module) => module.is_active);
+  const archivedTraitCount = traits.filter((item) => !item.is_active).length;
+  const archivedModuleCount = modules.filter((item) => !item.is_active).length;
+  const traitsFilterParam =
+    (params.q ? `&q=${encodeURIComponent(params.q)}` : "") +
+    (params.category ? `&category=${encodeURIComponent(params.category)}` : "");
   const groupedActive = activeTraits.reduce<
     { module: string; traits: ActiveTrait[] }[]
   >((groups, trait) => {
@@ -520,6 +551,9 @@ export default async function Phenotypes({
             <form method="get" role="search">
               <input type="hidden" name="program" value={programId ?? ""} />
               <input type="hidden" name="tab" value="traits" />
+              {showArchived && (
+                <input type="hidden" name="archived" value="1" />
+              )}
               <label className="sr-only" htmlFor="trait-search">
                 Rechercher un trait
               </label>
@@ -550,6 +584,26 @@ export default async function Phenotypes({
                 Filtrer
               </button>
             </form>
+            {/* Document navigation keeps the toggle reliable (agend TD-003). */}
+            <nav className="segmented" aria-label="Traits affichés">
+              <a
+                className={showArchived ? "" : "active"}
+                aria-current={showArchived ? undefined : "true"}
+                href={tabHref("traits", traitsFilterParam)}
+              >
+                Actifs
+              </a>
+              <a
+                className={showArchived ? "active" : ""}
+                aria-current={showArchived ? "true" : undefined}
+                href={tabHref("traits", `${traitsFilterParam}&archived=1`)}
+              >
+                <Icon name="archive" size={14} /> Avec archives
+                {archivedTraitCount > 0 && (
+                  <span className="tab-count">{archivedTraitCount}</span>
+                )}
+              </a>
+            </nav>
           </div>
           <Card className="flush">
             {shownTraits.length ? (
@@ -558,6 +612,7 @@ export default async function Phenotypes({
                   <thead>
                     <tr>
                       <th>Trait</th>
+                      {multiTeam && <th>Équipe</th>}
                       <th>Catégorie</th>
                       <th>Type</th>
                       <th>Plage / valeurs</th>
@@ -581,6 +636,11 @@ export default async function Phenotypes({
                             {trait.code}
                           </span>
                         </td>
+                        {multiTeam && (
+                          <td className="secondary-line">
+                            {teamName(trait.organization_id)}
+                          </td>
+                        )}
                         <td>{categoryLabels[trait.category]}</td>
                         <td>
                           <span className="chip type">
@@ -670,11 +730,13 @@ export default async function Phenotypes({
               </DataTable>
             ) : (
               <EmptyState
-                title="Aucun trait"
+                title={traits.length ? "Aucun trait actif" : "Aucun trait"}
                 message={
                   query || params.category
                     ? "Aucun trait ne correspond au filtre."
-                    : "Créez le premier trait de la bibliothèque."
+                    : traits.length
+                      ? "Tous les traits de l’équipe sont archivés. Consultez « Avec archives » pour les retrouver."
+                      : "Créez le premier trait de la bibliothèque."
                 }
               />
             )}
@@ -739,9 +801,31 @@ export default async function Phenotypes({
               </FormDrawer>
             </div>
           </div>
-          {modules.length ? (
+          <div className="register-toolbar">
+            {/* Document navigation keeps the toggle reliable (agend TD-003). */}
+            <nav className="segmented" aria-label="Modules affichés">
+              <a
+                className={showArchived ? "" : "active"}
+                aria-current={showArchived ? undefined : "true"}
+                href={tabHref("modules")}
+              >
+                Actifs
+              </a>
+              <a
+                className={showArchived ? "active" : ""}
+                aria-current={showArchived ? "true" : undefined}
+                href={tabHref("modules", "&archived=1")}
+              >
+                <Icon name="archive" size={14} /> Avec archives
+                {archivedModuleCount > 0 && (
+                  <span className="tab-count">{archivedModuleCount}</span>
+                )}
+              </a>
+            </nav>
+          </div>
+          {shownModules.length ? (
             <div className="module-grid">
-              {modules.map((module) => {
+              {shownModules.map((module) => {
                 const members = traitsOfModule(module.id);
                 const available = traits.filter(
                   (trait) =>
@@ -758,6 +842,11 @@ export default async function Phenotypes({
                         <h3>
                           <Icon name="module" />
                           {module.name}
+                          {multiTeam && (
+                            <span className="chip">
+                              {teamName(module.organization_id)}
+                            </span>
+                          )}
                         </h3>
                         <p>
                           {module.description ?? "Sans description"} ·{" "}
@@ -863,8 +952,12 @@ export default async function Phenotypes({
           ) : (
             <Card>
               <EmptyState
-                title="Aucun module"
-                message="Créez un module pour regrouper les traits mesurés ensemble."
+                title={modules.length ? "Aucun module actif" : "Aucun module"}
+                message={
+                  modules.length
+                    ? "Tous les modules de l’équipe sont archivés. Consultez « Avec archives » pour les retrouver."
+                    : "Créez un module pour regrouper les traits mesurés ensemble."
+                }
               />
             </Card>
           )}
