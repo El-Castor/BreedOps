@@ -14,12 +14,20 @@ npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
 Open http://localhost:3107/login. Supabase uses API port 55421 and database port 55422.
-CLI 2.75.0 is pinned by the scripts. Initial startup applies migrations 000001–000015
-to a new local database; demo seeding is disabled. For a retained database, apply
-pending migrations without resetting data with
+CLI 2.75.0 is pinned by the scripts. Initial startup applies every migration in
+`supabase/migrations/` to a new local database; demo seeding is disabled. For a retained
+database, apply pending migrations without resetting data with
 `npm exec --yes --package=supabase@2.75.0 -- supabase migration up --local`. Never reset a retained database
 containing user records. `supabase/seed.sql` is optional synthetic demo material,
 not a prerequisite for the application or tests.
+
+`db:start` runs Storage (`storage-api`) by default — Plant Media (migration 000018) needs
+it for the private `breedops-media` bucket. If you changed the excluded-services list
+yourself and lost Storage, `npx supabase stop` (keeps the data volume) then `npm run
+db:start` again picks it back up; the bucket itself is created by the migration, not by the
+declarative `[storage.buckets.breedops-media]` block in `config.toml` (that block only
+helps a genuinely fresh `supabase start`/`db reset`, not a restart from an existing
+backup/volume).
 
 `local:configure` safely updates the required keys in `.env.local` and stores
 privileged local test configuration in `.local/test-backend.json`, both Git-ignored.
@@ -58,6 +66,7 @@ With the production server running on port 3107:
 ```sh
 npm test
 npm run test:rls
+npm run test:media
 npm run test:e2e
 npm run typecheck
 npm run lint
@@ -65,6 +74,11 @@ npm run format:check
 npm run security:client-secrets
 npm audit
 ```
+
+`npm run media:check-orphans` is a read-only maintenance check (not part of the gate above):
+it diffs the `breedops-media` bucket's objects against `media_assets.storage_path` and
+reports any Storage object with no metadata row, or metadata row with no Storage object,
+without deleting anything.
 
 Unit tests can run without the backend using `npm run test:unit`.
 HTTP integration tests require local configuration and the running production app.

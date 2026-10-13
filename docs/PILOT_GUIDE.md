@@ -64,10 +64,35 @@ lots, with archived relatives marked), pollination and harvest or seed/germinati
 cross yield computed by PostgreSQL, linked phenotypes with their latest PostgreSQL-calculated
 score and decision (or "Pas encore de données phénotypiques."), and notes. **Modifier** edits
 a parent's descriptive provenance, a cross's status and notes, or family/lot notes; archived
-records must be restored before editing. The **Images** section reads "Aucune image
-enregistrée.": image upload and storage are a separate future milestone.
+records must be restored before editing. The **Images** section holds real plant photos —
+see **Plant Media** below.
 
 The visual and interaction rules for every screen are defined in `docs/DESIGN_SYSTEM.md`.
+
+## Plant Media
+
+Parent lines, families and seed lots (not crosses) and phenotype evaluations can carry real
+photos. Every image is private: it lives in a non-public Supabase Storage bucket and is only
+ever served through a short-lived signed URL generated on demand, never stored or cached.
+
+In the record inspector's **Images** section, **Ajouter une image** opens a drawer: choose a
+JPEG, PNG or WebP file up to 10 Mo, with a preview before upload, an optional legend, a type
+(plant, organ, symptom, seed, harvest, other), a capture date and an optional "Définir comme
+image principale". The server re-checks the file's actual content — not just its name or
+declared type — and rejects anything else with a precise message
+(for example "Format non pris en charge. Utilisez JPEG, PNG ou WebP." or "Le fichier dépasse
+la limite de 10 Mo."). A phenotype evaluation's photos open from a compact **Photos** button
+next to it in **Phénotypes → Évaluations → Mesures récentes**; they are supplementary
+evidence only and never affect the weighted/normalized score, the automatic decision or the
+ranking.
+
+Click a thumbnail to open it full-size in a keyboard-accessible viewer (Échap closes it).
+**Modifier** edits the legend, type and capture date without re-uploading the file.
+**Définir comme image principale** promotes one image to primary for its record; at most one
+active image is primary at a time. **Archiver** keeps the image and its history but removes
+it from the active gallery; **Afficher les archives** lists archived images, which can be
+restored. Archiving the record itself does not remove its photos — they stay fully visible,
+including from the archived view — but blocks new uploads until the record is restored.
 
 ## Pedigree
 
@@ -142,6 +167,7 @@ npm test
 npm run test:rls
 npm run test:identity
 npm run test:code-concurrency
+npm run test:media
 npm run test:e2e
 npm run typecheck
 npm run lint
