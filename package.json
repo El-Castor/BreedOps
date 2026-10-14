@@ -23,6 +23,7 @@
     "test:rls": "node scripts/test-rls.mjs",
     "test:identity": "node scripts/test-rls.mjs tests/breeding-identity-lifecycle.sql",
     "test:code-concurrency": "node scripts/test-code-concurrency.mjs",
+    "test:program-code-concurrency": "node scripts/test-program-code-concurrency.mjs",
     "test:phenotyping": "node scripts/test-rls.mjs tests/configurable-phenotyping.sql",
     "test:media": "node scripts/test-rls.mjs tests/plant-media.sql",
     "media:check-orphans": "node scripts/check-media-orphans.mjs",
