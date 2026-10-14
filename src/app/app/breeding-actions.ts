@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireIdentity } from "@/lib/auth";
 import {
@@ -9,12 +10,6 @@ import {
 } from "@/lib/action-state";
 
 const id = z.string().uuid();
-const code = z
-  .string()
-  .trim()
-  .min(1)
-  .max(80)
-  .regex(/^[A-Za-z0-9._-]+$/);
 const text = z.string().trim().min(1).max(160);
 const optionalInt = z.preprocess(
   (v) => (v === "" ? null : v),
@@ -84,22 +79,38 @@ export async function createProgram(
   form: FormData,
 ): Promise<ActionState> {
   try {
-    const { profile } = await requireIdentity();
+    const { client, profile } = await requireIdentity();
     const values = z
       .object({
-        code,
         name: text,
         species: text,
         campaign: z.string().trim().max(40),
       })
       .parse(Object.fromEntries(form));
-    await insert("programs", {
+    // Unlike parent_lines/crosses/families/seed_lots -- whose read policy
+    // checks their *parent* program, an already-existing row -- the programs
+    // read policy re-checks the programs row itself. PostgreSQL's RLS cannot
+    // see that check satisfied for a row the same INSERT statement is still
+    // creating, so INSERT ... RETURNING fails here even though the insert is
+    // authorized. A client-generated id plus a separate follow-up SELECT
+    // (its own statement, after the insert has taken effect) sidesteps it.
+    const newId = randomUUID();
+    const { error: insertError } = await client.from("programs").insert({
+      id: newId,
       ...values,
       organization_id: profile.organization_id,
       created_by: profile.id,
     });
+    if (insertError) throw insertError;
+    const { data, error: selectError } = await client
+      .from("programs")
+      .select("code")
+      .eq("id", newId)
+      .single();
+    if (selectError || !data)
+      throw selectError ?? new Error("Generated code unavailable");
     return actionSuccess(
-      "Programme créé. Vous pouvez maintenant ajouter ses lignées parentales.",
+      `Programme ${data.code} créé. Vous pouvez maintenant ajouter ses lignées parentales.`,
     );
   } catch (error) {
     return actionError(error, "Impossible de créer le programme.");

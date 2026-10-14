@@ -683,11 +683,10 @@ export default async function Dashboard({
           />
           <ActionForm action={createProgram} actionName="program">
             <h2>Nouveau programme</h2>
-            <div className="fields-2">
-              <label>
-                Code
-                <input name="code" required maxLength={80} />
-              </label>
+            <p className="form-hint">
+              Le code BreedOps du programme est attribué automatiquement.
+            </p>
+            <div className="fields-3">
               <label>
                 Nom
                 <input name="name" required maxLength={160} />

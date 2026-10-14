@@ -325,11 +325,10 @@ export default async function BreedingPage({
             />
             <ActionForm action={createProgram} actionName="program">
               <h2>Créer le premier programme</h2>
-              <div className="fields-2">
-                <label>
-                  Code
-                  <input name="code" required maxLength={80} />
-                </label>
+              <p className="form-hint">
+                Le code BreedOps du programme est attribué automatiquement.
+              </p>
+              <div className="fields-3">
                 <label>
                   Nom
                   <input name="name" required maxLength={160} />
