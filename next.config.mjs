@@ -5,7 +5,7 @@ export const securityHeaders = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob:",
+      "img-src 'self' data: blob: https://*.supabase.co http://127.0.0.1:*",
       "font-src 'self' data:",
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co http://127.0.0.1:* ws://127.0.0.1:*",
       "object-src 'none'",
@@ -23,6 +23,14 @@ export const securityHeaders = [
 const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
+  },
+  // Plant Media uploads go through a Server Action and must fit under its
+  // body size limit; the 1 MB default is well below the 10 MiB the media
+  // upload itself enforces.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "11mb",
+    },
   },
 };
 

@@ -159,8 +159,7 @@ Structure:
 3. **Body** sections separated by hairlines, not cards: *Aperçu*, *Lignée* (summary plus
    relation chips; archived ancestors dashed), propagation (*Pollinisation et récolte* or
    *Semences*), *Phénotypage et sélection* (count, evaluated, latest score, per-phenotype
-   decisions, or “Pas encore de données phénotypiques.”), *Images* (empty boundary with a
-   disabled future action), *Notes*.
+   decisions, or “Pas encore de données phénotypiques.”), *Images* (see §10), *Notes*.
 4. **Edit mode** replaces nothing: it inserts a form at the top (parent provenance fields,
    cross status/notes, family/lot notes).
 
@@ -168,7 +167,27 @@ Interaction: right sheet `clamp(420px, 34vw, 520px)` on desktop/tablet, bottom s
 ≤640px; portaled to `<body>`; focus moves to the close button and returns to the opener;
 Escape and backdrop close it. The underlying register or graph stays visible.
 
-## 10. Pedigree
+## 10. Media gallery and viewer
+
+The *Images* section of the entity inspector (parent lines, families, seed lots; not
+crosses) and the phenotype evaluation "Photos" drawer trigger both render the same
+`MediaGallery` component (`src/components/media-gallery.tsx`): a responsive thumbnail grid
+(`.media-grid`), a star badge (`primary` icon) on the active primary image, a dashed
+*Afficher les archives* / *Masquer les archives* toggle, and an *Ajouter une image*
+`FormDrawer` with a client-side preview, caption, type, capture date and "Définir comme
+image principale" checkbox before upload. Per-item actions (*Modifier*, set primary,
+*Archiver*/*Restaurer*) sit directly under each tile rather than behind an `ActionMenu`,
+since a tile already has room for them.
+
+Clicking a thumbnail opens a `.media-viewer` — a centred native `<dialog>` lightbox with a
+close button, previous/next controls when more than one image is loaded, and the caption
+below the image. It is the first dialog nested inside another dialog (the entity inspector's
+own `<aside role="dialog">`): both it and `FormDrawer` stop an Escape keydown from
+propagating past their own `<dialog>` element, so closing the nested one never also closes
+its host. Any future drawer or viewer opened from inside an existing dialog should do the
+same.
+
+## 11. Pedigree
 
 Four labelled columns (lignées → croisements → familles → lots). Nodes are white with a 4px
 kind-coloured accent bar, a kind icon (`plant`/`cross`/`family`/`lot` from the shared Lucide
@@ -180,19 +199,19 @@ are icon buttons with an `aria-label` carrying the same text so the accessible n
 unchanged. Nodes are keyboard focusable (Enter / Space, with `preventDefault`) and open the
 shared inspector.
 
-## 11. Responsiveness
+## 12. Responsiveness
 
 Targets: 1440px (reference), 1024px (laptop/tablet landscape), 768px (drawer navigation,
 single-column grids), 390px (inspector bottom sheet). No horizontal page overflow; wide
 tables scroll inside `DataTable`.
 
-## 12. Accessibility
+## 13. Accessibility
 
 Visible `:focus-visible` ring (teal), labelled controls, semantic buttons/links,
 `aria-current` for navigation and segmented filters, `role="dialog"` + `aria-modal` for the
 inspector, text equivalents for colour and shape, reduced motion respected.
 
-## 13. Dark theme
+## 14. Dark theme
 
 Light and dark share the same semantic tokens; dark redefines them under
 `:root[data-theme="dark"]` in `globals.css` (deep forest/charcoal surfaces, muted
@@ -201,7 +220,7 @@ teal/botanical accents, high-contrast text, no neon glow). `ThemeToggle` (top ba
 no system-preference auto-switch. Components must only reference tokens (never a literal
 colour) so both themes stay correct automatically.
 
-## 14. Configurable phenotyping screens
+## 15. Configurable phenotyping screens
 
 **Phénotypes** is a workspace with sub-navigation (`Vue d’ensemble`, `Bibliothèque de
 traits`, `Modules`, `Configuration du programme`, `Évaluations`, `Classement`), each tab a
@@ -223,7 +242,7 @@ view). Without it, two teams' independently-created "Sélection V1" module or "A
 trait are visually indistinguishable from one duplicated row; the team label is the fix,
 not hiding or merging the rows.
 
-## 15. Data honesty
+## 16. Data honesty
 
 Show only stored or PostgreSQL-computed values. No fictitious analytics, traits, images or
 decorative charts. Missing values render as “—”; empty collections use an explicit empty

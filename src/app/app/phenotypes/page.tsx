@@ -2,6 +2,7 @@ import { ActionForm } from "@/components/action-form";
 import { FormDrawer } from "@/components/form-drawer";
 import { Icon, type IconName } from "@/components/icons";
 import { MeasureProgress } from "@/components/measure-progress";
+import { MediaGalleryDrawer } from "@/components/media-gallery";
 import {
   ActionMenu,
   Breadcrumbs,
@@ -1396,6 +1397,11 @@ export default async function Phenotypes({
                         ) : (
                           <StatusBadge tone="info">Observation</StatusBadge>
                         )}
+                        <MediaGalleryDrawer
+                          targetType="phenotype_evaluation"
+                          targetId={evaluation.id}
+                          title={`Images — ${phenotypeName(evaluation.phenotype_id)} (${formatDay(evaluation.evaluation_date)})`}
+                        />
                       </li>
                     ))}
                   </ul>

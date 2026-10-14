@@ -141,6 +141,48 @@ Tracks checklist items for tasks.
 ### Audit Logs
 Records all significant actions for audit purposes.
 
+### Media Assets (Plant Media)
+`media_assets` (migration 000018) holds metadata for real plant/scientific images attached
+to a breeding record; the binary itself lives in the private Supabase Storage bucket
+`breedops-media` (`public = false`, 10 MiB limit, `image/jpeg`/`image/png`/`image/webp`
+only), created by the migration itself (`INSERT INTO storage.buckets ...`) so it exists
+identically on every environment that applies it, local or hosted — never created by hand
+in Studio. A signed URL is generated on demand (TTL 300s) and never persisted; no public or
+signed URL is ever stored in PostgreSQL.
+
+Supported targets are exactly `parent_line_id`, `family_id`, `seed_lot_id` and
+`phenotype_evaluation_id` (crosses are intentionally out of scope). A `CHECK` using
+`num_nonnulls()` enforces exactly one target per row. `organization_id`/`program_id` are
+never trusted from the client: a `BEFORE INSERT` `SECURITY DEFINER` trigger
+(`validate_media_asset_target`) resolves them from the target entity itself and overwrites
+whatever the client sent, so a forged or mistaken value cannot attach media to another
+team's record. `guard_media_asset_identity` then makes the target and storage identity
+immutable after creation (only presentation metadata, primary status and archive state may
+change); `created_by` is deliberately excluded from that guard because it is
+`ON DELETE SET NULL` against `profiles` — including it there made deleting the author's
+profile fail with "immutable" instead of nulling the reference.
+
+At most one *active* (non-archived) image per target may be `is_primary`, enforced by four
+partial unique indexes (`WHERE is_primary AND archived_at IS NULL`). `set_media_primary(id)`
+(SECURITY INVOKER) does the unset-then-set two-step atomically so it never transiently
+violates the index. A `BEFORE INSERT OR UPDATE` trigger clears `is_primary` whenever a row
+is archived, so an archived primary image is never left flagged primary and a later restore
+never silently re-promotes it — "no primary" is an allowed, temporary state.
+
+Media is archived (`archived_at`/`archived_by`), never hard-deleted: there is no DELETE
+policy, matching every other breeding lifecycle table. Archiving the owning breeding entity
+does not touch its media; historical images remain fully readable. The authorization model
+reuses the existing `can_access_team`/`can_write_team` RLS helpers on `media_assets` itself
+— no new role, no separate Storage RLS policy. Storage object operations (upload, signed
+URL, delete) always go through the service-role admin client, and only after the metadata
+layer's RLS check has already passed; the browser never receives the service-role key.
+Storage and Postgres are not transactional with each other: if the metadata insert fails
+after a successful upload, the server compensates by deleting the just-uploaded object
+(`removeMediaObject`), so no orphan is left behind. `scripts/check-media-orphans.mjs` is a
+read-only maintenance check that diffs the bucket's objects against
+`media_assets.storage_path` and reports (without deleting) any orphan object or dangling
+row.
+
 ## Relationships
 
 ```mermaid
@@ -174,6 +216,11 @@ erDiagram
 
     PROGRAM ||--o{ EXPERIMENTAL_CYCLE : contains
     EXPERIMENTAL_CYCLE ||--o{ TASK : generates
+
+    PARENT_LINE ||--o{ MEDIA_ASSET : illustrates
+    FAMILY ||--o{ MEDIA_ASSET : illustrates
+    SEED_LOT ||--o{ MEDIA_ASSET : illustrates
+    PHENOTYPE_EVALUATION ||--o{ MEDIA_ASSET : illustrates
 ```
 
 ## Data Types and Constraints
@@ -198,6 +245,10 @@ Row-Level Security (RLS) policies are implemented on all tables to ensure proper
 - `phenotype_trait_values` has no client insert policy: it is written only by the
   `submit_trait_evaluation` SECURITY DEFINER function, which re-checks `can_write_program`
   and every trait's constraints before writing
+- `media_assets` reuses `can_access_team`/`can_write_team` directly for SELECT/INSERT/UPDATE;
+  `organization_id`/`program_id` are derived server-side from the target entity (never
+  trusted from the client) and the row's target/storage identity is immutable after
+  creation; there is no DELETE policy (archive only)
 
 ## Calculations and Functions
 
