@@ -26,7 +26,9 @@ Mailpit at `http://127.0.0.1:55424`.
 
 ## Breeding workflow
 
-1. From **Vue d’ensemble**, create a programme with code, name and species.
+1. From **Vue d’ensemble**, create a programme with name, species and campaign. No code
+   is typed: PostgreSQL assigns it (`PRG-0001`, ...), shown next to the programme name
+   once created.
 2. Choose **Ajouter un parent** and create two distinct parent lines by name. No code is typed.
    Optional provenance: accession (external identifier), source (breeder, institute or
    supplier), origin and notes.
@@ -40,10 +42,13 @@ prerequisite is missing, the page explains it and links to the required action.
 
 ## BreedOps codes, archive and restore
 
-PostgreSQL assigns every new parent, cross, family, seed lot and phenotype a stable
-BreedOps code: `PROGRAMCODE-P-0001` (parent), `-X-` (cross), `-F-` (family), `-L-`
+PostgreSQL assigns every new programme, parent, cross, family, seed lot and phenotype a
+stable BreedOps code. A programme gets `PRG-0001`, `PRG-0002`, ... (globally unique,
+sequential, never reused). Its parent, cross, family, seed lot and phenotype codes follow
+as `PROGRAMCODE-P-0001` (parent), `-X-` (cross), `-F-` (family), `-L-`
 (seed lot) and `-I-` (phenotype). The prefix is the programme code in upper case with
-non-alphanumeric characters removed (`id-t.st` → `IDTST`). Numbering is per programme and
+non-alphanumeric characters removed (`PRG-0001` → `PRG0001`; a manually-seeded legacy code
+like `id-t.st` → `IDTST`). Numbering is per programme and
 entity type, safe under concurrent creation, and the code cannot be edited afterwards.
 The success message shows the code that was assigned. Codes recorded manually before this
 change are kept unchanged. Use the name field for descriptive meaning.
