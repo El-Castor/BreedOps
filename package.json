@@ -25,6 +25,7 @@
     "test:code-concurrency": "node scripts/test-code-concurrency.mjs",
     "test:phenotyping": "node scripts/test-rls.mjs tests/configurable-phenotyping.sql",
     "test:media": "node scripts/test-rls.mjs tests/plant-media.sql",
+    "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",
     "media:check-orphans": "node scripts/check-media-orphans.mjs",
     "security:client-secrets": "node scripts/check-client-secrets.mjs",
     "db:start": "npm exec --yes --package=supabase@2.75.0 -- supabase start -x studio,realtime,imgproxy,edge-runtime,logflare,vector,supavisor",
