@@ -66,7 +66,7 @@ ALTER TABLE public.experimental_cycles
 CREATE TABLE public.experimental_cycle_template_tasks (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   cycle_template_id uuid NOT NULL REFERENCES public.experimental_cycle_templates(id) ON DELETE CASCADE,
-  task_template_id uuid NOT NULL REFERENCES public.task_templates(id) ON DELETE RESTRICT,
+  task_template_id uuid NOT NULL REFERENCES public.task_templates(id) ON DELETE CASCADE,
   start_offset_days integer NOT NULL DEFAULT 0 CHECK (start_offset_days >= 0),
   duration_days integer NOT NULL DEFAULT 1 CHECK (duration_days >= 1),
   default_assigned_to uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -388,7 +388,7 @@ BEGIN
 
   UPDATE tmp_template_schedule t SET indegree = (
     SELECT count(*) FROM experimental_cycle_template_dependencies d WHERE d.successor_template_task_id = t.template_task_id
-  );
+  ) WHERE true;
 
   LOOP
     SELECT s.template_task_id, s.start_offset_days, s.duration_days
@@ -568,7 +568,7 @@ BEGIN
 
   UPDATE tmp_resched t SET indegree = (
     SELECT count(*) FROM task_dependencies d WHERE d.successor_task_id = t.task_id
-  );
+  ) WHERE true;
 
   LOOP
     SELECT task_id INTO cur_task_id FROM tmp_resched WHERE NOT processed AND indegree = 0 LIMIT 1;
