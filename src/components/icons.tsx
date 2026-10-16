@@ -58,6 +58,8 @@ import {
   Star,
   Upload,
   ChevronLeft,
+  GanttChartSquare,
+  Link2,
   type LucideProps,
 } from "lucide-react";
 
@@ -126,6 +128,9 @@ const icons = {
   primary: Star,
   upload: Upload,
   previous: ChevronLeft,
+  tasks: ClipboardList,
+  gantt: GanttChartSquare,
+  dependency: Link2,
 } as const;
 
 export type IconName = keyof typeof icons;

@@ -110,8 +110,13 @@ export default async function Dashboard({
           .from("inventory_lot_status")
           .select("inventory_lot_id,alert_level,days_before_expiration")
           .not("alert_level", "is", null),
+        client
+          .from("experimental_cycles")
+          .select("id,status")
+          .eq("program_id", programId)
+          .is("deleted_at", null),
       ])
-    : [empty, empty, empty, empty, empty, empty, empty];
+    : [empty, empty, empty, empty, empty, empty, empty, empty];
   const states = [
     collectionState(results[0], "Impossible de charger les parents."),
     collectionState(results[1], "Impossible de charger les croisements."),
@@ -120,6 +125,7 @@ export default async function Dashboard({
     collectionState(results[4], "Impossible de charger les phénotypes."),
     collectionState(results[5], "Impossible de charger les tâches."),
     collectionState(results[6], "Impossible de charger les alertes de stock."),
+    collectionState(results[7], "Impossible de charger les cycles."),
   ];
   const failed = states.find((state) => state.status === "error");
   if (failed?.status === "error")
@@ -147,6 +153,11 @@ export default async function Dashboard({
     alert_level: string;
     days_before_expiration: number | null;
   }[];
+  const cycles = states[7].data as { id: string; status: string }[];
+  const activeCycles = cycles.filter(
+    (cycle) => cycle.status === "active",
+  ).length;
+  const blockedTasks = tasks.filter((task) => task.status === "blocked").length;
   const alertLotsResult = alertRows.length
     ? await client
         .from("inventory_lots")
@@ -384,12 +395,25 @@ export default async function Dashboard({
       hint: `${phenotypes.length} phénotype(s) enregistré(s)`,
     },
     {
+      label: "Cycles actifs",
+      value: activeCycles,
+      icon: "operations",
+      href: `/app/operations${base}`,
+      hint: `${tasks.length} tâche(s) au total`,
+    },
+    {
       label: "Tâches ouvertes",
       value: openTasks.length,
       icon: "operations",
-      href: `/app/operations${base}`,
-      hint: overdue.length ? `${overdue.length} en retard` : "Aucun retard",
-      attention: overdue.length > 0,
+      href: programId
+        ? `/app/operations?program=${programId}&tab=tasks`
+        : "/app/operations?tab=tasks",
+      hint: overdue.length
+        ? `${overdue.length} en retard`
+        : blockedTasks
+          ? `${blockedTasks} bloquée(s)`
+          : "Aucun retard",
+      attention: overdue.length > 0 || blockedTasks > 0,
     },
   ];
 

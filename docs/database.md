@@ -126,17 +126,139 @@ Manages lots of inventory items.
 ### Inventory Movements
 Records movements of inventory items.
 
-### Task Templates
-Defines reusable templates for experimental tasks.
+### Experimental Workflows: Task Templates, Cycle Templates, Dependencies
+
+Migration 000019 extends the original `task_templates` / `experimental_cycles` / `tasks` /
+`task_checklist_items` model (000001, 000011) with reusable, dependency-aware workflow
+templates. It never introduces a parallel project-management system: a cycle template is a
+blueprint that *generates* ordinary `experimental_cycles` and `tasks` rows; execution always
+happens on the real tables, exactly as before.
+
+**Hierarchy**: Program → Experimental Cycle Template (optional) → Experimental Cycle →
+Tasks → Task Checklist Items. A cycle can also be created manually, with no template at all
+(`source_template_id IS NULL`); manual creation and manual task creation are unchanged and
+fully preserved.
+
+#### Task Templates
+A reusable, program-scoped definition of one kind of operation (`task_templates`: code, name,
+description, `zone`, `priority`, `sop_code`, `expected_deliverable`, `is_active`). Its
+`relative_week`/`relative_day` columns are a **legacy hint** for manually assembled
+workflows only; the generator never reads them. `task_templates_read` has no `deleted_at`
+filter (relaxed the same way breeding entities were in 000014) so an "Afficher les archives"
+view can list archived templates; archiving does not touch cycles already generated from it.
+
+#### Task Template Checklist Items
+`task_template_checklist_items` (label, `is_required`, `sort_order`) is the SOP/checklist
+blueprint for a task template. It is copied into real `task_checklist_items` as a **snapshot**
+at instantiation time; editing the template's checklist later never rewrites an
+already-generated task's checklist.
+
+#### Experimental Cycle Templates
+`experimental_cycle_templates` (program-scoped: code, name, description, `is_active`,
+`deleted_at`) is the reusable workflow blueprint itself — e.g. "Androgenèse — Brachypodium".
+Archiving (`deleted_at`) blocks new instantiation but never affects cycles already generated.
+
+#### Experimental Cycle Template Tasks
+`experimental_cycle_template_tasks` is one ordered step of a template: a `task_template_id`
+plus `start_offset_days` (minimum offset from the cycle's start date — dependencies can push a
+step later, never earlier), `duration_days`, an optional `default_assigned_to`, and
+`sort_order`. `move_cycle_template_task(template_id, step_id, step)` reorders a step by
+swapping `sort_order` with its neighbour (the same pattern as `move_module_trait`, 000016).
+Unlike historical-record tables, this is a composition/builder table and has a DELETE policy
+(removing a step while editing a template is a normal, safe structural edit, matching the
+`phenotyping_module_traits` precedent) — its `task_template_id` FK is `ON DELETE CASCADE` so
+that deleting an organization/program still cascades cleanly all the way down.
+
+#### Experimental Cycle Template Dependencies / Task Dependencies
+`experimental_cycle_template_dependencies` (between two steps of the *same* template) and
+`task_dependencies` (between two *real* tasks) both model **finish-to-start-only** edges —
+MVP does not implement start-to-start/finish-to-finish/start-to-finish — with an integer
+`lag_days >= 0`:
+
+```
+successor.planned_date >= predecessor.due_date + 1 + lag_days
+```
+
+Both tables reject, via a `BEFORE INSERT OR UPDATE` trigger (`validate_template_dependency` /
+`validate_task_dependency`), anything that would break the model's invariants: self-reference
+and exact duplicates (`CHECK`/`UNIQUE`), an edge between two different templates, between two
+different programs, between two different experimental cycles, to an archived/deleted or
+cancelled task, and — using a recursive CTE that computes every template-task/task reachable
+**forward** from the successor and checks whether the predecessor is already in that set —
+any edge that would close a cycle in the dependency graph. Both tables are composition data
+(not historical scientific records) and so, like `experimental_cycle_template_tasks`, carry a
+DELETE policy.
+
+#### Scheduling: `compute_cycle_template_schedule`, `instantiate_experimental_cycle`, `recalculate_cycle_schedule`
+
+`compute_cycle_template_schedule(template_id, start_date)` is the **single** SQL function
+behind both the read-only schedule preview and real instantiation, so the two can never
+diverge. It walks the template's dependency graph in **topological order** (Kahn's algorithm,
+via a `pg_temp` working table — never template `sort_order`) and for each step computes:
+
+```
+base_start       = cycle_start + start_offset_days
+dependency_start = MAX(predecessor.due_date + 1 + lag_days) over all its predecessors
+planned_date     = GREATEST(base_start, dependency_start)
+due_date         = planned_date + duration_days - 1
+```
+
+`instantiate_experimental_cycle(template_id, cycle_name, start_date)` is a single
+transactional function: it creates the `experimental_cycles` row (`source_template_id` set),
+one `tasks` row per step with its template fields **copied at this moment only** (title,
+description, priority, zone, sop_code, expected_deliverable — a snapshot, exactly like
+Task Template Checklist Items above), the matching `task_dependencies` edges, and each task's
+checklist snapshot, then sets the cycle's `end_date` to the latest generated task's `due_date`.
+Either everything is created or nothing is (a plain Postgres transaction) — an unknown,
+archived or inaccessible template raises before any row is written.
+
+`recalculate_cycle_schedule(task_id, new_planned_date, new_due_date)` is "Enregistrer et
+recalculer les dépendances": it applies the new dates to one task, then walks the *same*
+cycle's dependency graph in topological order, moving only the downstream tasks whose computed
+`dependency_start` now exceeds their current `planned_date`, while preserving each moved
+task's own `duration_days`. A task's own schedule is checked against its *own* predecessors
+first. It raises (rolling back the whole call, so nothing is partially applied) if the new
+dates would leave it violating its own predecessors, or if propagation would require moving a
+task whose `status = 'completed'` — actual completion time is operational history and is never
+silently rewritten; the caller must resolve the conflict by hand. Completing a task later or
+earlier than planned never itself reshuffles the plan: propagation only happens from this
+explicit, user-initiated date change.
+
+Dependency **readiness** (ready / waiting-on-a-dependency / completed / cancelled) is derived
+in the application from task status and predecessor statuses, not persisted, and is distinct
+from the manual `blocked` task status — a task can be `not_started` while structurally waiting
+on a predecessor.
+
+#### `plan_filter` and whole-table `UPDATE`s
+This project's Postgres loads the `plan_filter` extension, which rejects any `UPDATE` without
+a `WHERE` clause for a non-superuser role — including PostgREST's `authenticated` role, which
+is what every RPC above actually executes as. The topological-sort helpers intentionally
+recompute an `indegree` column for **every** row of their `pg_temp` working table; that
+`UPDATE` carries a harmless `WHERE true` specifically so it still passes under `plan_filter`
+when called through the API (a superuser `psql` session does not hit this, which is why it is
+easy to miss when first testing a function directly).
 
 ### Experimental Cycles
-Organizes tasks into experimental cycles.
+Organizes tasks into experimental cycles. `source_template_id` (nullable, `ON DELETE SET
+NULL`) records which cycle template a cycle was generated from, for traceability only —
+editing or archiving the template never changes cycles already generated from it. A cycle
+created manually (the original, still-supported flow) leaves it `NULL` and keeps supplying
+`start_date`/`end_date` directly.
 
 ### Tasks
-Records specific tasks within experimental cycles.
+Records specific tasks within experimental cycles, generated from a template or created
+manually. `task_template_id` is kept for traceability; `set_task_status()` (000011) is the
+only sanctioned path for status changes and was extended (never replaced) in 000019 to reject
+`completed` while the task has any incomplete *required* checklist item, with the exact
+user-facing message `"Cette tâche comporte encore des contrôles obligatoires non terminés."`
+(optional items never block completion). A task's duration is derived from
+`due_date - planned_date + 1`, never a separately persisted column.
 
 ### Task Checklist Items
-Tracks checklist items for tasks.
+Tracks checklist items for tasks; `sort_order` (added in 000019) keeps template-generated and
+manually added items in a stable order. `complete_checklist_item(item_id, completed, comment)`
+is the only sanctioned way to toggle one: `completed_by`/`completed_at` are always derived
+server-side from `auth.uid()`, never trusted from the client.
 
 ### Audit Logs
 Records all significant actions for audit purposes.
@@ -214,8 +336,18 @@ erDiagram
     INVENTORY_ITEM ||--o{ INVENTORY_LOT : contains
     INVENTORY_LOT ||--o{ INVENTORY_MOVEMENT : tracks
 
+    PROGRAM ||--o{ TASK_TEMPLATE : defines
+    PROGRAM ||--o{ EXPERIMENTAL_CYCLE_TEMPLATE : defines
+    TASK_TEMPLATE ||--o{ TASK_TEMPLATE_CHECKLIST_ITEM : defines
+    EXPERIMENTAL_CYCLE_TEMPLATE ||--o{ EXPERIMENTAL_CYCLE_TEMPLATE_TASK : orders
+    EXPERIMENTAL_CYCLE_TEMPLATE_TASK }o--|| TASK_TEMPLATE : uses
+    EXPERIMENTAL_CYCLE_TEMPLATE_TASK ||--o{ EXPERIMENTAL_CYCLE_TEMPLATE_DEPENDENCY : links
+    EXPERIMENTAL_CYCLE_TEMPLATE ||--o{ EXPERIMENTAL_CYCLE : generates
+
     PROGRAM ||--o{ EXPERIMENTAL_CYCLE : contains
     EXPERIMENTAL_CYCLE ||--o{ TASK : generates
+    TASK ||--o{ TASK_DEPENDENCY : links
+    TASK ||--o{ TASK_CHECKLIST_ITEM : requires
 
     PARENT_LINE ||--o{ MEDIA_ASSET : illustrates
     FAMILY ||--o{ MEDIA_ASSET : illustrates
@@ -249,6 +381,16 @@ Row-Level Security (RLS) policies are implemented on all tables to ensure proper
   `organization_id`/`program_id` are derived server-side from the target entity (never
   trusted from the client) and the row's target/storage identity is immutable after
   creation; there is no DELETE policy (archive only)
+- Every experimental-workflow table (`experimental_cycle_templates` and its steps/
+  dependencies, `task_dependencies`, `task_template_checklist_items`) reuses
+  `can_access_program`/`can_write_program` exactly as `task_templates`/`tasks` already did —
+  no new role, no new RLS helper. A dependency or a template step can never bridge two
+  programs or two organizations: the integrity triggers check this directly, and RLS alone
+  would not be enough since both rows could otherwise belong to programs the same
+  `team_admin` can write. `task_templates_read` and `experimental_cycle_templates_read` have
+  no `deleted_at` filter (so archived definitions remain listable); every other
+  experimental-workflow table still filters `deleted_at`/hides archived rows exactly as
+  before.
 
 ## Calculations and Functions
 

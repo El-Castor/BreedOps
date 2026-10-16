@@ -247,3 +247,36 @@ not hiding or merging the rows.
 Show only stored or PostgreSQL-computed values. No fictitious analytics, traits, images or
 decorative charts. Missing values render as “—”; empty collections use an explicit empty
 state.
+
+## 17. Operations: tabs, filters and the Gantt
+
+**Opérations** follows the same sub-navigation pattern as Phénotypage (section 15): plain
+anchors (`buildHref`), `Vue d’ensemble`/`Tâches`/`Calendrier`/`Gantt`/`Modèles`, so the
+active tab and every filter survive a reload. One shared `OperationsFilterBar` (a plain
+`method="get"` form) backs Tâches, Calendrier and Gantt alike — cycle/zone/responsible/
+state/priority are never implemented twice. The task detail is a `FormDrawer` opened from
+an **Ouvrir** trigger, never a second, disconnected page; it shows status, a derived
+readiness badge (*Prête* / *En attente d’une dépendance*, never persisted), dependencies as
+plain text (predecessor title, status, due date, lag), the SOP checklist and two save
+actions — a plain field save, and a date save explicitly labelled **Enregistrer et
+recalculer les dépendances**.
+
+The template builder (**Modèles**) reuses *Monter*/*Descendre* icon buttons for step order,
+the same pattern as the phenotyping module builder — never drag-and-drop. Dependencies
+between steps are a predecessor/successor pair plus a lag, not a node-graph editor. The
+schedule preview is a plain table rendered from a `start` query param with no client state;
+**Créer le cycle** is a normal `ActionForm`, not a separate confirmation flow.
+
+The Gantt is a CSS-grid/SVG timeline, not a charting library: sticky task labels on the
+left (`gantt-labels`), a horizontally-scrolling date axis and bars on the right
+(`gantt-scroll`/`gantt-chart`), an "Aujourd’hui" marker, and dependency connectors drawn as
+one SVG `<path>` per edge (`gantt-dependencies`). A bar's colour is one of the existing
+`StatusBadge` tones (`status-not_started`/`in_progress`/`blocked`/`completed`/`cancelled`
+classes mapped to `--info`/`--danger`/`--success`/`--archived`), never a new palette; an
+overdue bar additionally gets a `--danger` ring. Every bar carries a full accessible name
+(title, dates, responsible, status, priority, dependencies) via `role="img"` and a visually
+hidden text node — the SVG connectors are a visual aid, not the only place dependency
+information exists. Horizontal scrolling is intentional and confined to the Gantt's own
+`gantt-scroll` region; every other view must still fit its viewport with no page-level
+horizontal scroll down to 768px (`.section-block > *` and `.page > *` both carry
+`min-width: 0` so a wide table scrolls within its own `.table-wrap`, never the page).

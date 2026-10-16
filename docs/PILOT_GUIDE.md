@@ -151,12 +151,53 @@ Use **Mouvement traçable** for consumption, receipt, return, destruction or jus
 adjustment. Current stock comes from the movement ledger. Lot status shows low-stock and
 expiration alerts; direct stock editing is unavailable.
 
-## Operations and dashboard
+## Operations: manual tasks, workflow templates and the Gantt
 
-Open **Opérations**, create an experimental cycle, then create and assign a task with
-planned and due dates. Update its status from the task register. List and calendar views
-use the same records. Dashboard metrics aggregate real crosses, lots, germination,
-phenotypes, inventory alerts and tasks for the selected programme.
+Open **Opérations**. Five tabs cover the module, and every cross-cutting filter (cycle,
+zone, responsible, state, priority) is kept in the URL across tabs: **Vue d’ensemble**
+(real KPIs, active cycles, tasks to do/in progress/blocked, upcoming deadlines),
+**Tâches**, **Calendrier**, **Gantt** and **Modèles**.
+
+**Manual tasks** (unchanged): create an experimental cycle, then create and assign a task
+with planned and due dates from the toolbar at the top of any tab. Update its status from
+the task register, or open a task to edit its title, description, responsible, zone,
+priority, SOP code, expected deliverable and notes.
+
+**Reusable workflows** (**Modèles** tab): create one or more **modèles de tâches**
+(name, code, default priority/zone/SOP, and an optional SOP checklist), then create a
+**modèle de workflow**, add its steps in order (each step picks a task template, a
+decalage in days from the cycle's start date and a duration), and link dependencies
+between steps (**Dépend de** / **Bloque**, with an optional delay in days) — finish-to-start
+only: a step starts only once its predecessor's own due date (plus any delay) has passed.
+BreedOps rejects a dependency that would create a cycle or bridge two different templates
+before it is saved.
+
+Pick a start date under **Aperçu et instanciation** to preview the generated schedule —
+every task's computed start/end date, priority and responsible — without saving anything,
+then **Créer le cycle** to generate the real cycle and its tasks, dependencies and
+checklists in one atomic step. Editing the template afterwards never changes a cycle
+already generated from it; each generated task keeps a snapshot of the template's fields
+as they were at that moment.
+
+**Gantt**: a dependency-aware timeline grouped by cycle, with a week or month scale, an
+"Aujourd’hui" marker, overdue tasks highlighted, and curved connectors between dependent
+tasks (every dependency is also listed as text in the task's own detail panel, not only as
+a connector). Click a task's **Ouvrir** button, in the Gantt, the task list or the
+calendar, to open its detail: dependencies, SOP checklist, and two save actions — plain
+field edits, and **Enregistrer et recalculer les dépendances** for a date change, which
+propagates the new date to every dependent task while preserving each one's own duration.
+BreedOps refuses to move a task that is already `Terminée`, and refuses to recalculate a
+schedule where doing so would require moving one — complete it, or revert the date change,
+first.
+
+**SOP checklist gate**: if a task template carries a checklist, every generated task gets
+its own copy. A required item left unchecked blocks marking the task `Terminée` with the
+message "Cette tâche comporte encore des contrôles obligatoires non terminés."; optional
+items never block completion. Checking an item records who completed it and when,
+server-side — never from the browser.
+
+Dashboard metrics aggregate real crosses, lots, germination, phenotypes, inventory alerts,
+active cycles and tasks for the selected programme.
 
 ## Pilot validation
 
@@ -168,6 +209,8 @@ npm run test:rls
 npm run test:identity
 npm run test:code-concurrency
 npm run test:media
+npm run test:workflows
+npm run test:operations
 npm run test:e2e
 npm run typecheck
 npm run lint
