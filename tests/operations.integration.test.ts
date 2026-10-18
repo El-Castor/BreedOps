@@ -272,14 +272,14 @@ describe.sequential("experimental operations and database dashboard", () => {
       assigned_to: ids.profile,
     });
     const rendered = await (
-      await request(`/app/operations?program=${ids.program}`)
+      await request(`/app/operations?program=${ids.program}&tab=tasks`)
     ).text();
     expect(rendered).toContain("En retard");
     expect(rendered).toContain("Synthetic operator");
   });
   it("completes the task consistently and updates dashboard and calendar", async () => {
     let html = await (
-      await request(`/app/operations?program=${ids.program}`)
+      await request(`/app/operations?program=${ids.program}&tab=tasks`)
     ).text();
     await submit(html, `task-status-${ids.task}`, {
       task_id: ids.task,
@@ -299,7 +299,7 @@ describe.sequential("experimental operations and database dashboard", () => {
     expect(html).toContain("100 %");
     expect(
       await (
-        await request(`/app/operations?program=${ids.program}&view=calendar`)
+        await request(`/app/operations?program=${ids.program}&tab=calendar`)
       ).text(),
     ).toContain("Synthetic overdue task");
   });
