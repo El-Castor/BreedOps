@@ -14,10 +14,10 @@ npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
 Open http://localhost:3107/login. Supabase uses API port 55421 and database port 55422.
-CLI 2.75.0 is pinned by the scripts. Initial startup applies every migration in
+CLI 2.121.0 is pinned by the scripts. Initial startup applies every migration in
 `supabase/migrations/` to a new local database; demo seeding is disabled. For a retained
 database, apply pending migrations without resetting data with
-`npm exec --yes --package=supabase@2.75.0 -- supabase migration up --local`. Never reset a retained database
+`npm exec --yes --package=supabase@2.121.0 -- supabase migration up --local`. Never reset a retained database
 containing user records. `supabase/seed.sql` is optional synthetic demo material,
 not a prerequisite for the application or tests.
 
