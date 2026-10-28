@@ -14,20 +14,36 @@ npm run start -- --hostname 127.0.0.1 --port 3107
 ```
 
 Open http://localhost:3107/login. Supabase uses API port 55421 and database port 55422.
-CLI 2.121.0 is pinned by the scripts. Initial startup applies every migration in
-`supabase/migrations/` to a new local database; demo seeding is disabled. For a retained
-database, apply pending migrations without resetting data with
-`npm exec --yes --package=supabase@2.121.0 -- supabase migration up --local`. Never reset a retained database
-containing user records. `supabase/seed.sql` is optional synthetic demo material,
+
+Supabase CLI 2.121.0 is an exact `devDependency` (not a global install); `npm ci`
+installs it into `node_modules/.bin`. `npm run db:start`, `npm run db:stop`,
+`npm run db:migrate` and `local:configure` all run it through the shared helper
+`scripts/lib/supabase-cli.mjs`, which resolves the project-local binary, verifies
+it is exactly the pinned version, and disables CLI telemetry/update-notifier
+noise (`SUPABASE_TELEMETRY_DISABLED`, `DO_NOT_TRACK`, `SUPABASE_NO_UPDATE_NOTIFIER`)
+for every BreedOps-managed invocation. None of these scripts fall back to a
+globally installed CLI or download a binary at runtime.
+
+**BreedOps intentionally pins CLI 2.121.0** because the retained Storage schema uses
+the object-versioning generation supported by `storage-api:v1.82.1`. The older
+CLI 2.75.0 pinned `storage-api:v1.35.3`, which is incompatible with that schema and
+caused `SQLSTATE 42P10` during object upload.
+
+Initial startup applies every migration in `supabase/migrations/` to a new local
+database; demo seeding is disabled. For a retained database, apply pending
+migrations without resetting data with `npm run db:migrate` (`supabase migration up
+--local`). **Never** run `supabase db reset` or `supabase stop --no-backup` against a
+retained database containing user records — `npm run db:stop` stops the stack while
+preserving its data volume. `supabase/seed.sql` is optional synthetic demo material,
 not a prerequisite for the application or tests.
 
-`db:start` runs Storage (`storage-api`) by default — Plant Media (migration 000018) needs
-it for the private `breedops-media` bucket. If you changed the excluded-services list
-yourself and lost Storage, `npx supabase stop` (keeps the data volume) then `npm run
-db:start` again picks it back up; the bucket itself is created by the migration, not by the
-declarative `[storage.buckets.breedops-media]` block in `config.toml` (that block only
-helps a genuinely fresh `supabase start`/`db reset`, not a restart from an existing
-backup/volume).
+`db:start` runs Storage (`storage-api`) by default, intentionally — Plant Media
+(migration 000018) needs it for the private `breedops-media` bucket. If you changed
+the excluded-services list yourself and lost Storage, `npm run db:stop` (keeps the
+data volume) then `npm run db:start` again picks it back up; the bucket itself is
+created by the migration, not by the declarative `[storage.buckets.breedops-media]`
+block in `config.toml` (that block only helps a genuinely fresh `supabase
+start`/`db reset`, not a restart from an existing backup/volume).
 
 `local:configure` safely updates the required keys in `.env.local` and stores
 privileged local test configuration in `.local/test-backend.json`, both Git-ignored.

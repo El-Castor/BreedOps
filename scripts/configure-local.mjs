@@ -1,22 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { updateEnvFile } from "./lib/env-file.mjs";
+import { runSupabase } from "./lib/supabase-cli.mjs";
 
 // Local CLI-generated keys only; never print credentials or use a hosted project.
-const raw = execFileSync(
-  "npm",
-  [
-    "exec",
-    "--yes",
-    "--package=supabase@2.121.0",
-    "--",
-    "supabase",
-    "status",
-    "-o",
-    "json",
-  ],
-  { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-);
+const raw = runSupabase(["status", "-o", "json"], { capture: true });
 const data = JSON.parse(raw);
 if (
   data.API_URL !== "http://127.0.0.1:55421" ||

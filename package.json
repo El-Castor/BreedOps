@@ -28,7 +28,9 @@
     "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",
     "media:check-orphans": "node scripts/check-media-orphans.mjs",
     "security:client-secrets": "node scripts/check-client-secrets.mjs",
-    "db:start": "npm exec --yes --package=supabase@2.121.0 -- supabase start -x studio,realtime,imgproxy,edge-runtime,logflare,vector,supavisor",
+    "db:start": "node scripts/db-start.mjs",
+    "db:stop": "node scripts/db-stop.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage"
   },
@@ -62,6 +64,7 @@
     "eslint-config-next": "15.5.25",
     "jsdom": "24.1.1",
     "prettier": "3.3.2",
+    "supabase": "2.121.0",
     "vitest": "4.1.11"
   }
 }
