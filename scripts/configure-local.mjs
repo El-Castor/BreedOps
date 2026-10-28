@@ -8,7 +8,7 @@ const raw = execFileSync(
   [
     "exec",
     "--yes",
-    "--package=supabase@2.75.0",
+    "--package=supabase@2.121.0",
     "--",
     "supabase",
     "status",

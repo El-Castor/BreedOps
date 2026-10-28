@@ -28,7 +28,7 @@
     "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",
     "media:check-orphans": "node scripts/check-media-orphans.mjs",
     "security:client-secrets": "node scripts/check-client-secrets.mjs",
-    "db:start": "npm exec --yes --package=supabase@2.75.0 -- supabase start -x studio,realtime,imgproxy,edge-runtime,logflare,vector,supavisor",
+    "db:start": "npm exec --yes --package=supabase@2.121.0 -- supabase start -x studio,realtime,imgproxy,edge-runtime,logflare,vector,supavisor",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage"
   },
