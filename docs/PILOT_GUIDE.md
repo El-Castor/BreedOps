@@ -199,6 +199,21 @@ server-side — never from the browser.
 Dashboard metrics aggregate real crosses, lots, germination, phenotypes, inventory alerts,
 active cycles and tasks for the selected programme.
 
+## Import and export
+
+Open **Import / Export**. Pick an entity (parent lines, crosses, families, seed lots,
+phenotypes, inventory lots or tasks), load a `.csv` or `.xlsx` file, map its columns to
+the BreedOps fields shown, then preview — every row is classified (valid/warning/error,
+create/update/skip) before anything is written, and the Import button stays disabled
+while any row is in error. Re-importing the same business code (Parent ID, Cross ID,
+Family ID, Seed Lot ID, Phenotype ID, Lot Number or Task ID) updates that row instead of
+creating a duplicate; an archived match or a conflicting identity field (e.g. trying to
+change a cross's parents) is rejected, never silently applied. Download the error report
+for any blocking rows. The same page exports each register to CSV or Excel, and a
+programme's full functional backup (a portable `.xlsx` workbook with stable business
+codes and version/timestamp metadata — not a PostgreSQL backup; media binaries are out
+of scope, their metadata is included on its own sheet).
+
 ## Pilot validation
 
 With the production server running, execute:
@@ -210,6 +225,7 @@ npm run test:identity
 npm run test:code-concurrency
 npm run test:media
 npm run test:workflows
+npm run test:import-export
 npm run test:operations
 npm run test:e2e
 npm run typecheck
