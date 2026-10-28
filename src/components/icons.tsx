@@ -60,6 +60,7 @@ import {
   ChevronLeft,
   GanttChartSquare,
   Link2,
+  ArrowLeftRight,
   type LucideProps,
 } from "lucide-react";
 
@@ -131,6 +132,7 @@ const icons = {
   tasks: ClipboardList,
   gantt: GanttChartSquare,
   dependency: Link2,
+  importExport: ArrowLeftRight,
 } as const;
 
 export type IconName = keyof typeof icons;
