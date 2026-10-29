@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
+import { DistributionChart } from "@/components/charts";
 import { Icon, type IconName } from "@/components/icons";
 import {
   Breadcrumbs,
@@ -11,6 +12,7 @@ import {
   PageHeader,
   ProgramContext,
   ProgramSwitch,
+  SectionHeader,
   StatusBadge,
 } from "@/components/ui";
 import { requireIdentity } from "@/lib/auth";
@@ -44,7 +46,7 @@ const alertLabels: Record<string, string> = {
 export default async function Dashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ program?: string }>;
+  searchParams: Promise<{ program?: string; campaign?: string }>;
 }) {
   const { client, team } = await requireIdentity();
   const params = await searchParams;
@@ -63,49 +65,78 @@ export default async function Dashboard({
       </div>
     );
   const programs = programsState.data;
-  const program =
-    programs.find((item) => item.id === params.program) ?? programs[0];
+  // programs.campaign is a real, durable field (PROMPT.md §5.1) — grouping
+  // by it is the only temporal/program grouping this data model actually
+  // supports; there is no separate campaign table to invent one from.
+  const campaigns = [
+    ...new Set(
+      programs
+        .map((item) => item.campaign)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ].sort();
+  const explicitProgram = programs.find((item) => item.id === params.program);
+  const selectedCampaign =
+    !explicitProgram && params.campaign && campaigns.includes(params.campaign)
+      ? params.campaign
+      : undefined;
+  // Picking one program (explicitProgram) always wins and narrows to just
+  // that program; picking a campaign with no specific program aggregates
+  // every program sharing it, so every KPI/chart below reflects the same
+  // scope consistently. No campaign and no program falls back to the first
+  // program, exactly like before this filter existed.
+  const effectivePrograms = explicitProgram
+    ? [explicitProgram]
+    : selectedCampaign
+      ? programs.filter((item) => item.campaign === selectedCampaign)
+      : programs[0]
+        ? [programs[0]]
+        : [];
+  const program = effectivePrograms[0];
   const programId = program?.id;
+  const programIds = effectivePrograms.map((item) => item.id);
   const empty = { data: [], error: null };
-  const results = programId
+  const results = programIds.length
     ? await Promise.all([
         client
           .from("parent_lines")
           .select("id,parent_code,created_at")
-          .eq("program_id", programId)
+          .in("program_id", programIds)
           .is("deleted_at", null)
           .order("created_at", { ascending: false }),
         client
           .from("crosses")
-          .select("id,cross_code,created_at")
-          .eq("program_id", programId)
+          .select("id,cross_code,status,created_at")
+          .in("program_id", programIds)
           .is("deleted_at", null)
           .order("created_at", { ascending: false }),
         client
           .from("families")
           .select("id,family_code,created_at")
-          .eq("program_id", programId)
+          .in("program_id", programIds)
           .is("deleted_at", null)
           .order("created_at", { ascending: false }),
         client
           .from("seed_lots")
-          .select("id,seed_lot_code,created_at")
-          .eq("program_id", programId)
+          .select("id,seed_lot_code,status,created_at")
+          .in("program_id", programIds)
           .is("deleted_at", null)
           .order("created_at", { ascending: false }),
         client
           .from("phenotypes")
           .select("id,phenotype_code,created_at")
-          .eq("program_id", programId)
+          .in("program_id", programIds)
           .is("deleted_at", null)
           .order("created_at", { ascending: false }),
         client
           .from("tasks")
           .select("id,title,status,due_date,completed_at,created_at")
-          .eq("program_id", programId)
+          .in("program_id", programIds)
           .is("deleted_at", null)
           .order("due_date", { ascending: true }),
         // security_invoker view: RLS limits alerts to the caller's team.
+        // Inventory is organization-scoped, not program-scoped, so it is
+        // deliberately not filtered by programIds — same as before.
         client
           .from("inventory_lot_status")
           .select("inventory_lot_id,alert_level,days_before_expiration")
@@ -113,7 +144,7 @@ export default async function Dashboard({
         client
           .from("experimental_cycles")
           .select("id,status")
-          .eq("program_id", programId)
+          .in("program_id", programIds)
           .is("deleted_at", null),
       ])
     : [empty, empty, empty, empty, empty, empty, empty, empty];
@@ -138,9 +169,15 @@ export default async function Dashboard({
       </div>
     );
   const parents = states[0].data as (Row & { parent_code: string })[];
-  const crosses = states[1].data as (Row & { cross_code: string })[];
+  const crosses = states[1].data as (Row & {
+    cross_code: string;
+    status: string;
+  })[];
   const families = states[2].data as (Row & { family_code: string })[];
-  const lots = states[3].data as (Row & { seed_lot_code: string })[];
+  const lots = states[3].data as (Row & {
+    seed_lot_code: string;
+    status: string;
+  })[];
   const phenotypes = states[4].data as (Row & { phenotype_code: string })[];
   const tasks = states[5].data as (Row & {
     title: string;
@@ -174,6 +211,17 @@ export default async function Dashboard({
         (lot: { id: string }) => lot.id === row.inventory_lot_id,
       )?.batch_number ?? "Lot",
   }));
+  // Organization-scoped, same as the alerts above — never filtered by programIds.
+  const coverageResult = await client
+    .from("inventory_item_coverage")
+    .select("inventory_item_id,low_coverage,has_sufficient_data");
+  const stockCoverage = (coverageResult.data ?? []) as {
+    low_coverage: boolean;
+    has_sufficient_data: boolean;
+  }[];
+  const lowCoverageCount = stockCoverage.filter(
+    (item) => item.low_coverage,
+  ).length;
   // Germination and evaluations come from their own tables, never inferred.
   const [testsResult, evaluationsResult] = await Promise.all([
     lots.length
@@ -191,7 +239,7 @@ export default async function Dashboard({
       ? client
           .from("phenotype_evaluations")
           .select(
-            "id,phenotype_id,automatic_decision,normalized_score,evaluation_date",
+            "id,phenotype_id,automatic_decision,is_eliminated,normalized_score,evaluation_date",
           )
           .in(
             "phenotype_id",
@@ -230,6 +278,7 @@ export default async function Dashboard({
     id: string;
     phenotype_id: string;
     automatic_decision: string | null;
+    is_eliminated: boolean;
     normalized_score: number | null;
     evaluation_date: string | null;
   }[];
@@ -269,6 +318,75 @@ export default async function Dashboard({
       count: tasks.filter((task) => task.status === status).length,
     }))
     .filter((item) => item.count);
+
+  const crossStatusChart = [
+    { label: "Planifié", value: 0, tone: "info" },
+    { label: "Actif", value: 0, tone: "teal" },
+    { label: "Terminé", value: 0, tone: "botanical" },
+    { label: "Annulé", value: 0, tone: "archived" },
+  ].map((item, index) => ({
+    ...item,
+    value: crosses.filter(
+      (cross) =>
+        cross.status === ["planned", "active", "completed", "cancelled"][index],
+    ).length,
+  }));
+  const seedLotStatusChart = [
+    { label: "Disponible", value: 0, tone: "botanical" },
+    { label: "En quarantaine", value: 0, tone: "warning" },
+    { label: "Épuisé", value: 0, tone: "danger" },
+  ].map((item, index) => ({
+    ...item,
+    value: lots.filter(
+      (lot) => lot.status === ["available", "quarantined", "depleted"][index],
+    ).length,
+  }));
+  const decisionChart = [
+    { label: "Elite", value: 0, tone: "botanical" },
+    { label: "Advance", value: 0, tone: "teal" },
+    { label: "Reserve", value: 0, tone: "warning" },
+    { label: "Eliminate", value: 0, tone: "danger" },
+  ].map((item, index) => ({
+    ...item,
+    value: decisionCounts[index]?.count ?? 0,
+  }));
+  const eliminatedByGate = scored.filter((item) => item.is_eliminated).length;
+  const scoreBuckets = [
+    { label: "0–25", min: 0, max: 25 },
+    { label: "25–50", min: 25, max: 50 },
+    { label: "50–75", min: 50, max: 75 },
+    { label: "75–100", min: 75, max: 101 },
+  ];
+  const scoreDistributionChart = scoreBuckets.map((bucket) => ({
+    label: `${bucket.label} %`,
+    value: scored.filter((item) => {
+      const score = Number(item.normalized_score ?? -1);
+      return score >= bucket.min && score < bucket.max;
+    }).length,
+    tone: "teal",
+  }));
+  const taskStatusChart = Object.entries(taskLabels).map(([status, label]) => ({
+    label,
+    value: tasks.filter((task) => task.status === status).length,
+    tone:
+      status === "completed"
+        ? "botanical"
+        : status === "blocked"
+          ? "danger"
+          : status === "in_progress"
+            ? "info"
+            : status === "cancelled"
+              ? "archived"
+              : undefined,
+  }));
+  const inventoryRiskChart = [
+    {
+      label: "Alertes péremption/seuil",
+      value: inventoryAlerts.length,
+      tone: "warning",
+    },
+    { label: "Couverture faible", value: lowCoverageCount, tone: "danger" },
+  ];
 
   const workflow: {
     label: string;
@@ -436,8 +554,31 @@ export default async function Dashboard({
       <ProgramContext team={team.name} program={program} />
       {program ? (
         <>
+          {campaigns.length > 1 && (
+            <div className="program-switch">
+              <span>Campagne</span>
+              <nav className="chip-nav" aria-label="Filtrer par campagne">
+                <Link className={selectedCampaign ? "" : "active"} href="/app">
+                  Toutes
+                </Link>
+                {campaigns.map((campaign) => (
+                  <Link
+                    key={campaign}
+                    className={campaign === selectedCampaign ? "active" : ""}
+                    href={`/app?campaign=${encodeURIComponent(campaign)}`}
+                  >
+                    {campaign}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+          )}
           <ProgramSwitch
-            programs={programs}
+            programs={
+              selectedCampaign
+                ? programs.filter((item) => item.campaign === selectedCampaign)
+                : programs
+            }
             activeId={programId}
             basePath="/app"
           />
@@ -696,6 +837,52 @@ export default async function Dashboard({
                   </Link>
                 </div>
               </Card>
+            </div>
+          </section>
+
+          <section className="section-block" aria-label="Graphiques">
+            <SectionHeader
+              title="Graphiques"
+              description="Données réelles du périmètre actif (programme ou campagne) ; aucune valeur n’est simulée."
+            />
+            <div className="charts-grid">
+              <DistributionChart
+                title="Croisements par statut"
+                items={crossStatusChart}
+                emptyMessage="Aucun croisement enregistré pour ce périmètre."
+              />
+              <DistributionChart
+                title="Lots de graines par statut"
+                description="Statut opérationnel (disponible/quarantaine/épuisé), indépendant de la pureté génétique."
+                items={seedLotStatusChart}
+                emptyMessage="Aucun lot de graines enregistré pour ce périmètre."
+              />
+              <DistributionChart
+                title="Répartition des décisions de sélection"
+                description={
+                  eliminatedByGate > 0
+                    ? `Dont ${eliminatedByGate} éliminé(s) par un critère éliminatoire, indépendamment du score.`
+                    : undefined
+                }
+                items={decisionChart}
+                emptyMessage="Aucune évaluation décidée pour ce périmètre."
+              />
+              <DistributionChart
+                title="Distribution des scores normalisés"
+                items={scoreDistributionChart}
+                emptyMessage="Aucun score normalisé disponible pour ce périmètre."
+              />
+              <DistributionChart
+                title="Tâches par statut"
+                items={taskStatusChart}
+                emptyMessage="Aucune tâche enregistrée pour ce périmètre."
+              />
+              <DistributionChart
+                title="Risques d’inventaire"
+                description="Inventaire du laboratoire — organisation entière, non limité au programme/campagne."
+                items={inventoryRiskChart}
+                emptyMessage="Aucune alerte de stock ni de couverture faible."
+              />
             </div>
           </section>
         </>

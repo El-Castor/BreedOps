@@ -23,6 +23,7 @@ import { requireIdentity } from "@/lib/auth";
 import {
   buildBreedingEntityDetails,
   formatDay,
+  seedLotStatusLabel,
   statusLabel,
   unitLabel,
   type BreedingDetailSource,
@@ -302,12 +303,42 @@ export default async function BreedingPage({
           description="Registres des lignées, croisements, familles et lots. Sélectionnez une ligne pour ouvrir sa fiche."
           actions={
             programId ? (
-              <Link
-                className="button-link secondary"
-                href={`/app/pedigree?program=${programId}`}
-              >
-                Voir le pedigree
-              </Link>
+              <>
+                <Link
+                  className="button-link secondary"
+                  href={`/app/pedigree?program=${programId}`}
+                >
+                  Voir le pedigree
+                </Link>
+                <Link
+                  className="button-link secondary"
+                  href={`/app/import-export/export?entity=parent_lines&program=${programId}&format=csv`}
+                  title="Exporter le registre des lignées parentales (CSV)"
+                >
+                  Exporter les lignées
+                </Link>
+                <Link
+                  className="button-link secondary"
+                  href={`/app/import-export/export?entity=crosses&program=${programId}&format=csv`}
+                  title="Exporter le registre des croisements (CSV)"
+                >
+                  Exporter les croisements
+                </Link>
+                <Link
+                  className="button-link secondary"
+                  href={`/app/import-export/export?entity=families&program=${programId}&format=csv`}
+                  title="Exporter le registre des familles (CSV)"
+                >
+                  Exporter les familles
+                </Link>
+                <Link
+                  className="button-link secondary"
+                  href={`/app/import-export/export?entity=seed_lots&program=${programId}&format=csv`}
+                  title="Exporter le registre des lots de graines (CSV)"
+                >
+                  Exporter les lots
+                </Link>
+              </>
             ) : undefined
           }
         />
@@ -1021,7 +1052,7 @@ export default async function BreedingPage({
                               </td>
                               <td>{lot.storage_location || "—"}</td>
                               <td>
-                                <LifecycleBadge
+                                <SeedLotStatusBadge
                                   archived={Boolean(lot.deleted_at)}
                                   status={lot.status}
                                 />
@@ -1259,6 +1290,33 @@ function LifecycleBadge({
       }
     >
       {statusLabel(status)}
+    </StatusBadge>
+  );
+}
+
+// A seed lot's operational lifecycle (available/quarantined/depleted,
+// migration 000022) is a different axis entirely from the generic
+// active/cancelled status shared by parent_lines/crosses/families above —
+// it gets its own tones, never reusing LifecycleBadge's.
+function SeedLotStatusBadge({
+  archived,
+  status,
+}: {
+  archived: boolean;
+  status: string;
+}) {
+  if (archived) return <StatusBadge tone="archived">Archivé</StatusBadge>;
+  return (
+    <StatusBadge
+      tone={
+        status === "available"
+          ? "success"
+          : status === "quarantined"
+            ? "warning"
+            : "danger"
+      }
+    >
+      {seedLotStatusLabel(status)}
     </StatusBadge>
   );
 }

@@ -119,11 +119,29 @@ const decisionLabels: Record<string, string> = {
 };
 
 // Selection decisions computed by PostgreSQL, with one shared visual scale.
-export function DecisionBadge({ decision }: { decision: string | null }) {
+// eliminationReasons distinguishes a criterion-gated elimination from one
+// caused only by a low weighted score: both show the same "Eliminate" badge
+// (automatic_decision is still just "eliminate"), but a gated elimination
+// also prints why, in visible text rather than a hover-only tooltip, so a
+// high numeric score next to it is never mistaken for a selectable result.
+export function DecisionBadge({
+  decision,
+  eliminationReasons,
+}: {
+  decision: string | null;
+  eliminationReasons?: string[] | null;
+}) {
   if (!decision) return <span className="status-badge">Non évalué</span>;
   return (
-    <span className={`decision-badge ${decision}`}>
-      {decisionLabels[decision] ?? decision}
+    <span className="decision-badge-group">
+      <span className={`decision-badge ${decision}`}>
+        {decisionLabels[decision] ?? decision}
+      </span>
+      {eliminationReasons && eliminationReasons.length > 0 && (
+        <span className="elimination-reasons">
+          Critère éliminatoire : {eliminationReasons.join(" · ")}
+        </span>
+      )}
     </span>
   );
 }

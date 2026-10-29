@@ -126,6 +126,16 @@ const purityLabels: Record<string, string> = {
   pending: "En cours",
   failed: "Non conforme",
 };
+// Operational lifecycle specific to seed lots (migration 000022) — distinct
+// from statusLabels (shared by parent_lines/crosses/families) and from
+// purityLabels (genetic purity, a separate axis entirely).
+const seedLotStatusLabels: Record<string, string> = {
+  available: "Disponible",
+  quarantined: "En quarantaine",
+  depleted: "Épuisé",
+};
+export const seedLotStatusLabel = (status: string) =>
+  seedLotStatusLabels[status] ?? status;
 
 export const statusLabel = (status: string) => statusLabels[status] ?? status;
 
@@ -460,7 +470,7 @@ export function buildBreedingEntityDetails(
       title: family
         ? `Famille ${family.family_code}`
         : "Lot sans famille disponible",
-      status: statusLabel(lot.status),
+      status: seedLotStatusLabel(lot.status),
       generation: family?.generation ?? null,
       archived: Boolean(lot.deleted_at),
       lifecycleEntity: "seed_lots",
@@ -518,7 +528,7 @@ export function buildBreedingEntityDetails(
         source.phenotypes.filter((item) => item.seed_lot_id === lot.id),
       ),
       notes: lot.notes,
-      edit: { type: "notes", entity: "seed_lots", notes: lot.notes ?? "" },
+      edit: { type: "lot", status: lot.status, notes: lot.notes ?? "" },
     };
   });
 

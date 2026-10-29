@@ -30,6 +30,8 @@ export type ActiveTrait = Omit<
   module_order: number;
   trait_order: number;
   coefficient: number | null;
+  is_eliminatory: boolean | null;
+  eliminatory_threshold: number | null;
 };
 
 export const categoryLabels: Record<string, string> = {

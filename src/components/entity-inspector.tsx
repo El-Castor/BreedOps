@@ -25,6 +25,7 @@ import {
   updateBreedingNotes,
   updateCross,
   updateParentLine,
+  updateSeedLotStatus,
 } from "@/app/app/breeding-actions";
 
 export type BreedingEntityKind = "parent" | "cross" | "family" | "lot";
@@ -59,6 +60,7 @@ type EditDescriptor =
       >;
     }
   | { type: "cross"; status: string; notes: string }
+  | { type: "lot"; status: string; notes: string }
   | { type: "notes"; entity: "families" | "seed_lots"; notes: string };
 
 /** One scientific record as shown by registers and the pedigree. */
@@ -649,6 +651,54 @@ function EntityEditSection({ entity }: { entity: BreedingEntityDetail }) {
             />
           </label>
         </ActionForm>
+      )}
+      {edit.type === "lot" && (
+        <>
+          <ActionForm
+            action={updateSeedLotStatus}
+            actionName={`edit-lot-status-${entity.id}`}
+            submitLabel="Changer le statut"
+            resetOnSuccess={false}
+            disabled={edit.status === "depleted"}
+          >
+            <input type="hidden" name="id" value={entity.id} />
+            <label>
+              Statut opérationnel
+              <select
+                name="status"
+                defaultValue={edit.status}
+                disabled={edit.status === "depleted"}
+              >
+                <option value="available">Disponible</option>
+                <option value="quarantined">En quarantaine</option>
+                <option value="depleted">Épuisé</option>
+              </select>
+            </label>
+            {edit.status === "depleted" && (
+              <p className="form-hint blocked">
+                Un lot épuisé ne peut plus changer de statut.
+              </p>
+            )}
+          </ActionForm>
+          <ActionForm
+            action={updateBreedingNotes}
+            actionName={`edit-notes-${entity.id}`}
+            submitLabel="Enregistrer les notes"
+            resetOnSuccess={false}
+          >
+            <input type="hidden" name="entity" value="seed_lots" />
+            <input type="hidden" name="id" value={entity.id} />
+            <label>
+              Notes
+              <textarea
+                name="notes"
+                defaultValue={edit.notes}
+                maxLength={1000}
+                rows={4}
+              />
+            </label>
+          </ActionForm>
+        </>
       )}
       {edit.type === "notes" && (
         <ActionForm
