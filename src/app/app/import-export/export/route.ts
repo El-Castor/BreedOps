@@ -68,18 +68,36 @@ export async function GET(request: Request) {
       ? profile.organization_id
       : (programId as string);
 
-  const table = await exporter(client, scopeId);
-  const filenameBase = sanitizeFilenamePart(
-    `breedops-${entity}-${new Date().toISOString().slice(0, 10)}`,
-  );
-
-  await client.rpc("record_import_export_event", {
+  // Checked and gated BEFORE any data is read: record_import_export_event
+  // independently proves the program (when there is one) actually belongs
+  // to the caller's own organization (migration 000021). Without this
+  // ordering, a forged/foreign program_id would simply return zero rows
+  // through RLS — an "apparently valid" empty export — while still logging
+  // an audit record pairing the caller's real organization with a program
+  // that was never actually theirs. Checking first means that mismatch is
+  // rejected outright instead of silently producing both artifacts.
+  const auditResult = await client.rpc("record_import_export_event", {
     target_organization_id: profile.organization_id,
     target_program_id: spec.scope === "program" ? scopeId : null,
     event_action: "export",
     target_entity_type: entity,
-    resulting_values: { format, row_count: table.rows.length },
+    resulting_values: { format },
   });
+  if (auditResult.error) {
+    console.error("BreedOps export audit event failed", {
+      entity,
+      message: auditResult.error.message,
+    });
+    return NextResponse.json(
+      { error: "Export refusé : portée programme/organisation invalide." },
+      { status: 403 },
+    );
+  }
+
+  const table = await exporter(client, scopeId);
+  const filenameBase = sanitizeFilenamePart(
+    `breedops-${entity}-${new Date().toISOString().slice(0, 10)}`,
+  );
 
   if (format === "xlsx") {
     const buffer = await writeXlsxWorkbook([

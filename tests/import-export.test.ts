@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
 import {
   CsvParseError,
   parseCsv,
@@ -324,5 +327,95 @@ describe("xlsx round-trip", () => {
         maxColumns: 20,
       }),
     ).rejects.toThrow(XlsxParseError);
+  });
+});
+
+describe("validateApplyRows (server-side Apply boundary, independent of Preview)", () => {
+  it("rejects a batch over IMPORT_LIMITS.maxRows even if Preview was never called", async () => {
+    const { validateApplyRows, ApplyValidationError } = await import(
+      "../src/lib/import-export/apply-validation"
+    );
+    const { entitySpec } = await import("../src/lib/import-export/entities");
+    const spec = entitySpec("parent_lines");
+    const oversized = Array.from(
+      { length: IMPORT_LIMITS.maxRows + 1 },
+      (_, i) => ({
+        parent_code: `P-${i}`,
+      }),
+    );
+    expect(() => validateApplyRows(spec, oversized)).toThrow(
+      ApplyValidationError,
+    );
+  });
+
+  it("rejects an unsupported/extra field a client could try to smuggle into the RPC payload", async () => {
+    const { validateApplyRows, ApplyValidationError } = await import(
+      "../src/lib/import-export/apply-validation"
+    );
+    const { entitySpec } = await import("../src/lib/import-export/entities");
+    const spec = entitySpec("parent_lines");
+    expect(() =>
+      validateApplyRows(spec, [
+        { parent_code: "P-1", line_name: "Ligne A", organization_id: "forged" },
+      ]),
+    ).toThrow(ApplyValidationError);
+  });
+
+  it("rejects a value outside a declared enum's allowed set", async () => {
+    const { validateApplyRows, ApplyValidationError } = await import(
+      "../src/lib/import-export/apply-validation"
+    );
+    const { entitySpec } = await import("../src/lib/import-export/entities");
+    const spec = entitySpec("crosses");
+    expect(() =>
+      validateApplyRows(spec, [
+        {
+          cross_code: "X-1",
+          female_parent_code: "P-1",
+          male_parent_code: "P-2",
+          priority: "urgent",
+        },
+      ]),
+    ).toThrow(ApplyValidationError);
+  });
+
+  it("rejects a text field over its declared maxLength", async () => {
+    const { validateApplyRows, ApplyValidationError } = await import(
+      "../src/lib/import-export/apply-validation"
+    );
+    const { entitySpec } = await import("../src/lib/import-export/entities");
+    const spec = entitySpec("parent_lines");
+    expect(() =>
+      validateApplyRows(spec, [
+        { parent_code: "P-1", source: "x".repeat(161) },
+      ]),
+    ).toThrow(ApplyValidationError);
+  });
+
+  it("rejects a create-path row missing a requiredOnCreate field when no business code is given", async () => {
+    const { validateApplyRows, ApplyValidationError } = await import(
+      "../src/lib/import-export/apply-validation"
+    );
+    const { entitySpec } = await import("../src/lib/import-export/entities");
+    const spec = entitySpec("crosses");
+    expect(() =>
+      validateApplyRows(spec, [
+        { female_parent_code: "P-1" /* male code missing, no cross_code */ },
+      ]),
+    ).toThrow(ApplyValidationError);
+  });
+
+  it("accepts a well-formed batch within limits and strips nothing the entity declares", async () => {
+    const { validateApplyRows } = await import(
+      "../src/lib/import-export/apply-validation"
+    );
+    const { entitySpec } = await import("../src/lib/import-export/entities");
+    const spec = entitySpec("parent_lines");
+    const result = validateApplyRows(spec, [
+      { parent_code: "P-1", line_name: "Ligne A", generation: 2 },
+    ]);
+    expect(result).toEqual([
+      { parent_code: "P-1", line_name: "Ligne A", generation: 2 },
+    ]);
   });
 });

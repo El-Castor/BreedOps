@@ -45,6 +45,29 @@ export async function GET(request: Request) {
     );
   }
 
+  // Checked and gated BEFORE any data is read — see export/route.ts's
+  // matching comment. A system_admin can read a program belonging to a
+  // different organization than their own profile (can_access_program
+  // bypasses team scoping for system_admin), so the RLS read above is not
+  // by itself enough to guarantee the audit pairing below is self-consistent.
+  const auditResult = await client.rpc("record_import_export_event", {
+    target_organization_id: profile.organization_id,
+    target_program_id: programId,
+    event_action: "export",
+    target_entity_type: "functional_backup",
+    resulting_values: { program_code: program.code },
+  });
+  if (auditResult.error) {
+    console.error("BreedOps backup audit event failed", {
+      programId,
+      message: auditResult.error.message,
+    });
+    return NextResponse.json(
+      { error: "Sauvegarde refusée : portée programme/organisation invalide." },
+      { status: 403 },
+    );
+  }
+
   const [
     parentLines,
     crosses,
@@ -124,14 +147,6 @@ export async function GET(request: Request) {
       ]),
     },
   ]);
-
-  await client.rpc("record_import_export_event", {
-    target_organization_id: profile.organization_id,
-    target_program_id: programId,
-    event_action: "export",
-    target_entity_type: "functional_backup",
-    resulting_values: { program_code: program.code },
-  });
 
   const filename = `breedops-backup-${program.code.replace(/[^A-Za-z0-9._-]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   return new NextResponse(new Uint8Array(buffer), {

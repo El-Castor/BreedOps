@@ -16,6 +16,10 @@ import {
 } from "@/lib/import-export/mapping";
 import { previewImport, type RowPreview } from "@/lib/import-export/preview";
 import { ENTITY_SPECS, type EntityKey } from "@/lib/import-export/entities";
+import {
+  ApplyValidationError,
+  validateApplyRows,
+} from "@/lib/import-export/apply-validation";
 
 export type ParsedSheet = {
   name: string;
@@ -134,12 +138,16 @@ export async function previewImportAction(
   return { status: "success", rows, summary };
 }
 
+// Row shape is intentionally unconstrained here: Preview is an advisory UI
+// step, never an authorization or validation boundary, so a client that
+// calls this Server Action directly with a hand-built payload must still be
+// rejected. validateApplyRows (below) is the real, independent boundary —
+// it rebuilds a strict per-entity schema from ENTITY_SPECS and enforces
+// IMPORT_LIMITS.maxRows before anything reaches Postgres.
 const applyInput = z.object({
   entity: entityKeySchema,
   scopeId: z.string().uuid(),
-  rows: z.array(
-    z.record(z.string(), z.union([z.string(), z.number(), z.null()])),
-  ),
+  rows: z.array(z.record(z.string(), z.unknown())),
 });
 
 export type ApplyActionResult =
@@ -150,7 +158,11 @@ export type ApplyActionResult =
  * UPDATE are sent (SKIP/ERROR rows from preview never reach this); the RPC
  * independently re-derives which is which from the business code and
  * aborts the whole call on any row that fails an invariant (migration
- * 000020's import_* functions), so nothing is ever half-applied. */
+ * 000020's import_* functions), so nothing is ever half-applied. The
+ * matching audit event is recorded by the RPC itself, in the same
+ * transaction as the mutation (migration 000021) — this action never calls
+ * record_import_export_event separately, so there is no window where the
+ * business mutation commits but its audit event is silently dropped. */
 export async function applyImportAction(
   input: z.infer<typeof applyInput>,
 ): Promise<ApplyActionResult> {
@@ -159,13 +171,26 @@ export async function applyImportAction(
   if (!parsed.success)
     return { status: "error", message: "Requête d'import invalide." };
   const { entity, scopeId, rows } = parsed.data;
-  if (rows.length === 0)
-    return { status: "error", message: "Aucune ligne à importer." };
 
   const spec = ENTITY_SPECS[entity];
+  let validatedRows: ReturnType<typeof validateApplyRows>;
+  try {
+    validatedRows = validateApplyRows(spec, rows);
+  } catch (error) {
+    if (error instanceof ApplyValidationError) {
+      return { status: "error", message: error.message };
+    }
+    throw error;
+  }
+
   const effectiveScopeId =
     spec.scope === "organization" ? profile.organization_id : scopeId;
-  const payload = rows.map((row, index) => ({ ...row, row_index: index + 1 }));
+  // row_index is always derived server-side from array position, never
+  // accepted from the client.
+  const payload = validatedRows.map((row, index) => ({
+    ...row,
+    row_index: index + 1,
+  }));
 
   const { data, error } = await client.rpc(spec.applyRpc, {
     [spec.scope === "organization"
@@ -184,14 +209,6 @@ export async function applyImportAction(
   const results = (data ?? []) as { status: "created" | "updated" }[];
   const created = results.filter((r) => r.status === "created").length;
   const updated = results.filter((r) => r.status === "updated").length;
-
-  await client.rpc("record_import_export_event", {
-    target_organization_id: profile.organization_id,
-    target_program_id: spec.scope === "program" ? effectiveScopeId : null,
-    event_action: "import",
-    target_entity_type: entity,
-    resulting_values: { created, updated, total_rows: rows.length },
-  });
 
   return { status: "success", created, updated };
 }

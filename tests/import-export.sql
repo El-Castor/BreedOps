@@ -1,7 +1,7 @@
 -- Disposable local test fixtures only. Everything is rolled back.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(34);
+SELECT plan(40);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('23333333-0000-0000-0000-0000000000a1','Import A','import-test-a'),
@@ -199,6 +199,53 @@ SELECT throws_ok($$
   SELECT import_crosses('25555555-0000-0000-0000-0000000000a2',
     '[{"row_index":1,"cross_code":"IMPA2-X-0001","female_parent_code":"IMPA1-P-0001","male_parent_code":"IMPA1-P-0099"}]'::jsonb)
 $$, '23503', null, 'a parent code from a sibling program in the same team cannot be resolved across programs');
+
+-- ───────────────────────── Audit scope integrity (000021) ─────────────────────────
+SELECT lives_ok($$
+  SELECT record_import_export_event(
+    '23333333-0000-0000-0000-0000000000a1', '25555555-0000-0000-0000-0000000000a1',
+    'export', 'parent_lines', '{"format":"csv"}'::jsonb)
+$$, 'a valid same-organization program pairing is accepted');
+SELECT results_eq($$
+  SELECT count(*)::int FROM audit_logs
+  WHERE organization_id='23333333-0000-0000-0000-0000000000a1'
+    AND program_id='25555555-0000-0000-0000-0000000000a1'
+    AND action='export' AND entity_type='parent_lines'
+$$, ARRAY[1], 'the matching audit_logs row was actually written');
+
+SELECT throws_ok($$
+  SELECT record_import_export_event(
+    '23333333-0000-0000-0000-0000000000a1', '25555555-0000-0000-0000-0000000000a9',
+    'export', 'parent_lines', '{"format":"csv"}'::jsonb)
+$$, '42501', null, 'pairing the caller''s own organization with another team''s program is rejected, not recorded');
+SELECT results_eq($$
+  SELECT count(*)::int FROM audit_logs
+  WHERE organization_id='23333333-0000-0000-0000-0000000000a1'
+    AND program_id='25555555-0000-0000-0000-0000000000a9'
+$$, ARRAY[0], 'the forged pairing produced no audit_logs row at all');
+
+-- ───────────────────────── Import + audit atomicity (000021) ─────────────────────────
+-- Four distinct new codes make total_rows=4 a value no other import_parent_lines
+-- call in this file produces, so the assertion below can select the exact
+-- matching audit row by content instead of by recency. Recency (ORDER BY
+-- created_at DESC) is not reliable here: Postgres's now() returns the same
+-- transaction-start timestamp for every statement inside this single
+-- BEGIN...ROLLBACK test transaction, so every audit_logs row written in this
+-- file ties on created_at and "most recent" is not actually well-defined.
+SELECT lives_ok($$
+  SELECT import_parent_lines('25555555-0000-0000-0000-0000000000a1',
+    '[{"row_index":1,"parent_code":"IMPA1-P-0501","line_name":"Audit atomicity check 1"},
+      {"row_index":2,"parent_code":"IMPA1-P-0502","line_name":"Audit atomicity check 2"},
+      {"row_index":3,"parent_code":"IMPA1-P-0503","line_name":"Audit atomicity check 3"},
+      {"row_index":4,"parent_code":"IMPA1-P-0504","line_name":"Audit atomicity check 4"}]'::jsonb)
+$$, 'import succeeds and, per migration 000021, also records its own audit event in the same transaction');
+SELECT results_eq($$
+  SELECT new_values->>'created', new_values->>'total_rows' FROM audit_logs
+  WHERE organization_id='23333333-0000-0000-0000-0000000000a1'
+    AND program_id='25555555-0000-0000-0000-0000000000a1'
+    AND action='import' AND entity_type='parent_lines'
+    AND new_values->>'total_rows' = '4'
+$$, $$VALUES ('4','4')$$, 'this exact import''s audit event recorded a correct created count, with no separate RPC call from the application layer');
 
 SELECT * FROM finish();
 ROLLBACK;
