@@ -32,7 +32,10 @@ Mailpit at `http://127.0.0.1:55424`.
    supplier), origin and notes.
 3. In **Croisements**, select both parents and record the pollination date.
 4. In **Familles**, select the new cross and create its family.
-5. In **Lots de graines**, select the cross and family, then record harvest and quantity.
+5. In **Lots de graines**, select the cross and family, then record harvest and quantity. A
+   lot's operational status (**Disponible** / **En quarantaine** / **Épuisé**) is set from its
+   detail panel (**Modifier**); it is independent of genetic purity and of archiving, and
+   once **Épuisé** it cannot change status again. Each change is recorded in the audit log.
 6. In **Germination**, select the lot and enter tested and germinated seed counts. PostgreSQL calculates the rate.
 
 Each completed step immediately populates the selector used by the next step. If a
@@ -126,7 +129,12 @@ form always reflects that programme's active traits — never a fixed list.
    the same call computes the weighted score, normalized score and automatic decision;
    otherwise the evaluation is kept as an unscored observation. Traits can be reweighted,
    or removed from the score while staying observed, from **Configuration du programme**.
-   The **Classement** table orders persisted, scored evaluations.
+   The **Classement** table orders persisted, scored evaluations. A criterion marked
+   **éliminatoire** with a configured threshold disqualifies an evaluation on its own: if
+   its score falls below that threshold (or is missing), the decision is forced to
+   **Eliminate** regardless of the weighted score, and the exact reason (criterion, value,
+   threshold) is shown next to the decision badge wherever it appears — ranking included,
+   so a high-scoring but disqualified individual is never mistaken for a selectable one.
 
 A `system_admin` account can see every team's trait library and modules, not only its own
 (by design). When that makes more than one team visible, **Bibliothèque de traits** and
@@ -149,7 +157,14 @@ offered for new modules or program configuration until restored.
 Open **Inventaire**, create an article, then create a lot with an initial receipt.
 Use **Mouvement traçable** for consumption, receipt, return, destruction or justified
 adjustment. Current stock comes from the movement ledger. Lot status shows low-stock and
-expiration alerts; direct stock editing is unavailable.
+expiration alerts; direct stock editing is unavailable. **Couverture de stock estimée**
+shows, per article, the average weekly consumption and estimated weeks remaining computed
+from real consumption movements over the trailing 90 days (receipts and adjustments are
+never counted); an article with no consumption history in that window shows "Historique
+insuffisant" rather than a fabricated number. **Équipements** is a separate laboratory
+register (name, category, manufacturer/model, serial, location, operational status, next
+maintenance date) — distinct from reagent-lot inventory, with its own search, status
+change and archive/restore controls.
 
 ## Operations: manual tasks, workflow templates and the Gantt
 
@@ -197,7 +212,13 @@ items never block completion. Checking an item records who completed it and when
 server-side — never from the browser.
 
 Dashboard metrics aggregate real crosses, lots, germination, phenotypes, inventory alerts,
-active cycles and tasks for the selected programme.
+active cycles and tasks for the selected programme. **Vue d'ensemble** also shows six
+charts (crosses by status, seed lots by operational status, selection decisions, score
+distribution, tasks by status, inventory risk), each with a visible text legend, never
+only a chart. A **Campagne** filter sits above the programme switcher whenever more than
+one program shares a `campaign` value (`programs.campaign`) — picking one aggregates every
+program in that campaign across every KPI and chart; picking a specific program always
+narrows back to just that program.
 
 ## Import and export
 
@@ -212,7 +233,12 @@ change a cross's parents) is rejected, never silently applied. Download the erro
 for any blocking rows. The same page exports each register to CSV or Excel, and a
 programme's full functional backup (a portable `.xlsx` workbook with stable business
 codes and version/timestamp metadata — not a PostgreSQL backup; media binaries are out
-of scope, their metadata is included on its own sheet).
+of scope, their metadata is included on its own sheet). Contextual export buttons on the
+Breeding, Inventory and Phenotyping pages route to this same subsystem for the register
+in view. The phenotyping page also offers **Exporter la matrice de sélection**: a
+read-only analytical report (not importable) with one column per active criterion of the
+program's active selection model, weighted and normalized score, eliminatory status and
+reason, and the final decision.
 
 ## Pilot validation
 
@@ -226,6 +252,7 @@ npm run test:code-concurrency
 npm run test:media
 npm run test:workflows
 npm run test:import-export
+npm run test:business-completion
 npm run test:operations
 npm run test:e2e
 npm run typecheck

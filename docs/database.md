@@ -297,6 +297,43 @@ the full design and its one documented limitation (preview can't see an archived
 business-code match the way the `SECURITY DEFINER` apply functions authoritatively
 can, since the normal RLS read policies filter `deleted_at`).
 
+### Business Completion (migration 000022)
+Four additive, independent gaps closed; none of migrations 000001-000021 modified.
+
+**Seed lot operational lifecycle** — `seed_lots.status` (present since 000001, previously
+always `'active'` and never read or written by the application) is now constrained to
+`available`/`quarantined`/`depleted`, validated by the `validate_seed_lot_status_transition`
+trigger (`depleted` is terminal). This is a different axis from `genetic_purity_status`
+(unchanged) and from archival (`deleted_at`, unchanged) — all three stay independently
+visible in the UI. Transitions go through `update_seed_lot_status(target_lot_id, new_status)`,
+which records the change in `audit_logs` in the same transaction as the mutation (the same
+atomicity pattern as migration 000021's import audit).
+
+**Eliminatory criteria** — `selection_criteria.is_eliminatory`/`eliminatory_threshold`
+(present since 000001, previously never read by any calculation) now gate
+`refresh_phenotype_evaluation()`: an active criterion whose `raw_score` is below its
+`eliminatory_threshold` (a minimum, like every other `minimum_*` column in this schema)
+forces `automatic_decision = 'eliminate'`, independent of the weighted score. A missing
+score on an active eliminatory criterion is treated as a failure (fail-safe); a criterion
+with no threshold configured never eliminates. New columns `phenotype_evaluations.is_eliminated`
+and `.elimination_reasons` (one human-readable string per failing criterion) record why.
+
+**Equipment register** — new `equipment` table, organization-scoped like `inventory_items`
+(same RLS idiom: `can_access_team` read, `can_write_team` write, no DELETE policy, archival
+via `deleted_at` only), but with no quantity or movement ledger — conceptually distinct from
+reagent-lot inventory.
+
+**Inventory stock coverage** — new `inventory_item_coverage` view (`security_invoker`, same
+convention as `inventory_lot_status`): average weekly consumption over a fixed trailing
+90-day window, counting only `movement_type = 'consumption'` (never receipts or
+adjustments/destruction/transfer). Returns `NULL` for `average_weekly_consumption`/
+`estimated_weeks_remaining` — never a fabricated `0` — when `has_sufficient_data` is false.
+`low_coverage` flags under 4 weeks remaining when data is sufficient.
+
+See `agend.md`'s 2026-10-29 "Business Completion" session entry for the full design
+rationale, the application-layer changes (dashboard charts/filters, contextual exports,
+including the new phenotype-selection-matrix export), and known limitations.
+
 ### Media Assets (Plant Media)
 `media_assets` (migration 000018) holds metadata for real plant/scientific images attached
 to a breeding record; the binary itself lives in the private Supabase Storage bucket
@@ -441,13 +478,24 @@ seed_yield_per_pollinated_unit = total_seeds / pollinated_units
 ### Score Calculations
 - Weighted score: sum of weighted criterion scores
 - Normalized score: weighted score / maximum score * 100
-- Automatic decision: based on score and stability thresholds
+- Automatic decision: based on score and stability thresholds, overridden to `eliminate`
+  independent of the score when any active `is_eliminatory` criterion's `raw_score` is
+  below its `eliminatory_threshold` (migration 000022; see that migration's header comment
+  for the fail-safe missing-value semantics)
 
 ### Stock Calculations
 ```sql
 current_quantity = initial_quantity + total_positive_movements - total_negative_movements
 days_before_expiration = expiration_date - current_date
 ```
+
+### Stock Coverage Calculation (migration 000022)
+```sql
+average_weekly_consumption = sum(consumption movements in trailing 90 days) / (90.0 / 7)
+estimated_weeks_remaining  = current_quantity / average_weekly_consumption
+```
+`NULL` (not `0`) when there is no consumption movement in the window — see
+`inventory_item_coverage`.
 
 ### Delay Calculation
 ```sql

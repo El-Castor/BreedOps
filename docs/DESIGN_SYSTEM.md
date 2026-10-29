@@ -280,3 +280,32 @@ information exists. Horizontal scrolling is intentional and confined to the Gant
 `gantt-scroll` region; every other view must still fit its viewport with no page-level
 horizontal scroll down to 768px (`.section-block > *` and `.page > *` both carry
 `min-width: 0` so a wide table scrolls within its own `.table-wrap`, never the page).
+
+## 18. Dashboard charts and the seed lot / equipment badges
+
+`src/components/charts.tsx`'s `DistributionChart` (Recharts, the project's first actual
+use of that long-pinned dependency) is the only chart component: a horizontal bar chart
+whose bar colours are literal `var(--teal|--botanical|--warning|--danger|--archived)`
+references, never a separate chart palette, so every bar already matches the tone of the
+matching `StatusBadge`/`DecisionBadge` elsewhere and follows dark/light mode automatically.
+Every chart is paired with a visible `<ul>` legend of the same label/value pairs directly
+underneath it (`.chart-legend`) — satisfying PROMPT.md §11's accessible-alternative
+requirement with real markup, not a hover-only tooltip — and renders `EmptyState` instead
+of an empty plot when every value is zero.
+
+Seed lots get their own `SeedLotStatusBadge` (`available`→success, `quarantined`→warning,
+`depleted`→danger), never reusing the generic `LifecycleBadge` shared by parent_lines/
+crosses/families: a seed lot's operational status is a different axis from that shared
+active/cancelled status, and conflating the two tone mappings would misrepresent one or
+the other. `DecisionBadge` gained an optional `eliminationReasons` prop: when a decision is
+`eliminate` because of a failing eliminatory criterion, the badge grows a second, visible
+muted-text line naming the criterion, its value and its threshold, in every one of the
+three places a phenotyping decision is shown (overview, evaluation history, ranking table)
+— a high `normalized_score` next to a red "Eliminate" badge is never left to speak for
+itself.
+
+Equipment reuses the existing Inventory page's layout and `FormDrawer`/`ActionForm`
+conventions rather than a new page or visual language; its own `operational_status` tones
+(`operational`→success, `maintenance`→warning, `out_of_service`→danger) are a local label
+map, kept separate from every other status vocabulary in the app on purpose, since none of
+them describe the same real-world states.
