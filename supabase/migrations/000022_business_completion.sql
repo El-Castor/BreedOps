@@ -377,6 +377,14 @@ GRANT EXECUTE ON FUNCTION public.set_criterion_eliminatory_rule(UUID, UUID, BOOL
 -- back to selection_criteria, so there is no recursion to guard against.
 -- This single trigger also covers set_program_trait_weight's own coefficient
 -- changes, which previously relied entirely on the user re-saving a score.
+-- The trigger fires immediately (plain AFTER, not deferred): the one caller
+-- that also changes selection_models.maximum_score (set_program_trait_weight,
+-- just below) is itself re-ordered to store the new maximum_score *before*
+-- mutating selection_criteria, specifically so this trigger always sees an
+-- already-correct maximum_score - confirmed by direct reproduction that the
+-- naive order (mutate criteria, then update maximum_score afterwards) left
+-- normalized_score computed against the stale, not-yet-updated maximum
+-- until some unrelated later change happened to correct it.
 CREATE FUNCTION public.refresh_phenotype_evaluations_after_criterion_change()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -400,6 +408,88 @@ CREATE TRIGGER refresh_phenotype_evaluations_on_criterion_change
   AFTER INSERT OR UPDATE OF coefficient, is_eliminatory, eliminatory_threshold, deleted_at
   ON public.selection_criteria
   FOR EACH ROW EXECUTE FUNCTION public.refresh_phenotype_evaluations_after_criterion_change();
+
+-- set_program_trait_weight (000016) previously mutated selection_criteria
+-- FIRST and only recomputed/stored selection_models.maximum_score in a
+-- later statement of the same call. With the trigger above firing
+-- immediately after that first statement, every recalculated evaluation
+-- was computed against the *old*, not-yet-updated maximum_score - confirmed
+-- by direct reproduction (unweighting a trait left normalized_score
+-- computed against the too-high previous maximum until some later,
+-- unrelated change happened to correct it). Re-ordered here, in the exact
+-- same transaction-free style as the original, so maximum_score is
+-- computed and stored *before* the row mutation that fires the trigger:
+-- the new maximum is derived analytically (current sum, minus this
+-- criterion's own active contribution if it had one, plus its new
+-- contribution if it is being weighted) rather than by re-reading the
+-- table after mutating it. Authorization, validation and the mutation
+-- itself (archive / insert / restore-and-reweight) are otherwise untouched
+-- from the 000016 original.
+CREATE OR REPLACE FUNCTION public.set_program_trait_weight(
+  target_program_id UUID, target_trait_id UUID, new_coefficient NUMERIC)
+RETURNS VOID LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp AS $$
+DECLARE
+  model_id UUID;
+  trait RECORD;
+  criterion_id UUID;
+  current_maximum NUMERIC;
+  old_contribution NUMERIC;
+  new_contribution NUMERIC;
+  new_maximum NUMERIC;
+BEGIN
+  IF NOT can_write_program(target_program_id) THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+  IF new_coefficient IS NOT NULL AND (new_coefficient <= 0 OR new_coefficient > 100) THEN
+    RAISE EXCEPTION 'Invalid coefficient' USING ERRCODE = '22023';
+  END IF;
+  SELECT m.id INTO model_id FROM selection_models m
+  WHERE m.program_id = target_program_id AND m.is_active AND m.deleted_at IS NULL
+  ORDER BY m.created_at LIMIT 1;
+  IF model_id IS NULL THEN
+    RAISE EXCEPTION 'An active selection model is required' USING ERRCODE = '23514';
+  END IF;
+  SELECT * INTO trait FROM program_active_traits(target_program_id) t
+  WHERE t.trait_id = target_trait_id;
+  IF trait.trait_id IS NULL THEN
+    RAISE EXCEPTION 'Trait is not active for this program' USING ERRCODE = '23514';
+  END IF;
+  IF new_coefficient IS NOT NULL AND (trait.data_type NOT IN ('numeric', 'integer', 'ordinal')
+      OR trait.minimum_value IS NULL OR trait.maximum_value IS NULL) THEN
+    RAISE EXCEPTION 'Only bounded numeric traits can be weighted' USING ERRCODE = '23514';
+  END IF;
+
+  SELECT c.id INTO criterion_id FROM selection_criteria c
+  WHERE c.selection_model_id = model_id AND (c.trait_id = target_trait_id OR c.code = trait.code)
+  ORDER BY (c.trait_id = target_trait_id) DESC NULLS LAST LIMIT 1;
+
+  SELECT COALESCE(SUM(maximum_value * coefficient), 0) INTO current_maximum
+  FROM selection_criteria WHERE selection_model_id = model_id AND deleted_at IS NULL;
+  SELECT COALESCE(c.maximum_value * c.coefficient, 0) INTO old_contribution
+  FROM selection_criteria c WHERE c.id = criterion_id AND c.deleted_at IS NULL;
+  new_contribution := CASE WHEN new_coefficient IS NOT NULL THEN trait.maximum_value * new_coefficient ELSE 0 END;
+  new_maximum := current_maximum - COALESCE(old_contribution, 0) + new_contribution;
+  IF new_maximum IS NULL OR new_maximum <= 0 THEN
+    RAISE EXCEPTION 'A selection model needs at least one weighted trait' USING ERRCODE = '23514';
+  END IF;
+  UPDATE selection_models SET maximum_score = new_maximum WHERE id = model_id;
+
+  IF new_coefficient IS NULL THEN
+    UPDATE selection_criteria SET deleted_at = NOW() WHERE id = criterion_id;
+  ELSIF criterion_id IS NULL THEN
+    INSERT INTO selection_criteria(selection_model_id, trait_id, code, name, coefficient,
+      minimum_value, maximum_value, display_order)
+    SELECT model_id, trait.trait_id, trait.code, trait.name, new_coefficient,
+      trait.minimum_value, trait.maximum_value,
+      COALESCE(MAX(display_order), 0) + 1
+    FROM selection_criteria WHERE selection_model_id = model_id;
+  ELSE
+    UPDATE selection_criteria SET trait_id = trait.trait_id, coefficient = new_coefficient,
+      minimum_value = trait.minimum_value, maximum_value = trait.maximum_value, deleted_at = NULL
+    WHERE id = criterion_id;
+  END IF;
+END;
+$$;
 
 -- ═══════════════════════ C. Equipment register ═══════════════════════
 -- Absent from every migration and from PROMPT.md's own minimal data model
@@ -525,3 +615,54 @@ WHERE item.deleted_at IS NULL;
 
 COMMENT ON VIEW public.inventory_item_coverage IS
   'Estimated stock coverage per item over a trailing 90-day window, counting only movement_type = consumption (never receipts/adjustments). has_sufficient_data requires at least 2 consumption movements spanning at least 7 days - a single isolated movement is never treated as sufficient history. average_weekly_consumption is computed over the actually observed span (bounded to 90 days), not a fixed 90/7 denominator. average_weekly_consumption/estimated_weeks_remaining are NULL (never a fabricated 0) when has_sufficient_data is false. low_coverage flags under 4 weeks remaining when data is sufficient.';
+
+-- ═══════════════════════ E. selection_criteria: archived rows must stay readable ═══════════════════════
+-- Finding from manual review: selection_criteria_read (migration 000003) is
+-- USING (deleted_at IS NULL AND can_access_program(...)). set_program_trait_
+-- weight (000016) un-weights a trait with `UPDATE selection_criteria SET
+-- deleted_at = NOW() WHERE id = criterion_id` - a plain UPDATE, SECURITY
+-- INVOKER, no RETURNING. PostgreSQL still requires the post-UPDATE row to
+-- satisfy every applicable policy whose command set includes UPDATE's
+-- implied read, and a table's SELECT policy is exactly that for a bare
+-- UPDATE with no explicit WITH CHECK override of it - confirmed empirically
+-- on a disposable stack: even pinning selection_criteria_update's own USING
+-- and WITH CHECK to `true` does not clear the error; only dropping
+-- deleted_at from the SELECT policy does. So every call to
+-- set_program_trait_weight(..., NULL) - the only way the application ever
+-- removes a trait's weight - fails with "new row violates row-level
+-- security policy for table selection_criteria". This is reachable from a
+-- real, shipped feature (leaving "Poids" blank in Configuration du
+-- programme), not merely a theoretical direct-client case.
+--
+-- The same root cause also silently breaks the *restore* path: the
+-- function's own lookup for an existing criterion to reuse
+-- (`SELECT c.id FROM selection_criteria c WHERE ... (c.trait_id = ... OR
+-- c.code = ...)`, with no explicit deleted_at filter of its own) runs under
+-- the caller's RLS, so it can never see a row it had previously archived -
+-- it would insert a brand-new duplicate criterion instead of restoring the
+-- original, defeating "one logical criterion per (model, trait)".
+--
+-- Fix: authorization for reading a selection_criteria row is program
+-- access, exactly like every other column on this row (coefficient,
+-- is_eliminatory, trait_id) - deleted_at is lifecycle state, not an
+-- authorization boundary, and every other reversible BreedOps lifecycle
+-- record (parent_lines, crosses, families, seed_lots, equipment above) is
+-- already readable while archived so an authorized user can inspect and
+-- restore it. selection_criteria becomes consistent with that convention
+-- instead of being the odd one out. This does NOT weaken cross-program or
+-- cross-team isolation (can_access_program is unchanged and still the only
+-- gate), does NOT add a DELETE policy (archival stays deleted_at-only, no
+-- hard delete anywhere in this schema), and does NOT expose criteria from
+-- an inaccessible program. "Active" business semantics stay explicit at the
+-- query site, not implicit in the policy: program_active_traits (above)
+-- already filters `sc.deleted_at IS NULL` itself, as does every other
+-- caller that needs only active criteria (refresh_phenotype_evaluation,
+-- submit_phenotype_evaluation, submit_trait_evaluation, the selection-
+-- matrix export) - confirmed by auditing every read of this table before
+-- making this change; none of them relied on the policy to do that
+-- filtering for them.
+DROP POLICY IF EXISTS selection_criteria_read ON public.selection_criteria;
+CREATE POLICY selection_criteria_read ON public.selection_criteria FOR SELECT
+  USING (EXISTS (SELECT 1 FROM selection_models WHERE id = selection_model_id AND can_access_program(program_id)));
+COMMENT ON POLICY selection_criteria_read ON public.selection_criteria IS
+  'Authorization is program access only, matching every other reversible BreedOps lifecycle record - an archived (deleted_at IS NOT NULL) criterion stays readable to an authorized user so it can be inspected and restored. Business-facing "active" queries (program_active_traits, refresh_phenotype_evaluation, submit_trait_evaluation, the selection-matrix export) filter deleted_at IS NULL explicitly themselves.';

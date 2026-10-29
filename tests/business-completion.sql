@@ -1,9 +1,10 @@
 -- Disposable local test fixtures only. Everything is rolled back.
 -- Covers migration 000022: seed lot lifecycle (A), eliminatory criteria (B),
+-- the selection_criteria un-weight/restore lifecycle and RLS fix (B3),
 -- equipment register (C) and inventory stock coverage (D).
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(52);
+SELECT plan(66);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('b1111111-0000-0000-0000-0000000000a1','Biz A','biz-test-a'),
@@ -293,6 +294,113 @@ SELECT results_eq($$
     AND selection_model_id IN (SELECT id FROM selection_models WHERE program_id = 'ba111111-0000-0000-0000-0000000000a1')
 $$, $$VALUES (false, NULL::numeric)$$,
   'disabling elimination clears the threshold too, leaving no stale configured value');
+
+-- ───────────────────────── B3. selection_criteria: un-weight / restore lifecycle ─────────────────────────
+-- Reproduces the real application path (leaving "Poids" blank in
+-- Configuration du programme -> set_program_trait_weight(..., NULL)) that
+-- was reachable but broken before this correction: selection_criteria_read
+-- filtered deleted_at IS NULL, so the plain `UPDATE selection_criteria SET
+-- deleted_at = NOW()` this function performs failed RLS outright, and its
+-- own restore-lookup (which also has no explicit deleted_at filter, relying
+-- entirely on the policy) could never see a previously-archived row either.
+-- Reuses program A (ba111111-...-a1) from B2 above and its untouched
+-- 'vigor' criterion (still coefficient = 1, never eliminatory).
+SELECT trait_id INTO TEMP vigor_trait FROM program_active_traits('ba111111-0000-0000-0000-0000000000a1') WHERE code = 'vigor';
+SELECT created_at INTO TEMP vigor_criterion_before FROM selection_criteria
+  WHERE selection_model_id IN (SELECT id FROM selection_models WHERE program_id = 'ba111111-0000-0000-0000-0000000000a1')
+  AND code = 'vigor';
+
+SELECT lives_ok($$
+  SELECT set_program_trait_weight('ba111111-0000-0000-0000-0000000000a1', (SELECT trait_id FROM vigor_trait), NULL)
+$$, 'un-weighting an existing trait no longer fails RLS (set_program_trait_weight -> UPDATE ... SET deleted_at = NOW())');
+
+SELECT results_eq($$
+  SELECT count(*)::int, bool_and(c.deleted_at IS NOT NULL) FROM selection_criteria c
+  JOIN selection_models m ON m.id = c.selection_model_id
+  WHERE m.program_id = 'ba111111-0000-0000-0000-0000000000a1' AND c.code = 'vigor'
+$$, $$VALUES (1, true)$$, 'exactly one criterion row for (model, vigor), now archived');
+
+SELECT results_eq($$
+  SELECT coefficient FROM program_active_traits('ba111111-0000-0000-0000-0000000000a1') WHERE code = 'vigor'
+$$, ARRAY[NULL::numeric], 'the archived criterion is not returned as an active weighted criterion');
+
+-- The pre-existing evaluation (ba222222-...-a1, still elite from B2 above)
+-- must recalculate immediately: weighted_score drops by vigor's own
+-- contribution (9 * coefficient 1 = 9: 117 -> 108), and normalized_score
+-- stays the *same percentage* (108/120 = 117/130 = 90.00) because
+-- maximum_score is recomputed and stored before this trigger fires, not
+-- after - the specific ordering bug found and fixed in this correction.
+-- The decision itself correctly drops from elite to advance: 108 is below
+-- elite's own minimum_weighted_score of 110, independently of this fix.
+SELECT results_eq($$
+  SELECT e.weighted_score, e.normalized_score, e.automatic_decision, e.is_eliminated FROM phenotype_evaluations e
+  JOIN phenotypes p ON p.id = e.phenotype_id WHERE p.id = 'ba222222-0000-0000-0000-0000000000a1'
+$$, $$VALUES (108::numeric, 90.00::numeric, 'advance'::text, false)$$,
+  'existing evaluation recalculates correctly after un-weighting (same percentage, model maximum adjusted first)');
+SELECT results_eq($$
+  SELECT maximum_score FROM selection_models WHERE program_id = 'ba111111-0000-0000-0000-0000000000a1'
+$$, ARRAY[120::numeric], 'maximum_score is recomputed to exclude the now-archived criterion');
+
+-- Restore: assigning a coefficient again must reuse the same row, not
+-- create a duplicate, and the evaluation must recover fully.
+SELECT lives_ok($$
+  SELECT set_program_trait_weight('ba111111-0000-0000-0000-0000000000a1', (SELECT trait_id FROM vigor_trait), 1)
+$$, 'the same user can later assign a coefficient again (restore)');
+
+SELECT results_eq($$
+  SELECT count(*)::int FROM selection_criteria c JOIN selection_models m ON m.id = c.selection_model_id
+  WHERE m.program_id = 'ba111111-0000-0000-0000-0000000000a1' AND c.code = 'vigor'
+$$, ARRAY[1], 'exactly one logical criterion for (model, vigor) after archive -> restore, never a duplicate');
+
+SELECT results_eq($$
+  SELECT (c.created_at = (SELECT created_at FROM vigor_criterion_before)) AS same_row, c.deleted_at IS NULL AS not_archived
+  FROM selection_criteria c JOIN selection_models m ON m.id = c.selection_model_id
+  WHERE m.program_id = 'ba111111-0000-0000-0000-0000000000a1' AND c.code = 'vigor'
+$$, $$VALUES (true, true)$$,
+  'the restored row is the original criterion reused (same created_at), not a newly-inserted one');
+
+SELECT results_eq($$
+  SELECT maximum_score FROM selection_models WHERE program_id = 'ba111111-0000-0000-0000-0000000000a1'
+$$, ARRAY[130::numeric], 'maximum_score recalculates correctly back to its original value after restore');
+SELECT results_eq($$
+  SELECT e.weighted_score, e.normalized_score FROM phenotype_evaluations e
+  JOIN phenotypes p ON p.id = e.phenotype_id WHERE p.id = 'ba222222-0000-0000-0000-0000000000a1'
+$$, $$VALUES (117::numeric, 90.00::numeric)$$,
+  'the existing evaluation recovers correctly after the weight is restored');
+
+-- Cross-team: a user from program B's team cannot read program A's
+-- selection_criteria at all (active or archived), and cannot archive or
+-- restore it either - program access, not deleted_at, is still the only
+-- authorization boundary.
+SELECT lives_ok($$
+  SELECT set_program_trait_weight('ba111111-0000-0000-0000-0000000000a1', (SELECT trait_id FROM vigor_trait), NULL)
+$$, 'archive vigor again, as program A''s own user, to test cross-team read/write against an archived row');
+-- Captured as program A's own user (still authorized here) so team B's
+-- later UPDATE below can target this row *by id*, without needing to
+-- resolve it through its own (correctly empty) view of selection_criteria -
+-- isolating the assertion to the UPDATE policy alone, not conflated with
+-- the read policy already proven separately below.
+SELECT c.id INTO TEMP vigor_criterion_id FROM selection_criteria c
+  JOIN selection_models m ON m.id = c.selection_model_id
+  WHERE m.program_id = 'ba111111-0000-0000-0000-0000000000a1' AND c.code = 'vigor';
+
+SELECT set_config('request.jwt.claim.sub','b2222222-0000-0000-0000-0000000000a2',true);
+SELECT results_eq($$
+  SELECT count(*)::int FROM selection_criteria c JOIN selection_models m ON m.id = c.selection_model_id
+  WHERE m.program_id = 'ba111111-0000-0000-0000-0000000000a1'
+$$, ARRAY[0], 'another team cannot read program A''s selection_criteria at all, including the archived one');
+SELECT lives_ok($$
+  UPDATE selection_criteria SET deleted_at = NULL WHERE id = (SELECT id FROM vigor_criterion_id)
+$$, 'a cross-team restore attempt by id does not raise (silently matches no row under RLS)');
+SELECT set_config('request.jwt.claim.sub','b2222222-0000-0000-0000-0000000000a1',true);
+SELECT results_eq($$
+  SELECT c.deleted_at IS NOT NULL FROM selection_criteria c JOIN selection_models m ON m.id = c.selection_model_id
+  WHERE m.program_id = 'ba111111-0000-0000-0000-0000000000a1' AND c.code = 'vigor'
+$$, ARRAY[true], 'the cross-team restore attempt had no effect - the criterion is still archived');
+
+-- Restore vigor for real (as program A's own user) so later sections of
+-- this file that may read program A''s traits see its original state.
+SELECT set_program_trait_weight('ba111111-0000-0000-0000-0000000000a1', (SELECT trait_id FROM vigor_trait), 1);
 
 -- ───────────────────────── C. Equipment register ─────────────────────────
 INSERT INTO equipment(id,organization_id,name,category,manufacturer,operational_status) VALUES
