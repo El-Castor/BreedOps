@@ -535,6 +535,60 @@ export async function setTraitWeight(
   }
 }
 
+// Setting the rule and disabling it both go through the same RPC:
+// is_eliminatory/eliminatory_threshold are re-derived server-side from
+// program_id+trait_id (never a bare criterion_id from the client), and the
+// threshold is re-validated against the trait's own numeric bounds there —
+// this form is only a first, friendlier error message.
+export async function setCriterionEliminatoryRule(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        program_id: id,
+        trait_id: id,
+        is_eliminatory: z.enum(["true", "false"]),
+        threshold: optionalNumber,
+      })
+      .parse(Object.fromEntries(form));
+    const isEliminatory = values.is_eliminatory === "true";
+    if (isEliminatory && values.threshold == null) {
+      return {
+        status: "error",
+        message: "Un seuil est requis pour un critère éliminatoire.",
+      };
+    }
+    const { client } = await requireIdentity();
+    const { error } = await client.rpc("set_criterion_eliminatory_rule", {
+      target_program_id: values.program_id,
+      target_trait_id: values.trait_id,
+      new_is_eliminatory: isEliminatory,
+      new_threshold: isEliminatory ? values.threshold : null,
+    });
+    if (error) {
+      console.error("set_criterion_eliminatory_rule rejected", {
+        code: error.code,
+      });
+      return {
+        status: "error",
+        message:
+          error.code === "23514"
+            ? "Règle refusée : le trait doit déjà être pondéré, être numérique borné, et le seuil doit rester dans les bornes du trait."
+            : "Règle éliminatoire refusée.",
+      };
+    }
+    return actionSuccess(
+      isEliminatory
+        ? "Critère éliminatoire configuré. Les évaluations existantes ont été recalculées."
+        : "Critère éliminatoire désactivé. Les évaluations existantes ont été recalculées.",
+    );
+  } catch (error) {
+    return actionError(error, "Règle éliminatoire refusée.");
+  }
+}
+
 type ActiveTrait = {
   code: string;
   data_type: (typeof dataTypes)[number];

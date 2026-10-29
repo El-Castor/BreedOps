@@ -37,6 +37,7 @@ import {
   createModule,
   createPhenotype,
   createTrait,
+  setCriterionEliminatoryRule,
   setModuleActive,
   setProgramModule,
   setTraitActive,
@@ -1064,7 +1065,7 @@ export default async function Phenotypes({
                 </h2>
                 <p className="form-hint">
                   {model
-                    ? `Modèle « ${model.name} » · score maximal ${model.maximum_score}. Un trait sans poids reste observé sans entrer dans le score.`
+                    ? `Modèle « ${model.name} » · score maximal ${model.maximum_score}. Un trait sans poids reste observé sans entrer dans le score. Un critère éliminatoire doit déjà être pondéré : en dessous de son seuil, l’évaluation est automatiquement éliminée, quel que soit le score pondéré — les évaluations déjà enregistrées sont recalculées immédiatement.`
                     : "Aucun modèle de sélection : les évaluations sont enregistrées comme observations, sans classement."}
                 </p>
               </div>
@@ -1079,6 +1080,7 @@ export default async function Phenotypes({
                         <th>Plage</th>
                         <th>Direction</th>
                         <th>Poids dans le score</th>
+                        <th>Critère éliminatoire</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1142,6 +1144,80 @@ export default async function Phenotypes({
                             ) : (
                               <span className="muted">Observation</span>
                             )}
+                          </td>
+                          <td>
+                            {model &&
+                            isRanged(trait.data_type) &&
+                            trait.coefficient != null &&
+                            trait.minimum_value != null &&
+                            trait.maximum_value != null ? (
+                              <ActionForm
+                                action={setCriterionEliminatoryRule}
+                                actionName={`eliminatory-${trait.code}`}
+                                className="inline-action"
+                                submitLabel="Appliquer"
+                                resetOnSuccess={false}
+                                revealOnFlash={false}
+                              >
+                                <input
+                                  type="hidden"
+                                  name="program_id"
+                                  value={program.id}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="trait_id"
+                                  value={trait.trait_id}
+                                />
+                                <label
+                                  className="sr-only"
+                                  htmlFor={`eliminatory-active-${trait.code}`}
+                                >
+                                  Critère éliminatoire pour {trait.name}
+                                </label>
+                                <select
+                                  id={`eliminatory-active-${trait.code}`}
+                                  name="is_eliminatory"
+                                  defaultValue={
+                                    trait.is_eliminatory ? "true" : "false"
+                                  }
+                                >
+                                  <option value="false">Non</option>
+                                  <option value="true">
+                                    Oui, seuil minimal
+                                  </option>
+                                </select>
+                                <label
+                                  className="sr-only"
+                                  htmlFor={`eliminatory-threshold-${trait.code}`}
+                                >
+                                  Seuil éliminatoire pour {trait.name}
+                                </label>
+                                <input
+                                  id={`eliminatory-threshold-${trait.code}`}
+                                  name="threshold"
+                                  type="number"
+                                  min={trait.minimum_value}
+                                  max={trait.maximum_value}
+                                  step="0.1"
+                                  placeholder="Seuil"
+                                  defaultValue={
+                                    trait.eliminatory_threshold ?? ""
+                                  }
+                                  className="weight-input"
+                                />
+                              </ActionForm>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                            {trait.is_eliminatory &&
+                              trait.eliminatory_threshold != null && (
+                                <p className="form-hint">
+                                  Score &lt; {trait.eliminatory_threshold} ⇒
+                                  élimination automatique, quel que soit le
+                                  score pondéré.
+                                </p>
+                              )}
                           </td>
                         </tr>
                       ))}

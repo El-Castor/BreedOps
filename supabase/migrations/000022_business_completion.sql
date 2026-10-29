@@ -26,7 +26,35 @@
 --                 contamination report, pending relabelling)
 --   depleted    - manually recorded as exhausted; terminal (no real-world
 --                 way to "undeplete" a lot with no seeds left)
-UPDATE public.seed_lots SET status = 'available' WHERE status IS DISTINCT FROM 'available';
+--
+-- Backfill semantics (deliberately narrow, not "anything that isn't
+-- 'available' becomes 'available'"): the only legacy representation this
+-- column has ever actually held is the migration 000001 default, 'active'.
+-- The column has never had a NOT NULL constraint, so NULL is historically
+-- possible too (e.g. an explicit NULL insert bypassing the default) and is
+-- safe to interpret the same way, since it carries the same "never set"
+-- meaning as the default it would otherwise have taken. Both become
+-- 'available'. A row that already holds one of the three new values passes
+-- through unchanged (defensive only: not reachable on a first run against
+-- real data, but keeps this block idempotent if ever re-run). Anything else
+-- is unexpected and this migration refuses to guess at it — it aborts
+-- loudly instead of silently normalizing data it does not recognize.
+DO $$
+DECLARE
+  v_unexpected_count INTEGER;
+  v_unexpected_values TEXT;
+BEGIN
+  SELECT count(*), string_agg(DISTINCT status, ', ')
+    INTO v_unexpected_count, v_unexpected_values
+  FROM public.seed_lots
+  WHERE status IS NOT NULL
+    AND status NOT IN ('active', 'available', 'quarantined', 'depleted');
+  IF v_unexpected_count > 0 THEN
+    RAISE EXCEPTION 'Migration 000022 cannot proceed: % seed_lots row(s) have unexpected status value(s) [%] with no known migration. Inspect and resolve manually (expected only: active, available, quarantined, depleted, or NULL) before re-running this migration.',
+      v_unexpected_count, v_unexpected_values;
+  END IF;
+END $$;
+UPDATE public.seed_lots SET status = 'available' WHERE status = 'active' OR status IS NULL;
 ALTER TABLE public.seed_lots ALTER COLUMN status SET DEFAULT 'available';
 ALTER TABLE public.seed_lots
   ADD CONSTRAINT seed_lots_status_check
@@ -218,6 +246,161 @@ BEGIN
 END;
 $$;
 
+-- ═══════════════════════ B2. Eliminatory criteria: configuration + live recalculation ═══════════════════════
+-- Finding from manual review: B above made the calculation engine read
+-- is_eliminatory/eliminatory_threshold correctly, but nothing let a user
+-- actually set them - set_program_trait_weight (000016) only ever touches
+-- `coefficient`. This closes that gap by extending the exact same
+-- architecture (program_active_traits, selection_criteria rows created by
+-- weighting a trait) rather than building a parallel configuration path.
+
+-- Exposes is_eliminatory/eliminatory_threshold alongside the existing
+-- coefficient, sourced from the identical correlated lookup, so the
+-- configuration UI and submit_trait_evaluation's gate logic always see the
+-- same row. PostgreSQL rejects CREATE OR REPLACE for a RETURNS TABLE
+-- function whose output columns change (SQLSTATE 42P13) even when only
+-- appending - an explicit DROP is required first. Nothing else has a hard
+-- dependency on this function's signature (callers only ever invoke it),
+-- so the DROP is safe.
+DROP FUNCTION public.program_active_traits(UUID);
+CREATE FUNCTION public.program_active_traits(target_program_id UUID)
+RETURNS TABLE (
+  trait_id UUID, code TEXT, name TEXT, description TEXT, category TEXT,
+  data_type TEXT, unit TEXT, minimum_value NUMERIC, maximum_value NUMERIC,
+  decimal_places INTEGER, allowed_values TEXT[], direction TEXT,
+  target_value NUMERIC, protocol TEXT, module_id UUID, module_name TEXT,
+  module_order INTEGER, trait_order INTEGER, coefficient NUMERIC,
+  is_eliminatory BOOLEAN, eliminatory_threshold NUMERIC)
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp AS $$
+  WITH ranked AS (
+    SELECT DISTINCT ON (t.id)
+      t.id, t.code, t.name, t.description, t.category, t.data_type, t.unit,
+      t.minimum_value, t.maximum_value, t.decimal_places, t.allowed_values,
+      t.direction, t.target_value, t.protocol, m.id AS module_id,
+      m.name AS module_name, pm.display_order AS module_order,
+      mt.display_order AS trait_order
+    FROM program_phenotyping_modules pm
+    JOIN phenotyping_modules m ON m.id = pm.module_id AND m.is_active
+    JOIN phenotyping_module_traits mt ON mt.module_id = m.id
+    JOIN phenotype_traits t ON t.id = mt.trait_id AND t.is_active
+    WHERE pm.program_id = target_program_id AND pm.is_active
+    ORDER BY t.id, pm.display_order, m.name, mt.display_order
+  )
+  SELECT r.*, c.coefficient, c.is_eliminatory, c.eliminatory_threshold
+  FROM ranked r
+  LEFT JOIN LATERAL (
+    SELECT sc.coefficient, sc.is_eliminatory, sc.eliminatory_threshold
+    FROM selection_criteria sc
+    JOIN selection_models sm ON sm.id = sc.selection_model_id
+    WHERE sc.trait_id = r.id AND sc.deleted_at IS NULL AND sm.program_id = target_program_id
+      AND sm.is_active AND sm.deleted_at IS NULL
+    ORDER BY sm.created_at LIMIT 1
+  ) c ON true
+  ORDER BY r.module_order, r.module_name, r.trait_order;
+$$;
+REVOKE ALL ON FUNCTION public.program_active_traits(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.program_active_traits(UUID) TO authenticated;
+
+-- Sets or clears a trait's eliminatory rule. Mirrors set_program_trait_weight's
+-- own authorization/derivation pattern exactly: the model id and criterion id
+-- are both re-derived server-side from target_program_id/target_trait_id
+-- (can_write_program re-checked, never trusted from the client), never
+-- accepted as bare ids from the browser. The trait must already be weighted
+-- (a selection_criteria row must exist) - eliminatory is a property of an
+-- existing criterion, not a way to create one; this preserves the existing
+-- coefficient untouched. Disabling (new_is_eliminatory = false) always clears
+-- the threshold too, so a disabled rule can never leave a stale threshold
+-- value that a later bug could accidentally reactivate.
+CREATE FUNCTION public.set_criterion_eliminatory_rule(
+  target_program_id UUID, target_trait_id UUID,
+  new_is_eliminatory BOOLEAN, new_threshold NUMERIC)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_model_id UUID;
+  v_criterion_id UUID;
+  v_trait RECORD;
+BEGIN
+  IF NOT can_write_program(target_program_id) THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+  SELECT m.id INTO v_model_id FROM selection_models m
+  WHERE m.program_id = target_program_id AND m.is_active AND m.deleted_at IS NULL
+  ORDER BY m.created_at LIMIT 1;
+  IF v_model_id IS NULL THEN
+    RAISE EXCEPTION 'An active selection model is required' USING ERRCODE = '23514';
+  END IF;
+  SELECT * INTO v_trait FROM program_active_traits(target_program_id) t
+  WHERE t.trait_id = target_trait_id;
+  IF v_trait.trait_id IS NULL THEN
+    RAISE EXCEPTION 'Trait is not active for this program' USING ERRCODE = '23514';
+  END IF;
+  SELECT c.id INTO v_criterion_id FROM selection_criteria c
+  WHERE c.selection_model_id = v_model_id AND c.trait_id = target_trait_id AND c.deleted_at IS NULL;
+  IF v_criterion_id IS NULL THEN
+    RAISE EXCEPTION 'The trait must be weighted before configuring an eliminatory rule' USING ERRCODE = '23514';
+  END IF;
+  IF new_is_eliminatory THEN
+    IF new_threshold IS NULL THEN
+      RAISE EXCEPTION 'A threshold is required when the criterion is eliminatory' USING ERRCODE = '22023';
+    END IF;
+    IF v_trait.data_type NOT IN ('numeric', 'integer', 'ordinal')
+        OR v_trait.minimum_value IS NULL OR v_trait.maximum_value IS NULL THEN
+      RAISE EXCEPTION 'Only bounded numeric traits can be eliminatory' USING ERRCODE = '23514';
+    END IF;
+    IF new_threshold < v_trait.minimum_value OR new_threshold > v_trait.maximum_value THEN
+      RAISE EXCEPTION 'Threshold must be within the trait bounds' USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  UPDATE selection_criteria
+  SET is_eliminatory = new_is_eliminatory,
+      eliminatory_threshold = CASE WHEN new_is_eliminatory THEN new_threshold ELSE NULL END
+  WHERE id = v_criterion_id;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.set_criterion_eliminatory_rule(UUID, UUID, BOOLEAN, NUMERIC) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_criterion_eliminatory_rule(UUID, UUID, BOOLEAN, NUMERIC) TO authenticated;
+
+-- Live recalculation: changing a decision-relevant property of a criterion
+-- (its weight, its eliminatory rule, or archiving/restoring it) must not
+-- leave already-persisted evaluations showing a stale weighted_score,
+-- normalized_score, automatic_decision, is_eliminated or elimination_reasons
+-- - the whole point of B's engine is defeated if a user has to re-touch a
+-- score to see an up-to-date decision. The smallest authoritative mechanism
+-- is a trigger directly on selection_criteria that re-runs the existing
+-- refresh_phenotype_evaluation() for every evaluation of that criterion's
+-- model: one direction only (selection_criteria -> phenotype_scores/
+-- phenotype_evaluations), and refresh_phenotype_evaluation never writes
+-- back to selection_criteria, so there is no recursion to guard against.
+-- This single trigger also covers set_program_trait_weight's own coefficient
+-- changes, which previously relied entirely on the user re-saving a score.
+CREATE FUNCTION public.refresh_phenotype_evaluations_after_criterion_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_evaluation RECORD;
+BEGIN
+  FOR v_evaluation IN
+    SELECT id FROM phenotype_evaluations
+    WHERE selection_model_id = NEW.selection_model_id AND deleted_at IS NULL
+  LOOP
+    PERFORM refresh_phenotype_evaluation(v_evaluation.id);
+  END LOOP;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER refresh_phenotype_evaluations_on_criterion_change
+  AFTER INSERT OR UPDATE OF coefficient, is_eliminatory, eliminatory_threshold, deleted_at
+  ON public.selection_criteria
+  FOR EACH ROW EXECUTE FUNCTION public.refresh_phenotype_evaluations_after_criterion_change();
+
 -- ═══════════════════════ C. Equipment register ═══════════════════════
 -- Absent from every migration and from PROMPT.md's own minimal data model
 -- for Module 4 (only inventory_items/inventory_lots/inventory_movements are
@@ -265,22 +448,37 @@ CREATE POLICY equipment_update ON public.equipment FOR UPDATE
 -- ═══════════════════════ D. Inventory stock coverage ═══════════════════════
 -- PROMPT.md §9: estimated_coverage = current_quantity / average_weekly_consumption.
 -- No consumption aggregation existed anywhere before this. Window is a fixed,
--- explicit 90 days (~12.857 weeks): long enough to smooth noisy single
--- movements, short enough to stay "recent" like the existing expiration
--- alert windows (30/90 days). Only movement_type = 'consumption' counts
--- towards the denominator - never receipts, and never the other decreasing
--- types (negative_adjustment, destruction, transfer), which are corrections
--- or departures from the lab rather than real usage. Returns NULL (not 0,
--- not an error) for average_weekly_consumption/estimated_weeks_remaining
--- when there is no consumption history in the window, instead of
--- fabricating a coverage figure from no data; has_sufficient_data makes
--- that state explicit for the UI. Archived (deleted_at) lots are excluded
--- from both stock and consumption. security_invoker, same convention as the
--- existing inventory_lot_status view: RLS on the underlying tables is what
--- actually scopes every caller to their own organization.
+-- explicit 90 days: long enough to smooth noisy single movements, short
+-- enough to stay "recent" like the existing expiration alert windows
+-- (30/90 days). Only movement_type = 'consumption' counts towards the
+-- denominator - never receipts, and never the other decreasing types
+-- (negative_adjustment, destruction, transfer), which are corrections or
+-- departures from the lab rather than real usage. Archived (deleted_at)
+-- lots are excluded from both stock and consumption. security_invoker,
+-- same convention as the existing inventory_lot_status view: RLS on the
+-- underlying tables is what actually scopes every caller to their own
+-- organization.
+--
+-- Sufficiency rule (revised): a single isolated consumption movement is not
+-- "90 days of history" - dividing one data point by a fixed 90/7 weeks
+-- fabricates precision the data does not support. has_sufficient_data now
+-- requires at least two distinct consumption movements (consumption_count)
+-- spanning at least 7 days (observed_span_days, the actual gap between the
+-- earliest and latest consumption movement in the window, never more than
+-- 90 since both dates are already bounded by the window) - two points on
+-- the same day still cannot establish a weekly rate. The weekly average
+-- itself uses that real observed span rather than always dividing by a
+-- fixed 90/7, so it reflects the period actually observed instead of
+-- silently assuming a full 90 days of data whenever any data exists.
+-- average_weekly_consumption/estimated_weeks_remaining stay NULL (never a
+-- fabricated 0) whenever has_sufficient_data is false.
 CREATE OR REPLACE VIEW public.inventory_item_coverage WITH (security_invoker = true) AS
 WITH consumption AS (
-  SELECT lot.inventory_item_id, SUM(movement.quantity) AS total_consumption_90d
+  SELECT
+    lot.inventory_item_id,
+    SUM(movement.quantity) AS total_consumption_90d,
+    COUNT(*) AS consumption_count,
+    (MAX(movement.movement_date) - MIN(movement.movement_date)) AS observed_span_days
   FROM inventory_movements movement
   JOIN inventory_lots lot ON lot.id = movement.inventory_lot_id
   WHERE movement.movement_type = 'consumption'
@@ -303,17 +501,21 @@ SELECT
   item.minimum_stock,
   COALESCE(stock.current_quantity, 0) AS current_quantity,
   consumption.total_consumption_90d,
-  (consumption.total_consumption_90d IS NOT NULL AND consumption.total_consumption_90d > 0) AS has_sufficient_data,
-  CASE WHEN consumption.total_consumption_90d > 0
-    THEN ROUND(consumption.total_consumption_90d / (90.0 / 7), 4)
+  (
+    consumption.consumption_count IS NOT NULL
+    AND consumption.consumption_count >= 2
+    AND consumption.observed_span_days >= 7
+  ) AS has_sufficient_data,
+  CASE WHEN consumption.consumption_count >= 2 AND consumption.observed_span_days >= 7
+    THEN ROUND(consumption.total_consumption_90d / (consumption.observed_span_days / 7.0), 4)
     ELSE NULL
   END AS average_weekly_consumption,
-  CASE WHEN consumption.total_consumption_90d > 0
-    THEN ROUND(COALESCE(stock.current_quantity, 0) / (consumption.total_consumption_90d / (90.0 / 7)), 1)
+  CASE WHEN consumption.consumption_count >= 2 AND consumption.observed_span_days >= 7
+    THEN ROUND(COALESCE(stock.current_quantity, 0) / (consumption.total_consumption_90d / (consumption.observed_span_days / 7.0)), 1)
     ELSE NULL
   END AS estimated_weeks_remaining,
-  CASE WHEN consumption.total_consumption_90d > 0
-    THEN COALESCE(stock.current_quantity, 0) / (consumption.total_consumption_90d / (90.0 / 7)) < 4
+  CASE WHEN consumption.consumption_count >= 2 AND consumption.observed_span_days >= 7
+    THEN COALESCE(stock.current_quantity, 0) / (consumption.total_consumption_90d / (consumption.observed_span_days / 7.0)) < 4
     ELSE FALSE
   END AS low_coverage
 FROM inventory_items item
@@ -322,4 +524,4 @@ LEFT JOIN consumption ON consumption.inventory_item_id = item.id
 WHERE item.deleted_at IS NULL;
 
 COMMENT ON VIEW public.inventory_item_coverage IS
-  'Estimated stock coverage per item over a fixed trailing 90-day window, counting only movement_type = consumption. average_weekly_consumption and estimated_weeks_remaining are NULL when has_sufficient_data is false (no consumption recorded in the window), never a fabricated 0 or infinite value. low_coverage flags under 4 weeks remaining when data is sufficient.';
+  'Estimated stock coverage per item over a trailing 90-day window, counting only movement_type = consumption (never receipts/adjustments). has_sufficient_data requires at least 2 consumption movements spanning at least 7 days - a single isolated movement is never treated as sufficient history. average_weekly_consumption is computed over the actually observed span (bounded to 90 days), not a fixed 90/7 denominator. average_weekly_consumption/estimated_weeks_remaining are NULL (never a fabricated 0) when has_sufficient_data is false. low_coverage flags under 4 weeks remaining when data is sufficient.';
