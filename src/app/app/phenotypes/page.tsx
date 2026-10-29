@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { FormDrawer } from "@/components/form-drawer";
 import { Icon, type IconName } from "@/components/icons";
@@ -232,7 +233,7 @@ export default async function Phenotypes({
       ? await client
           .from("phenotype_evaluations")
           .select(
-            "id,phenotype_id,selection_model_id,evaluation_date,weighted_score,normalized_score,automatic_decision,created_at",
+            "id,phenotype_id,selection_model_id,evaluation_date,weighted_score,normalized_score,automatic_decision,is_eliminated,elimination_reasons,created_at",
           )
           .in(
             "phenotype_id",
@@ -260,6 +261,8 @@ export default async function Phenotypes({
     weighted_score: number | null;
     normalized_score: number | null;
     automatic_decision: string | null;
+    is_eliminated: boolean;
+    elimination_reasons: string[] | null;
   }[];
   const latestEvaluationIds = evaluations.slice(0, 8).map((item) => item.id);
   const valuesState = collectionState(
@@ -384,6 +387,17 @@ export default async function Phenotypes({
         eyebrow="Sélection"
         title="Phénotypage configurable"
         description="Bibliothèque de traits de l’équipe, modules réutilisables et formulaires de mesure générés pour chaque programme. Scores et décisions sont calculés par PostgreSQL."
+        actions={
+          programId ? (
+            <Link
+              className="button-link secondary"
+              href={`/app/import-export/export?entity=phenotype_selection_matrix&program=${programId}&format=csv`}
+              title="Exporter la matrice de sélection (identifiant, critères, scores, élimination, décision — CSV)"
+            >
+              Exporter la matrice de sélection
+            </Link>
+          ) : undefined
+        }
       />
       <ProgramContext team={team.name} program={program} />
       <ProgramSwitch
@@ -500,7 +514,10 @@ export default async function Phenotypes({
                           {phenotypeName(item.phenotype_id)}
                         </strong>
                         {item.automatic_decision ? (
-                          <DecisionBadge decision={item.automatic_decision} />
+                          <DecisionBadge
+                            decision={item.automatic_decision}
+                            eliminationReasons={item.elimination_reasons}
+                          />
                         ) : (
                           <StatusBadge tone="info">Observation</StatusBadge>
                         )}
@@ -1393,6 +1410,7 @@ export default async function Phenotypes({
                         {evaluation.automatic_decision ? (
                           <DecisionBadge
                             decision={evaluation.automatic_decision}
+                            eliminationReasons={evaluation.elimination_reasons}
                           />
                         ) : (
                           <StatusBadge tone="info">Observation</StatusBadge>
@@ -1489,6 +1507,7 @@ function RankingTable({
     weighted_score: number | null;
     normalized_score: number | null;
     automatic_decision: string | null;
+    elimination_reasons: string[] | null;
   }[];
   phenotypeName: (id: string) => string;
 }) {
@@ -1526,7 +1545,10 @@ function RankingTable({
                 </span>
               </td>
               <td>
-                <DecisionBadge decision={item.automatic_decision} />
+                <DecisionBadge
+                  decision={item.automatic_decision}
+                  eliminationReasons={item.elimination_reasons}
+                />
               </td>
               <td className="num">{formatDay(item.evaluation_date)}</td>
             </tr>

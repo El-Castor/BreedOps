@@ -10,6 +10,7 @@ import {
 
 const id = z.string().uuid();
 const optionalDate = z.string().date().or(z.literal(""));
+const optionalText = (max: number) => z.string().trim().max(max);
 
 export async function createInventoryItem(
   _previous: ActionState,
@@ -128,6 +129,113 @@ export async function recordInventoryMovement(
     return actionError(
       error,
       "Mouvement refusé. Vérifiez le stock et la justification.",
+    );
+  }
+}
+
+// Equipment is its own operational register (migration 000022), distinct
+// from reagent-lot inventory: no quantity, no movement ledger. Organization
+// isolation is enforced by RLS the same way as inventory_items.
+export async function createEquipment(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        organization_id: id,
+        name: z.string().trim().min(1).max(160),
+        category: z.string().trim().min(1).max(80),
+        manufacturer: optionalText(160),
+        model: optionalText(160),
+        serial_number: optionalText(160),
+        location: optionalText(160),
+        operational_status: z.enum([
+          "operational",
+          "maintenance",
+          "out_of_service",
+        ]),
+        commissioned_at: optionalDate,
+        next_maintenance_at: optionalDate,
+        notes: optionalText(1000),
+      })
+      .parse(Object.fromEntries(form));
+    const { client, team } = await requireIdentity();
+    if (team.id !== values.organization_id) throw new Error("Équipe invalide.");
+    const { error } = await client.from("equipment").insert({
+      ...values,
+      manufacturer: values.manufacturer || null,
+      model: values.model || null,
+      serial_number: values.serial_number || null,
+      location: values.location || null,
+      commissioned_at: values.commissioned_at || null,
+      next_maintenance_at: values.next_maintenance_at || null,
+      notes: values.notes || null,
+    });
+    if (error) throw new Error("Création de l’équipement refusée.");
+    return actionSuccess("Équipement ajouté au registre.");
+  } catch (error) {
+    return actionError(error, "Impossible de créer cet équipement.");
+  }
+}
+
+export async function updateEquipmentStatus(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        id,
+        operational_status: z.enum([
+          "operational",
+          "maintenance",
+          "out_of_service",
+        ]),
+      })
+      .parse(Object.fromEntries(form));
+    const { client } = await requireIdentity();
+    const { data, error } = await client
+      .from("equipment")
+      .update({ operational_status: values.operational_status })
+      .eq("id", values.id)
+      .select("id")
+      .single();
+    if (error || !data) throw error ?? new Error("Equipment not found");
+    return actionSuccess("Statut de l’équipement mis à jour.");
+  } catch (error) {
+    return actionError(error, "Impossible de mettre à jour ce statut.");
+  }
+}
+
+export async function setEquipmentArchived(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({ id, operation: z.enum(["archive", "restore"]) })
+      .parse(Object.fromEntries(form));
+    const { client } = await requireIdentity();
+    const { data, error } = await client
+      .from("equipment")
+      .update({
+        deleted_at:
+          values.operation === "archive" ? new Date().toISOString() : null,
+      })
+      .eq("id", values.id)
+      .select("id")
+      .single();
+    if (error || !data) throw error ?? new Error("Equipment not found");
+    return actionSuccess(
+      values.operation === "archive"
+        ? "Équipement archivé."
+        : "Équipement restauré.",
+    );
+  } catch (error) {
+    return actionError(
+      error,
+      "Impossible de modifier le cycle de vie de cet équipement.",
     );
   }
 }

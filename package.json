@@ -27,6 +27,7 @@
     "test:media": "node scripts/test-rls.mjs tests/plant-media.sql",
     "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",
     "test:import-export": "node scripts/test-rls.mjs tests/import-export.sql",
+    "test:business-completion": "node scripts/test-rls.mjs tests/business-completion.sql",
     "media:check-orphans": "node scripts/check-media-orphans.mjs",
     "security:client-secrets": "node scripts/check-client-secrets.mjs",
     "db:start": "node scripts/db-start.mjs",

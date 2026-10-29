@@ -257,6 +257,39 @@ export async function createSeedLot(
   }
 }
 
+// Operational lifecycle of a seed lot (available/quarantined/depleted) is
+// independent of genetic_purity_status and of archival (deleted_at) — see
+// migration 000022. Routed through update_seed_lot_status rather than a
+// plain .update() so the transition is validated server-side regardless of
+// what the client sends, and so the change is atomically recorded in
+// audit_logs; the DB trigger is still the final authority on which
+// transitions are actually allowed.
+export async function updateSeedLotStatus(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        id,
+        status: z.enum(["available", "quarantined", "depleted"]),
+      })
+      .parse(Object.fromEntries(form));
+    const { client } = await requireIdentity();
+    const { error } = await client.rpc("update_seed_lot_status", {
+      target_lot_id: values.id,
+      new_status: values.status,
+    });
+    if (error) throw error;
+    return actionSuccess("Statut du lot mis à jour.");
+  } catch (error) {
+    return actionError(
+      error,
+      "Changement de statut refusé. Vérifiez que la transition est permise (un lot épuisé ne peut plus changer de statut).",
+    );
+  }
+}
+
 export async function updateBreedingNotes(
   _previous: ActionState,
   form: FormData,

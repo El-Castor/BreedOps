@@ -213,6 +213,124 @@ export async function exportPhenotypes(
   return { headers, rows };
 }
 
+/** Analytical selection matrix — not a generic importable/exportable entity
+ * (criteria are configurable per program, never a fixed business-code
+ * schema), so this is export-only and reuses the same export route/audit
+ * path rather than being registered in ENTITY_SPECS. Columns: stable
+ * identifier, one per active criterion of the program's active selection
+ * model, weighted score, normalized score, eliminatory status/reason, and
+ * final decision — everything a user needs to see WHY an individual was
+ * (or wasn't) selected, without opening the application. */
+export async function exportPhenotypeSelectionMatrix(
+  client: SupabaseClient,
+  programId: string,
+): Promise<ExportTable> {
+  const { data: model } = await client
+    .from("selection_models")
+    .select("id")
+    .eq("program_id", programId)
+    .eq("is_active", true)
+    .is("deleted_at", null)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  const { data: criteria } = model
+    ? await client
+        .from("selection_criteria")
+        .select("id,code,name,is_eliminatory,eliminatory_threshold")
+        .eq("selection_model_id", model.id)
+        .is("deleted_at", null)
+        .order("display_order")
+    : { data: [] };
+  const criterionList = criteria ?? [];
+
+  const { data: phenotypes } = await client
+    .from("phenotypes")
+    .select("id,phenotype_code")
+    .eq("program_id", programId)
+    .order("phenotype_code");
+  const phenotypeList = phenotypes ?? [];
+  const phenotypeIds = phenotypeList.map((item) => item.id);
+
+  const { data: evaluationsRaw } = phenotypeIds.length
+    ? await client
+        .from("phenotype_evaluations")
+        .select(
+          "id,phenotype_id,weighted_score,normalized_score,automatic_decision,is_eliminated,elimination_reasons,evaluation_date",
+        )
+        .in("phenotype_id", phenotypeIds)
+        .is("deleted_at", null)
+        .order("evaluation_date", { ascending: false })
+    : { data: [] };
+  // Most recent evaluation per phenotype only — a matrix reflects current
+  // standing, not the full evaluation history (already covered elsewhere).
+  type EvaluationRow = {
+    id: string;
+    phenotype_id: string;
+    weighted_score: number | null;
+    normalized_score: number | null;
+    automatic_decision: string | null;
+    is_eliminated: boolean;
+    elimination_reasons: string[] | null;
+    evaluation_date: string | null;
+  };
+  const latestByPhenotype = new Map<string, EvaluationRow>();
+  for (const evaluation of (evaluationsRaw ?? []) as EvaluationRow[]) {
+    if (!latestByPhenotype.has(evaluation.phenotype_id)) {
+      latestByPhenotype.set(evaluation.phenotype_id, evaluation);
+    }
+  }
+  const evaluationIds = [...latestByPhenotype.values()].map((item) => item.id);
+  const { data: scores } = evaluationIds.length
+    ? await client
+        .from("phenotype_scores")
+        .select("phenotype_evaluation_id,criterion_id,raw_score")
+        .in("phenotype_evaluation_id", evaluationIds)
+        .is("deleted_at", null)
+    : { data: [] };
+  const scoreByEvaluationAndCriterion = new Map<string, number>();
+  for (const score of scores ?? []) {
+    scoreByEvaluationAndCriterion.set(
+      `${score.phenotype_evaluation_id}:${score.criterion_id}`,
+      score.raw_score,
+    );
+  }
+
+  const headers = [
+    "Phenotype ID",
+    ...criterionList.map(
+      (c) => `${c.name}${c.is_eliminatory ? " (éliminatoire)" : ""}`,
+    ),
+    "Score pondéré",
+    "Score normalisé (%)",
+    "Éliminé par critère",
+    "Motif d’élimination",
+    "Décision finale",
+  ];
+  const rows = phenotypeList.map((phenotype) => {
+    const evaluation = latestByPhenotype.get(phenotype.id);
+    const criterionValues = criterionList.map((criterion) =>
+      evaluation
+        ? fmt(
+            scoreByEvaluationAndCriterion.get(
+              `${evaluation.id}:${criterion.id}`,
+            ) ?? null,
+          )
+        : null,
+    );
+    return [
+      fmt(phenotype.phenotype_code),
+      ...criterionValues,
+      fmt(evaluation?.weighted_score ?? null),
+      fmt(evaluation?.normalized_score ?? null),
+      evaluation ? (evaluation.is_eliminated ? "Oui" : "Non") : null,
+      fmt((evaluation?.elimination_reasons ?? []).join(" · ") || null),
+      fmt(evaluation?.automatic_decision ?? null),
+    ];
+  });
+  return { headers, rows };
+}
+
 export async function exportInventoryLots(
   client: SupabaseClient,
   organizationId: string,
