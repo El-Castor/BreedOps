@@ -261,7 +261,41 @@ is the only sanctioned way to toggle one: `completed_by`/`completed_at` are alwa
 server-side from `auth.uid()`, never trusted from the client.
 
 ### Audit Logs
-Records all significant actions for audit purposes.
+Records all significant actions for audit purposes. There is no direct client INSERT
+policy since migration 000012; writes go only through narrowly-scoped `SECURITY DEFINER`
+functions. `record_user_admin_event` covers the auth-administration actions;
+`record_import_export_event` (000020) covers exactly the `import`/`export` actions
+PROMPT.md §13 requires, one row per batch run (not one per imported row). No general
+per-row business-data audit facility exists for the breeding/inventory/operations
+domains — a pre-existing gap this migration does not attempt to solve beyond its own
+two required actions.
+
+### Import / Export (migration 000020)
+Adds `tasks.task_code` (the only business-code gap among PROMPT.md §12's seven
+idempotency keys — `next_breeding_business_code` extended with entity type `task`,
+prefix `T`) and seven `import_*` functions, one per importable entity (parent lines,
+crosses, families, seed lots, phenotypes, inventory lots, tasks), same `SECURITY
+DEFINER` + explicit `can_write_program`/`can_write_team` re-check idiom as
+`create_inventory_lot_with_receipt`/`record_user_admin_event`. Each function takes a
+scope id and a JSONB array of rows, re-derives create-vs-update itself from the row's
+business code (never trusts a client-supplied decision), and aborts its entire call on
+any row that fails an invariant (archived match, unresolved reference, immutable-field
+conflict) — a plain Postgres transaction, so a batch is never left half-applied.
+Matching is strictly by business code (or, for inventory lots, item name + batch
+number); there is no fuzzy matching anywhere. Identity/provenance fields (the code
+itself, parent/cross/family/seed-lot/cycle references) are immutable once set — a
+later import row that tries to change one is rejected, never silently applied. New
+inventory stock always goes through a `receipt` movement (not a direct
+`current_quantity`/`initial_quantity` write), exactly like
+`create_inventory_lot_with_receipt`. Out of V1 scope, deliberately: germination tests
+and phenotype evaluations (server-computed scores) remain manual-entry-only; task
+`assigned_to` and status transitions are not importable. Application layer lives in
+`src/lib/import-export/` (parser, column-mapping, read-only preview, CSV/XLSX export)
+and `src/app/app/import-export/` (the `/app/import-export` page and its Server
+Actions/Route Handlers); see that page and `agend.md`'s 2026-10-28 session entry for
+the full design and its one documented limitation (preview can't see an archived
+business-code match the way the `SECURITY DEFINER` apply functions authoritatively
+can, since the normal RLS read policies filter `deleted_at`).
 
 ### Media Assets (Plant Media)
 `media_assets` (migration 000018) holds metadata for real plant/scientific images attached

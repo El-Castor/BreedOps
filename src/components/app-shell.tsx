@@ -45,6 +45,10 @@ const groups: { label: string; items: [string, string, IconName][] }[] = [
       ["/app/operations", "Opérations", "operations"],
     ],
   },
+  {
+    label: "Données",
+    items: [["/app/import-export", "Import / Export", "importExport"]],
+  },
 ];
 
 const programScoped = new Set([
@@ -53,6 +57,7 @@ const programScoped = new Set([
   "/app/pedigree",
   "/app/phenotypes",
   "/app/operations",
+  "/app/import-export",
 ]);
 
 const collapseKey = "breedops-sidebar";
