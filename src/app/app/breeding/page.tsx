@@ -29,6 +29,12 @@ import {
   type BreedingDetailSource,
 } from "@/lib/breeding-entity-details";
 import { collectionState } from "@/lib/query-state";
+import { attachQr } from "@/lib/qr/attach-breeding";
+import {
+  LabelPrintBar,
+  LabelSelectionCheckbox,
+  LabelSelectionProvider,
+} from "@/components/label-selection";
 import {
   createCross,
   createFamily,
@@ -231,18 +237,21 @@ export default async function BreedingPage({
       </div>
     );
   const entityDetails = selected
-    ? buildBreedingEntityDetails({
-        program: selected,
-        parents: allParentRecords,
-        crosses: allCrossRecords,
-        families: allFamilyRecords,
-        lots: allLotRecords,
-        crossYields,
-        germinationTests: tests,
-        phenotypes,
-        evaluations:
-          evaluationsState.data as BreedingDetailSource["evaluations"],
-      })
+    ? await attachQr(
+        buildBreedingEntityDetails({
+          program: selected,
+          parents: allParentRecords,
+          crosses: allCrossRecords,
+          families: allFamilyRecords,
+          lots: allLotRecords,
+          crossYields,
+          germinationTests: tests,
+          phenotypes,
+          evaluations:
+            evaluationsState.data as BreedingDetailSource["evaluations"],
+        }),
+        process.env.APP_ORIGIN || "http://localhost:3107",
+      )
     : [];
   const detailFor = (kind: string, entityId: string) => {
     const detail = entityDetails.find(
@@ -293,939 +302,977 @@ export default async function BreedingPage({
 
   return (
     <EntityInspectorWorkspace>
-      <div className="page">
-        <Breadcrumbs
-          items={[{ label: "Accueil", href: "/app" }, { label: "Programme" }]}
-        />
-        <PageHeader
-          eyebrow="Flux d’élevage"
-          title="Programme et matériel végétal"
-          description="Registres des lignées, croisements, familles et lots. Sélectionnez une ligne pour ouvrir sa fiche."
-          actions={
-            programId ? (
-              <>
-                <Link
-                  className="button-link secondary"
-                  href={`/app/pedigree?program=${programId}`}
-                >
-                  Voir le pedigree
-                </Link>
-                <Link
-                  className="button-link secondary"
-                  href={`/app/import-export/export?entity=parent_lines&program=${programId}&format=csv`}
-                  title="Exporter le registre des lignées parentales (CSV)"
-                >
-                  Exporter les lignées
-                </Link>
-                <Link
-                  className="button-link secondary"
-                  href={`/app/import-export/export?entity=crosses&program=${programId}&format=csv`}
-                  title="Exporter le registre des croisements (CSV)"
-                >
-                  Exporter les croisements
-                </Link>
-                <Link
-                  className="button-link secondary"
-                  href={`/app/import-export/export?entity=families&program=${programId}&format=csv`}
-                  title="Exporter le registre des familles (CSV)"
-                >
-                  Exporter les familles
-                </Link>
-                <Link
-                  className="button-link secondary"
-                  href={`/app/import-export/export?entity=seed_lots&program=${programId}&format=csv`}
-                  title="Exporter le registre des lots de graines (CSV)"
-                >
-                  Exporter les lots
-                </Link>
-              </>
-            ) : undefined
-          }
-        />
-        <ProgramContext team={team.name} program={selected} />
-        <ProgramSwitch
-          programs={programs}
-          activeId={programId}
-          basePath="/app/breeding"
-        />
-        {!selected ? (
-          <Card>
-            <EmptyState
-              title="Aucun programme"
-              message="Créez un programme avant d’ajouter du matériel végétal."
-            />
-            <ActionForm action={createProgram} actionName="program">
-              <h2>Créer le premier programme</h2>
-              <div className="fields-2">
-                <label>
-                  Code
-                  <input name="code" required maxLength={80} />
-                </label>
-                <label>
-                  Nom
-                  <input name="name" required maxLength={160} />
-                </label>
-                <label>
-                  Espèce
-                  <input name="species" required maxLength={160} />
-                </label>
-                <label>
-                  Campagne
-                  <input name="campaign" maxLength={40} />
-                </label>
+      <LabelSelectionProvider>
+        <div className="page">
+          <Breadcrumbs
+            items={[{ label: "Accueil", href: "/app" }, { label: "Programme" }]}
+          />
+          <LabelPrintBar />
+          <PageHeader
+            eyebrow="Flux d’élevage"
+            title="Programme et matériel végétal"
+            description="Registres des lignées, croisements, familles et lots. Sélectionnez une ligne pour ouvrir sa fiche."
+            actions={
+              programId ? (
+                <>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/pedigree?program=${programId}`}
+                  >
+                    Voir le pedigree
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/import-export/export?entity=parent_lines&program=${programId}&format=csv`}
+                    title="Exporter le registre des lignées parentales (CSV)"
+                  >
+                    Exporter les lignées
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/import-export/export?entity=crosses&program=${programId}&format=csv`}
+                    title="Exporter le registre des croisements (CSV)"
+                  >
+                    Exporter les croisements
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/import-export/export?entity=families&program=${programId}&format=csv`}
+                    title="Exporter le registre des familles (CSV)"
+                  >
+                    Exporter les familles
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`/app/import-export/export?entity=seed_lots&program=${programId}&format=csv`}
+                    title="Exporter le registre des lots de graines (CSV)"
+                  >
+                    Exporter les lots
+                  </Link>
+                </>
+              ) : undefined
+            }
+          />
+          <ProgramContext team={team.name} program={selected} />
+          <ProgramSwitch
+            programs={programs}
+            activeId={programId}
+            basePath="/app/breeding"
+          />
+          {!selected ? (
+            <Card>
+              <EmptyState
+                title="Aucun programme"
+                message="Créez un programme avant d’ajouter du matériel végétal."
+              />
+              <ActionForm action={createProgram} actionName="program">
+                <h2>Créer le premier programme</h2>
+                <div className="fields-2">
+                  <label>
+                    Code
+                    <input name="code" required maxLength={80} />
+                  </label>
+                  <label>
+                    Nom
+                    <input name="name" required maxLength={160} />
+                  </label>
+                  <label>
+                    Espèce
+                    <input name="species" required maxLength={160} />
+                  </label>
+                  <label>
+                    Campagne
+                    <input name="campaign" maxLength={40} />
+                  </label>
+                </div>
+              </ActionForm>
+            </Card>
+          ) : (
+            <>
+              <div className="section-nav">
+                <nav className="tabs" aria-label="Sections du programme">
+                  {steps.map(([label, count, href, icon]) => (
+                    <a href={href} key={label}>
+                      <Icon name={icon} />
+                      {label}
+                      {count != null && (
+                        <span className="tab-count">{count}</span>
+                      )}
+                    </a>
+                  ))}
+                </nav>
               </div>
-            </ActionForm>
-          </Card>
-        ) : (
-          <>
-            <div className="section-nav">
-              <nav className="tabs" aria-label="Sections du programme">
-                {steps.map(([label, count, href, icon]) => (
-                  <a href={href} key={label}>
-                    <Icon name={icon} />
-                    {label}
-                    {count != null && (
-                      <span className="tab-count">{count}</span>
-                    )}
-                  </a>
-                ))}
-              </nav>
-            </div>
 
-            <div className="register-toolbar">
-              <form method="get" role="search">
-                <input type="hidden" name="program" value={programId} />
-                {showArchived && (
-                  <input type="hidden" name="archived" value="1" />
-                )}
-                <label className="sr-only" htmlFor="register-search">
-                  Rechercher dans les registres
-                </label>
-                <input
-                  id="register-search"
-                  type="search"
-                  name="q"
-                  defaultValue={query}
-                  placeholder="Code, nom, accession, source…"
-                />
-                <button className="secondary">
-                  <Icon name="search" />
-                  Rechercher
-                </button>
-              </form>
-              {/* Document navigation on purpose: the client router silently
+              <div className="register-toolbar">
+                <form method="get" role="search">
+                  <input type="hidden" name="program" value={programId} />
+                  {showArchived && (
+                    <input type="hidden" name="archived" value="1" />
+                  )}
+                  <label className="sr-only" htmlFor="register-search">
+                    Rechercher dans les registres
+                  </label>
+                  <input
+                    id="register-search"
+                    type="search"
+                    name="q"
+                    defaultValue={query}
+                    placeholder="Code, nom, accession, source…"
+                  />
+                  <button className="secondary">
+                    <Icon name="search" />
+                    Rechercher
+                  </button>
+                </form>
+                {/* Document navigation on purpose: the client router silently
                   aborted query-only navigation on this page (agend TD-003). */}
-              <nav className="segmented" aria-label="Cycle de vie affiché">
-                <a
-                  className={showArchived ? "" : "active"}
-                  aria-current={showArchived ? undefined : "true"}
-                  href={`${base}${queryParam}`}
-                >
-                  Actifs
-                </a>
-                <a
-                  className={showArchived ? "active" : ""}
-                  aria-current={showArchived ? "true" : undefined}
-                  href={`${base}&archived=1${queryParam}`}
-                >
-                  <Icon name="archive" size={14} /> Avec archives
-                </a>
-              </nav>
-            </div>
-
-            <WorkflowSection
-              id="parents"
-              icon="parent"
-              step="1"
-              title="Lignées parentales"
-              description="Deux lignées distinctes sont nécessaires pour créer un croisement."
-              count={counter(allParentRecords, parentRows.length)}
-              actions={
-                <FormDrawer
-                  label="Nouvelle lignée"
-                  title="Nouvelle lignée parentale"
-                  description="Le code BreedOps est attribué automatiquement."
-                  disabled={false}
-                >
-                  <ActionForm
-                    action={createParentLine}
-                    actionName="parent"
-                    className="card form"
-                    submitLabel="Ajouter la lignée"
+                <nav className="segmented" aria-label="Cycle de vie affiché">
+                  <a
+                    className={showArchived ? "" : "active"}
+                    aria-current={showArchived ? undefined : "true"}
+                    href={`${base}${queryParam}`}
                   >
-                    <h3>Nouvelle lignée</h3>
-                    <input type="hidden" name="program_id" value={programId} />
-                    <p className="generated-code-hint">
-                      Code BreedOps attribué automatiquement
-                    </p>
-                    <fieldset className="form-section">
-                      <label>
-                        Nom de la lignée
-                        <input name="line_name" required maxLength={160} />
-                      </label>
-                      <div className="fields-2">
-                        <label>
-                          Génération
-                          <input name="generation" type="number" min="0" />
-                        </label>
-                        <label>
-                          Accession
-                          <input
-                            name="accession"
-                            maxLength={120}
-                            placeholder="Réf. externe"
-                          />
-                        </label>
-                      </div>
-                    </fieldset>
-                    <fieldset className="form-section">
-                      <legend>Provenance</legend>
-                      <label>
-                        Source
-                        <input
-                          name="source"
-                          maxLength={160}
-                          placeholder="Obtenteur, institut, fournisseur"
-                        />
-                      </label>
-                      <label>
-                        Origine
-                        <input
-                          name="origin"
-                          maxLength={160}
-                          placeholder="Population, sélection d’origine"
-                        />
-                      </label>
-                      <label>
-                        Notes
-                        <textarea name="notes" maxLength={1000} rows={2} />
-                      </label>
-                    </fieldset>
-                  </ActionForm>
-                </FormDrawer>
-              }
-            >
-              <Card>
-                {parentRows.length ? (
-                  <DataTable label="Lignées parentales">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>Nom · accession</th>
-                          <th className="num">Gén.</th>
-                          <th>Source</th>
-                          <th className="num">Croisements</th>
-                          <th>État</th>
-                          <th>
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {parentRows.map((parent) => (
-                          <EntityTableRow
-                            key={parent.id}
-                            entity={detailFor("parent", parent.id)}
-                          >
-                            <td>
-                              <strong className="code">
-                                {parent.parent_code}
-                              </strong>
-                            </td>
-                            <td>
-                              {parent.line_name}
-                              {parent.accession && (
-                                <span className="secondary-line">
-                                  {parent.accession}
-                                </span>
-                              )}
-                            </td>
-                            <td className="num">{parent.generation ?? "—"}</td>
-                            <td>{parent.source || parent.origin || "—"}</td>
-                            <td className="num">
-                              {
-                                allCrossRecords.filter(
-                                  (cross) =>
-                                    cross.female_parent_id === parent.id ||
-                                    cross.male_parent_id === parent.id,
-                                ).length
-                              }
-                            </td>
-                            <td>
-                              <LifecycleBadge
-                                archived={Boolean(parent.deleted_at)}
-                                status={parent.status}
-                              />
-                            </td>
-                          </EntityTableRow>
-                        ))}
-                      </tbody>
-                    </table>
-                  </DataTable>
-                ) : (
-                  <EmptyState
-                    title={
-                      noMatch ? "Aucune lignée" : "Aucun parent disponible"
-                    }
-                    message={
-                      noMatch ??
-                      "Ajoutez au moins deux lignées parentales avant de créer un croisement."
-                    }
-                  />
-                )}
-              </Card>
-            </WorkflowSection>
-
-            <WorkflowSection
-              id="crosses"
-              icon="cross"
-              step="2"
-              title="Croisements"
-              description="Associez deux parents. Le croisement devient disponible pour créer une famille."
-              count={counter(allCrossRecords, crossRows.length)}
-              actions={
-                <FormDrawer
-                  label="Nouveau croisement"
-                  title="Nouveau croisement"
-                  description="Associez deux lignées parentales actives."
-                  disabled={parents.length < 2}
-                  disabledReason="Deux lignées actives nécessaires"
-                >
-                  <ActionForm
-                    action={createCross}
-                    actionName="cross"
-                    className="card form"
-                    disabled={parents.length < 2}
-                    submitLabel="Créer le croisement"
+                    Actifs
+                  </a>
+                  <a
+                    className={showArchived ? "active" : ""}
+                    aria-current={showArchived ? "true" : undefined}
+                    href={`${base}&archived=1${queryParam}`}
                   >
-                    <h3>Nouveau croisement</h3>
-                    <input type="hidden" name="program_id" value={programId} />
-                    <p className="generated-code-hint">
-                      Code BreedOps attribué automatiquement
-                    </p>
-                    <ParentSelect
-                      name="female_parent_id"
-                      label="Parent femelle"
-                      parents={parents}
-                      disabled={parents.length < 2}
-                    />
-                    <ParentSelect
-                      name="male_parent_id"
-                      label="Parent mâle"
-                      parents={parents}
-                      disabled={parents.length < 2}
-                    />
-                    <label>
-                      Date de pollinisation
+                    <Icon name="archive" size={14} /> Avec archives
+                  </a>
+                </nav>
+              </div>
+
+              <WorkflowSection
+                id="parents"
+                icon="parent"
+                step="1"
+                title="Lignées parentales"
+                description="Deux lignées distinctes sont nécessaires pour créer un croisement."
+                count={counter(allParentRecords, parentRows.length)}
+                actions={
+                  <FormDrawer
+                    label="Nouvelle lignée"
+                    title="Nouvelle lignée parentale"
+                    description="Le code BreedOps est attribué automatiquement."
+                    disabled={false}
+                  >
+                    <ActionForm
+                      action={createParentLine}
+                      actionName="parent"
+                      className="card form"
+                      submitLabel="Ajouter la lignée"
+                    >
+                      <h3>Nouvelle lignée</h3>
                       <input
-                        name="pollination_date"
-                        type="date"
-                        required
-                        disabled={parents.length < 2}
+                        type="hidden"
+                        name="program_id"
+                        value={programId}
                       />
-                    </label>
-                    <fieldset className="form-section">
-                      <legend>Quantités</legend>
-                      <div className="fields-3">
+                      <p className="generated-code-hint">
+                        Code BreedOps attribué automatiquement
+                      </p>
+                      <fieldset className="form-section">
                         <label>
-                          Pollinisées
+                          Nom de la lignée
+                          <input name="line_name" required maxLength={160} />
+                        </label>
+                        <div className="fields-2">
+                          <label>
+                            Génération
+                            <input name="generation" type="number" min="0" />
+                          </label>
+                          <label>
+                            Accession
+                            <input
+                              name="accession"
+                              maxLength={120}
+                              placeholder="Réf. externe"
+                            />
+                          </label>
+                        </div>
+                      </fieldset>
+                      <fieldset className="form-section">
+                        <legend>Provenance</legend>
+                        <label>
+                          Source
                           <input
-                            name="pollinated_units"
-                            type="number"
-                            min="0"
+                            name="source"
+                            maxLength={160}
+                            placeholder="Obtenteur, institut, fournisseur"
                           />
                         </label>
                         <label>
-                          Établies
+                          Origine
                           <input
-                            name="established_units"
-                            type="number"
-                            min="0"
+                            name="origin"
+                            maxLength={160}
+                            placeholder="Population, sélection d’origine"
                           />
                         </label>
                         <label>
-                          Graines
-                          <input name="total_seeds" type="number" min="0" />
+                          Notes
+                          <textarea name="notes" maxLength={1000} rows={2} />
                         </label>
-                      </div>
-                      <p className="form-hint">
-                        Le rendement (graines par unité pollinisée) est calculé
-                        par PostgreSQL.
-                      </p>
-                    </fieldset>
-                    <label>
-                      Notes
-                      <textarea name="notes" maxLength={1000} rows={2} />
-                    </label>
-                    {parents.length < 2 && (
-                      <p className="form-hint blocked">
-                        Disponible après création de deux parents actifs.
-                      </p>
-                    )}
-                  </ActionForm>
-                </FormDrawer>
-              }
-            >
-              {parents.length < 2 && (
-                <Prerequisite
-                  title="Croisement indisponible"
-                  message={`${parents.length === 0 ? "Aucun parent disponible" : "Une seule lignée est disponible"}. Ajoutez au moins deux lignées distinctes.`}
-                  href="#parents"
-                  label="Ajouter une lignée parentale"
-                />
-              )}
-              <Card>
-                {crossRows.length ? (
-                  <DataTable label="Croisements">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>♀ × ♂</th>
-                          <th>Pollinisation</th>
-                          <th className="num">Graines</th>
-                          <th className="num">Rendement</th>
-                          <th>État</th>
-                          <th>
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {crossRows.map((cross) => (
-                          <EntityTableRow
-                            key={cross.id}
-                            entity={detailFor("cross", cross.id)}
-                          >
-                            <td>
-                              <strong className="code">
-                                {cross.cross_code}
-                              </strong>
-                            </td>
-                            <td className="code">
-                              {parentName(cross.female_parent_id)} ×{" "}
-                              {parentName(cross.male_parent_id)}
-                            </td>
-                            <td className="num">
-                              {formatDay(cross.pollination_date)}
-                            </td>
-                            <td className="num">{cross.total_seeds ?? "—"}</td>
-                            <td className="num">{yieldOf(cross.id) ?? "—"}</td>
-                            <td>
-                              <LifecycleBadge
-                                archived={Boolean(cross.deleted_at)}
-                                status={cross.status}
-                              />
-                            </td>
-                          </EntityTableRow>
-                        ))}
-                      </tbody>
-                    </table>
-                  </DataTable>
-                ) : (
-                  <EmptyState
-                    title="Aucun croisement"
-                    message={
-                      noMatch ??
-                      "Créez un croisement à partir de deux lignées parentales."
-                    }
-                  />
-                )}
-              </Card>
-            </WorkflowSection>
-
-            <WorkflowSection
-              id="families"
-              icon="family"
-              step="3"
-              title="Familles"
-              description="Une famille conserve le lien avec son croisement d’origine."
-              count={counter(allFamilyRecords, familyRows.length)}
-              actions={
-                <FormDrawer
-                  label="Nouvelle famille"
-                  title="Nouvelle famille"
-                  description="Une famille conserve le lien avec son croisement."
-                  disabled={!allCrosses.length}
-                  disabledReason="Un croisement actif nécessaire"
-                >
-                  <ActionForm
-                    action={createFamily}
-                    actionName="family"
-                    className="card form"
-                    disabled={!allCrosses.length}
-                    submitLabel="Créer la famille"
-                  >
-                    <h3>Nouvelle famille</h3>
-                    <input type="hidden" name="program_id" value={programId} />
-                    <p className="generated-code-hint">
-                      Code BreedOps attribué automatiquement
-                    </p>
-                    <label>
-                      Croisement
-                      <select
-                        name="cross_id"
-                        required
-                        disabled={!allCrosses.length}
-                      >
-                        <option value="">Choisir un croisement</option>
-                        {allCrosses.map((cross) => (
-                          <option key={cross.id} value={cross.id}>
-                            {cross.cross_code}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Génération
-                      <input
-                        name="generation"
-                        type="number"
-                        min="0"
-                        disabled={!allCrosses.length}
-                      />
-                    </label>
-                    <label>
-                      Notes
-                      <textarea
-                        name="notes"
-                        maxLength={1000}
-                        rows={2}
-                        disabled={!allCrosses.length}
-                      />
-                    </label>
-                    {!allCrosses.length && (
-                      <p className="form-hint blocked">
-                        Disponible après création d’un croisement actif.
-                      </p>
-                    )}
-                  </ActionForm>
-                </FormDrawer>
-              }
-            >
-              {!allCrosses.length && (
-                <Prerequisite
-                  title="Aucun croisement disponible"
-                  message="Créez d’abord un croisement pour enregistrer une famille."
-                  href="#crosses"
-                  label="Créer un croisement"
-                />
-              )}
-              <Card>
-                {familyRows.length ? (
-                  <DataTable label="Familles">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>Croisement</th>
-                          <th>♀ × ♂</th>
-                          <th className="num">Gén.</th>
-                          <th className="num">Lots</th>
-                          <th>État</th>
-                          <th>
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {familyRows.map((family) => {
-                          const cross = allCrossRecords.find(
-                            (item) => item.id === family.cross_id,
-                          );
-                          return (
+                      </fieldset>
+                    </ActionForm>
+                  </FormDrawer>
+                }
+              >
+                <Card>
+                  {parentRows.length ? (
+                    <DataTable label="Lignées parentales">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Code</th>
+                            <th>Nom · accession</th>
+                            <th className="num">Gén.</th>
+                            <th>Source</th>
+                            <th className="num">Croisements</th>
+                            <th>État</th>
+                            <th>
+                              <span className="sr-only">Actions</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parentRows.map((parent) => (
                             <EntityTableRow
-                              key={family.id}
-                              entity={detailFor("family", family.id)}
+                              key={parent.id}
+                              entity={detailFor("parent", parent.id)}
                             >
                               <td>
                                 <strong className="code">
-                                  {family.family_code}
+                                  {parent.parent_code}
                                 </strong>
                               </td>
-                              <td className="code">
-                                {crossName(family.cross_id)}
-                              </td>
-                              <td className="code">
-                                {cross
-                                  ? `${parentName(cross.female_parent_id)} × ${parentName(cross.male_parent_id)}`
-                                  : "—"}
+                              <td>
+                                {parent.line_name}
+                                {parent.accession && (
+                                  <span className="secondary-line">
+                                    {parent.accession}
+                                  </span>
+                                )}
                               </td>
                               <td className="num">
-                                {family.generation ?? "—"}
+                                {parent.generation ?? "—"}
                               </td>
+                              <td>{parent.source || parent.origin || "—"}</td>
                               <td className="num">
                                 {
-                                  allLotRecords.filter(
-                                    (lot) => lot.family_id === family.id,
+                                  allCrossRecords.filter(
+                                    (cross) =>
+                                      cross.female_parent_id === parent.id ||
+                                      cross.male_parent_id === parent.id,
                                   ).length
                                 }
                               </td>
                               <td>
                                 <LifecycleBadge
-                                  archived={Boolean(family.deleted_at)}
-                                  status={family.status}
+                                  archived={Boolean(parent.deleted_at)}
+                                  status={parent.status}
                                 />
                               </td>
                             </EntityTableRow>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </DataTable>
-                ) : (
-                  <EmptyState
-                    title="Aucune famille"
-                    message={
-                      noMatch ??
-                      "Les familles créées depuis un croisement apparaîtront ici."
-                    }
-                  />
-                )}
-              </Card>
-            </WorkflowSection>
+                          ))}
+                        </tbody>
+                      </table>
+                    </DataTable>
+                  ) : (
+                    <EmptyState
+                      title={
+                        noMatch ? "Aucune lignée" : "Aucun parent disponible"
+                      }
+                      message={
+                        noMatch ??
+                        "Ajoutez au moins deux lignées parentales avant de créer un croisement."
+                      }
+                    />
+                  )}
+                </Card>
+              </WorkflowSection>
 
-            <WorkflowSection
-              id="lots"
-              icon="lot"
-              step="4"
-              title="Lots de graines"
-              description="Le lot relie le matériel récolté à sa famille et à son croisement."
-              count={counter(allLotRecords, lotRows.length)}
-              actions={
-                <FormDrawer
-                  label="Nouveau lot"
-                  title="Nouveau lot de graines"
-                  description="Le lot relie la récolte à sa famille et à son croisement."
-                  disabled={!families.length}
-                  disabledReason="Une famille active nécessaire"
-                >
-                  <ActionForm
-                    action={createSeedLot}
-                    actionName="seed-lot"
-                    className="card form"
-                    disabled={!families.length}
-                    submitLabel="Créer le lot"
+              <WorkflowSection
+                id="crosses"
+                icon="cross"
+                step="2"
+                title="Croisements"
+                description="Associez deux parents. Le croisement devient disponible pour créer une famille."
+                count={counter(allCrossRecords, crossRows.length)}
+                actions={
+                  <FormDrawer
+                    label="Nouveau croisement"
+                    title="Nouveau croisement"
+                    description="Associez deux lignées parentales actives."
+                    disabled={parents.length < 2}
+                    disabledReason="Deux lignées actives nécessaires"
                   >
-                    <h3>Nouveau lot</h3>
-                    <input type="hidden" name="program_id" value={programId} />
-                    <p className="generated-code-hint">
-                      Code BreedOps attribué automatiquement
-                    </p>
-                    <label>
-                      Croisement
-                      <select
-                        name="cross_id"
-                        required
-                        disabled={!families.length}
-                      >
-                        <option value="">Choisir</option>
-                        {allCrosses.map((cross) => (
-                          <option key={cross.id} value={cross.id}>
-                            {cross.cross_code}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Famille
-                      <select
-                        name="family_id"
-                        required
-                        disabled={!families.length}
-                      >
-                        <option value="">Choisir</option>
-                        {families.map((family) => (
-                          <option key={family.id} value={family.id}>
-                            {family.family_code} · {crossName(family.cross_id)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="fields-2">
+                    <ActionForm
+                      action={createCross}
+                      actionName="cross"
+                      className="card form"
+                      disabled={parents.length < 2}
+                      submitLabel="Créer le croisement"
+                    >
+                      <h3>Nouveau croisement</h3>
+                      <input
+                        type="hidden"
+                        name="program_id"
+                        value={programId}
+                      />
+                      <p className="generated-code-hint">
+                        Code BreedOps attribué automatiquement
+                      </p>
+                      <ParentSelect
+                        name="female_parent_id"
+                        label="Parent femelle"
+                        parents={parents}
+                        disabled={parents.length < 2}
+                      />
+                      <ParentSelect
+                        name="male_parent_id"
+                        label="Parent mâle"
+                        parents={parents}
+                        disabled={parents.length < 2}
+                      />
                       <label>
-                        Date de récolte
+                        Date de pollinisation
                         <input
-                          name="harvest_date"
+                          name="pollination_date"
                           type="date"
                           required
-                          disabled={!families.length}
+                          disabled={parents.length < 2}
                         />
                       </label>
+                      <fieldset className="form-section">
+                        <legend>Quantités</legend>
+                        <div className="fields-3">
+                          <label>
+                            Pollinisées
+                            <input
+                              name="pollinated_units"
+                              type="number"
+                              min="0"
+                            />
+                          </label>
+                          <label>
+                            Établies
+                            <input
+                              name="established_units"
+                              type="number"
+                              min="0"
+                            />
+                          </label>
+                          <label>
+                            Graines
+                            <input name="total_seeds" type="number" min="0" />
+                          </label>
+                        </div>
+                        <p className="form-hint">
+                          Le rendement (graines par unité pollinisée) est
+                          calculé par PostgreSQL.
+                        </p>
+                      </fieldset>
                       <label>
-                        Quantité en graines
-                        <input
-                          name="total_quantity"
-                          type="number"
-                          min="0"
-                          step="1"
-                          required
-                          disabled={!families.length}
-                        />
+                        Notes
+                        <textarea name="notes" maxLength={1000} rows={2} />
                       </label>
-                    </div>
-                    <label>
-                      Emplacement de stockage
-                      <input
-                        name="storage_location"
-                        maxLength={160}
-                        disabled={!families.length}
-                      />
-                    </label>
-                    <label>
-                      Notes
-                      <textarea
-                        name="notes"
-                        maxLength={1000}
-                        rows={2}
-                        disabled={!families.length}
-                      />
-                    </label>
-                    {!families.length && (
-                      <p className="form-hint blocked">
-                        Disponible après création d’une famille active.
-                      </p>
-                    )}
-                  </ActionForm>
-                </FormDrawer>
-              }
-            >
-              {!families.length && (
-                <Prerequisite
-                  title="Aucune famille disponible"
-                  message="Un lot doit appartenir à une famille. Créez d’abord la famille issue du croisement."
-                  href="#families"
-                  label="Créer une famille"
-                />
-              )}
-              <Card>
-                {lotRows.length ? (
-                  <DataTable label="Lots de graines">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>Famille</th>
-                          <th>Croisement</th>
-                          <th>Récolte</th>
-                          <th className="num">Quantité</th>
-                          <th className="num">Germination</th>
-                          <th>Stockage</th>
-                          <th>État</th>
-                          <th>
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lotRows.map((lot) => {
-                          const test = latestTest(lot.id);
-                          return (
+                      {parents.length < 2 && (
+                        <p className="form-hint blocked">
+                          Disponible après création de deux parents actifs.
+                        </p>
+                      )}
+                    </ActionForm>
+                  </FormDrawer>
+                }
+              >
+                {parents.length < 2 && (
+                  <Prerequisite
+                    title="Croisement indisponible"
+                    message={`${parents.length === 0 ? "Aucun parent disponible" : "Une seule lignée est disponible"}. Ajoutez au moins deux lignées distinctes.`}
+                    href="#parents"
+                    label="Ajouter une lignée parentale"
+                  />
+                )}
+                <Card>
+                  {crossRows.length ? (
+                    <DataTable label="Croisements">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Code</th>
+                            <th>♀ × ♂</th>
+                            <th>Pollinisation</th>
+                            <th className="num">Graines</th>
+                            <th className="num">Rendement</th>
+                            <th>État</th>
+                            <th>
+                              <span className="sr-only">Actions</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {crossRows.map((cross) => (
                             <EntityTableRow
-                              key={lot.id}
-                              entity={detailFor("lot", lot.id)}
+                              key={cross.id}
+                              entity={detailFor("cross", cross.id)}
                             >
                               <td>
                                 <strong className="code">
-                                  {lot.seed_lot_code}
+                                  {cross.cross_code}
                                 </strong>
                               </td>
                               <td className="code">
-                                {familyName(lot.family_id)}
-                              </td>
-                              <td className="code">
-                                {crossName(lot.cross_id)}
+                                {parentName(cross.female_parent_id)} ×{" "}
+                                {parentName(cross.male_parent_id)}
                               </td>
                               <td className="num">
-                                {formatDay(lot.harvest_date)}
+                                {formatDay(cross.pollination_date)}
                               </td>
                               <td className="num">
-                                {lot.total_quantity == null
-                                  ? "—"
-                                  : `${lot.total_quantity} ${unitLabel(lot.quantity_unit)}`}
+                                {cross.total_seeds ?? "—"}
                               </td>
                               <td className="num">
-                                {test
-                                  ? `${Number(test.germination_rate).toFixed(1)} %`
-                                  : "—"}
+                                {yieldOf(cross.id) ?? "—"}
                               </td>
-                              <td>{lot.storage_location || "—"}</td>
                               <td>
-                                <SeedLotStatusBadge
-                                  archived={Boolean(lot.deleted_at)}
-                                  status={lot.status}
+                                <LifecycleBadge
+                                  archived={Boolean(cross.deleted_at)}
+                                  status={cross.status}
                                 />
                               </td>
                             </EntityTableRow>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </DataTable>
-                ) : (
-                  <EmptyState
-                    title="Aucun lot"
-                    message={
-                      noMatch ??
-                      "Les lots créés depuis une famille apparaîtront ici."
-                    }
-                  />
-                )}
-              </Card>
-            </WorkflowSection>
+                          ))}
+                        </tbody>
+                      </table>
+                    </DataTable>
+                  ) : (
+                    <EmptyState
+                      title="Aucun croisement"
+                      message={
+                        noMatch ??
+                        "Créez un croisement à partir de deux lignées parentales."
+                      }
+                    />
+                  )}
+                </Card>
+              </WorkflowSection>
 
-            <WorkflowSection
-              id="germination"
-              icon="seed"
-              step="5"
-              title="Germination"
-              description="Le taux est calculé et conservé par PostgreSQL."
-              count={`${tests.length} test${tests.length > 1 ? "s" : ""}`}
-              actions={
-                <FormDrawer
-                  label="Nouveau test"
-                  title="Nouveau test de germination"
-                  description="PostgreSQL calcule le taux de germination."
-                  disabled={!lots.length}
-                  disabledReason="Un lot actif nécessaire"
-                >
-                  <ActionForm
-                    action={createGerminationTest}
-                    actionName="germination"
-                    className="card form"
-                    disabled={!lots.length}
-                    submitLabel="Enregistrer le test"
+              <WorkflowSection
+                id="families"
+                icon="family"
+                step="3"
+                title="Familles"
+                description="Une famille conserve le lien avec son croisement d’origine."
+                count={counter(allFamilyRecords, familyRows.length)}
+                actions={
+                  <FormDrawer
+                    label="Nouvelle famille"
+                    title="Nouvelle famille"
+                    description="Une famille conserve le lien avec son croisement."
+                    disabled={!allCrosses.length}
+                    disabledReason="Un croisement actif nécessaire"
                   >
-                    <h3>Nouveau test</h3>
-                    <label>
-                      Lot
-                      <select
-                        name="seed_lot_id"
-                        required
-                        disabled={!lots.length}
-                      >
-                        <option value="">Choisir</option>
-                        {lots.map((lot) => (
-                          <option key={lot.id} value={lot.id}>
-                            {lot.seed_lot_code}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="fields-2">
-                      <label>
-                        Date
-                        <input
-                          name="test_date"
-                          type="date"
-                          required
-                          disabled={!lots.length}
-                        />
-                      </label>
-                      <label>
-                        Jour d’évaluation
-                        <input
-                          name="evaluation_day"
-                          type="number"
-                          min="0"
-                          required
-                          disabled={!lots.length}
-                        />
-                      </label>
-                      <label>
-                        Graines testées
-                        <input
-                          name="seeds_tested"
-                          type="number"
-                          min="1"
-                          required
-                          disabled={!lots.length}
-                        />
-                      </label>
-                      <label>
-                        Graines germées
-                        <input
-                          name="seeds_germinated"
-                          type="number"
-                          min="0"
-                          required
-                          disabled={!lots.length}
-                        />
-                      </label>
-                    </div>
-                    <label>
-                      Méthode
+                    <ActionForm
+                      action={createFamily}
+                      actionName="family"
+                      className="card form"
+                      disabled={!allCrosses.length}
+                      submitLabel="Créer la famille"
+                    >
+                      <h3>Nouvelle famille</h3>
                       <input
-                        name="method"
-                        required
-                        maxLength={160}
-                        disabled={!lots.length}
+                        type="hidden"
+                        name="program_id"
+                        value={programId}
                       />
-                    </label>
-                    {!lots.length && (
-                      <p className="form-hint blocked">
-                        Disponible après création d’un lot actif.
+                      <p className="generated-code-hint">
+                        Code BreedOps attribué automatiquement
                       </p>
-                    )}
-                  </ActionForm>
-                </FormDrawer>
-              }
-            >
-              {!lots.length && (
-                <Prerequisite
-                  title="Aucun lot disponible"
-                  message="Créez un lot de graines avant d’enregistrer un test."
-                  href="#lots"
-                  label="Créer un lot"
-                />
-              )}
-              <Card>
-                {tests.length ? (
-                  <DataTable label="Tests de germination">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Lot</th>
-                          <th>Date</th>
-                          <th className="num">Taux</th>
-                          <th className="num">Germées / testées</th>
-                          <th>Méthode</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tests.map((test) => (
-                          <tr key={test.id}>
-                            <td className="code">
-                              {lotName(test.seed_lot_id)}
-                            </td>
-                            <td className="num">{formatDay(test.test_date)}</td>
-                            <td className="num">
-                              <strong>
-                                {Number(test.germination_rate).toFixed(2)} %
-                              </strong>
-                            </td>
-                            <td className="num">
-                              {test.seeds_germinated}/{test.seeds_tested} · J
-                              {test.evaluation_day}
-                            </td>
-                            <td>{test.method}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </DataTable>
-                ) : (
-                  <EmptyState
-                    title="Aucun test"
-                    message="Les résultats de germination apparaîtront ici."
+                      <label>
+                        Croisement
+                        <select
+                          name="cross_id"
+                          required
+                          disabled={!allCrosses.length}
+                        >
+                          <option value="">Choisir un croisement</option>
+                          {allCrosses.map((cross) => (
+                            <option key={cross.id} value={cross.id}>
+                              {cross.cross_code}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Génération
+                        <input
+                          name="generation"
+                          type="number"
+                          min="0"
+                          disabled={!allCrosses.length}
+                        />
+                      </label>
+                      <label>
+                        Notes
+                        <textarea
+                          name="notes"
+                          maxLength={1000}
+                          rows={2}
+                          disabled={!allCrosses.length}
+                        />
+                      </label>
+                      {!allCrosses.length && (
+                        <p className="form-hint blocked">
+                          Disponible après création d’un croisement actif.
+                        </p>
+                      )}
+                    </ActionForm>
+                  </FormDrawer>
+                }
+              >
+                {!allCrosses.length && (
+                  <Prerequisite
+                    title="Aucun croisement disponible"
+                    message="Créez d’abord un croisement pour enregistrer une famille."
+                    href="#crosses"
+                    label="Créer un croisement"
                   />
                 )}
-              </Card>
-            </WorkflowSection>
-          </>
-        )}
-      </div>
+                <Card>
+                  {familyRows.length ? (
+                    <DataTable label="Familles">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Code</th>
+                            <th>Croisement</th>
+                            <th>♀ × ♂</th>
+                            <th className="num">Gén.</th>
+                            <th className="num">Lots</th>
+                            <th>État</th>
+                            <th>
+                              <span className="sr-only">Actions</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {familyRows.map((family) => {
+                            const cross = allCrossRecords.find(
+                              (item) => item.id === family.cross_id,
+                            );
+                            return (
+                              <EntityTableRow
+                                key={family.id}
+                                entity={detailFor("family", family.id)}
+                              >
+                                <td>
+                                  <strong className="code">
+                                    {family.family_code}
+                                  </strong>
+                                </td>
+                                <td className="code">
+                                  {crossName(family.cross_id)}
+                                </td>
+                                <td className="code">
+                                  {cross
+                                    ? `${parentName(cross.female_parent_id)} × ${parentName(cross.male_parent_id)}`
+                                    : "—"}
+                                </td>
+                                <td className="num">
+                                  {family.generation ?? "—"}
+                                </td>
+                                <td className="num">
+                                  {
+                                    allLotRecords.filter(
+                                      (lot) => lot.family_id === family.id,
+                                    ).length
+                                  }
+                                </td>
+                                <td>
+                                  <LifecycleBadge
+                                    archived={Boolean(family.deleted_at)}
+                                    status={family.status}
+                                  />
+                                </td>
+                              </EntityTableRow>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </DataTable>
+                  ) : (
+                    <EmptyState
+                      title="Aucune famille"
+                      message={
+                        noMatch ??
+                        "Les familles créées depuis un croisement apparaîtront ici."
+                      }
+                    />
+                  )}
+                </Card>
+              </WorkflowSection>
+
+              <WorkflowSection
+                id="lots"
+                icon="lot"
+                step="4"
+                title="Lots de graines"
+                description="Le lot relie le matériel récolté à sa famille et à son croisement."
+                count={counter(allLotRecords, lotRows.length)}
+                actions={
+                  <FormDrawer
+                    label="Nouveau lot"
+                    title="Nouveau lot de graines"
+                    description="Le lot relie la récolte à sa famille et à son croisement."
+                    disabled={!families.length}
+                    disabledReason="Une famille active nécessaire"
+                  >
+                    <ActionForm
+                      action={createSeedLot}
+                      actionName="seed-lot"
+                      className="card form"
+                      disabled={!families.length}
+                      submitLabel="Créer le lot"
+                    >
+                      <h3>Nouveau lot</h3>
+                      <input
+                        type="hidden"
+                        name="program_id"
+                        value={programId}
+                      />
+                      <p className="generated-code-hint">
+                        Code BreedOps attribué automatiquement
+                      </p>
+                      <label>
+                        Croisement
+                        <select
+                          name="cross_id"
+                          required
+                          disabled={!families.length}
+                        >
+                          <option value="">Choisir</option>
+                          {allCrosses.map((cross) => (
+                            <option key={cross.id} value={cross.id}>
+                              {cross.cross_code}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Famille
+                        <select
+                          name="family_id"
+                          required
+                          disabled={!families.length}
+                        >
+                          <option value="">Choisir</option>
+                          {families.map((family) => (
+                            <option key={family.id} value={family.id}>
+                              {family.family_code} ·{" "}
+                              {crossName(family.cross_id)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="fields-2">
+                        <label>
+                          Date de récolte
+                          <input
+                            name="harvest_date"
+                            type="date"
+                            required
+                            disabled={!families.length}
+                          />
+                        </label>
+                        <label>
+                          Quantité en graines
+                          <input
+                            name="total_quantity"
+                            type="number"
+                            min="0"
+                            step="1"
+                            required
+                            disabled={!families.length}
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        Emplacement de stockage
+                        <input
+                          name="storage_location"
+                          maxLength={160}
+                          disabled={!families.length}
+                        />
+                      </label>
+                      <label>
+                        Notes
+                        <textarea
+                          name="notes"
+                          maxLength={1000}
+                          rows={2}
+                          disabled={!families.length}
+                        />
+                      </label>
+                      {!families.length && (
+                        <p className="form-hint blocked">
+                          Disponible après création d’une famille active.
+                        </p>
+                      )}
+                    </ActionForm>
+                  </FormDrawer>
+                }
+              >
+                {!families.length && (
+                  <Prerequisite
+                    title="Aucune famille disponible"
+                    message="Un lot doit appartenir à une famille. Créez d’abord la famille issue du croisement."
+                    href="#families"
+                    label="Créer une famille"
+                  />
+                )}
+                <Card>
+                  {lotRows.length ? (
+                    <DataTable label="Lots de graines">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>
+                              <span className="sr-only">Étiquette</span>
+                            </th>
+                            <th>Code</th>
+                            <th>Famille</th>
+                            <th>Croisement</th>
+                            <th>Récolte</th>
+                            <th className="num">Quantité</th>
+                            <th className="num">Germination</th>
+                            <th>Stockage</th>
+                            <th>État</th>
+                            <th>
+                              <span className="sr-only">Actions</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lotRows.map((lot) => {
+                            const test = latestTest(lot.id);
+                            return (
+                              <EntityTableRow
+                                key={lot.id}
+                                entity={detailFor("lot", lot.id)}
+                              >
+                                <td data-row-control>
+                                  <LabelSelectionCheckbox
+                                    type="seed_lot"
+                                    id={lot.id}
+                                    label={lot.seed_lot_code}
+                                  />
+                                </td>
+                                <td>
+                                  <strong className="code">
+                                    {lot.seed_lot_code}
+                                  </strong>
+                                </td>
+                                <td className="code">
+                                  {familyName(lot.family_id)}
+                                </td>
+                                <td className="code">
+                                  {crossName(lot.cross_id)}
+                                </td>
+                                <td className="num">
+                                  {formatDay(lot.harvest_date)}
+                                </td>
+                                <td className="num">
+                                  {lot.total_quantity == null
+                                    ? "—"
+                                    : `${lot.total_quantity} ${unitLabel(lot.quantity_unit)}`}
+                                </td>
+                                <td className="num">
+                                  {test
+                                    ? `${Number(test.germination_rate).toFixed(1)} %`
+                                    : "—"}
+                                </td>
+                                <td>{lot.storage_location || "—"}</td>
+                                <td>
+                                  <SeedLotStatusBadge
+                                    archived={Boolean(lot.deleted_at)}
+                                    status={lot.status}
+                                  />
+                                </td>
+                              </EntityTableRow>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </DataTable>
+                  ) : (
+                    <EmptyState
+                      title="Aucun lot"
+                      message={
+                        noMatch ??
+                        "Les lots créés depuis une famille apparaîtront ici."
+                      }
+                    />
+                  )}
+                </Card>
+              </WorkflowSection>
+
+              <WorkflowSection
+                id="germination"
+                icon="seed"
+                step="5"
+                title="Germination"
+                description="Le taux est calculé et conservé par PostgreSQL."
+                count={`${tests.length} test${tests.length > 1 ? "s" : ""}`}
+                actions={
+                  <FormDrawer
+                    label="Nouveau test"
+                    title="Nouveau test de germination"
+                    description="PostgreSQL calcule le taux de germination."
+                    disabled={!lots.length}
+                    disabledReason="Un lot actif nécessaire"
+                  >
+                    <ActionForm
+                      action={createGerminationTest}
+                      actionName="germination"
+                      className="card form"
+                      disabled={!lots.length}
+                      submitLabel="Enregistrer le test"
+                    >
+                      <h3>Nouveau test</h3>
+                      <label>
+                        Lot
+                        <select
+                          name="seed_lot_id"
+                          required
+                          disabled={!lots.length}
+                        >
+                          <option value="">Choisir</option>
+                          {lots.map((lot) => (
+                            <option key={lot.id} value={lot.id}>
+                              {lot.seed_lot_code}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="fields-2">
+                        <label>
+                          Date
+                          <input
+                            name="test_date"
+                            type="date"
+                            required
+                            disabled={!lots.length}
+                          />
+                        </label>
+                        <label>
+                          Jour d’évaluation
+                          <input
+                            name="evaluation_day"
+                            type="number"
+                            min="0"
+                            required
+                            disabled={!lots.length}
+                          />
+                        </label>
+                        <label>
+                          Graines testées
+                          <input
+                            name="seeds_tested"
+                            type="number"
+                            min="1"
+                            required
+                            disabled={!lots.length}
+                          />
+                        </label>
+                        <label>
+                          Graines germées
+                          <input
+                            name="seeds_germinated"
+                            type="number"
+                            min="0"
+                            required
+                            disabled={!lots.length}
+                          />
+                        </label>
+                      </div>
+                      <label>
+                        Méthode
+                        <input
+                          name="method"
+                          required
+                          maxLength={160}
+                          disabled={!lots.length}
+                        />
+                      </label>
+                      {!lots.length && (
+                        <p className="form-hint blocked">
+                          Disponible après création d’un lot actif.
+                        </p>
+                      )}
+                    </ActionForm>
+                  </FormDrawer>
+                }
+              >
+                {!lots.length && (
+                  <Prerequisite
+                    title="Aucun lot disponible"
+                    message="Créez un lot de graines avant d’enregistrer un test."
+                    href="#lots"
+                    label="Créer un lot"
+                  />
+                )}
+                <Card>
+                  {tests.length ? (
+                    <DataTable label="Tests de germination">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Lot</th>
+                            <th>Date</th>
+                            <th className="num">Taux</th>
+                            <th className="num">Germées / testées</th>
+                            <th>Méthode</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tests.map((test) => (
+                            <tr key={test.id}>
+                              <td className="code">
+                                {lotName(test.seed_lot_id)}
+                              </td>
+                              <td className="num">
+                                {formatDay(test.test_date)}
+                              </td>
+                              <td className="num">
+                                <strong>
+                                  {Number(test.germination_rate).toFixed(2)} %
+                                </strong>
+                              </td>
+                              <td className="num">
+                                {test.seeds_germinated}/{test.seeds_tested} · J
+                                {test.evaluation_day}
+                              </td>
+                              <td>{test.method}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </DataTable>
+                  ) : (
+                    <EmptyState
+                      title="Aucun test"
+                      message="Les résultats de germination apparaîtront ici."
+                    />
+                  )}
+                </Card>
+              </WorkflowSection>
+            </>
+          )}
+        </div>
+      </LabelSelectionProvider>
     </EntityInspectorWorkspace>
   );
 }

@@ -38,8 +38,16 @@ export async function middleware(request: NextRequest) {
   if (path.startsWith("/app") && (!auth.user || !hasActiveProfile)) {
     if (auth.user) await client.auth.signOut();
     const target = request.nextUrl.clone();
+    const next = path + request.nextUrl.search;
     target.pathname = "/login";
-    target.search = auth.user ? "?error=membership" : "?error=expired";
+    const params = new URLSearchParams();
+    params.set("error", auth.user ? "membership" : "expired");
+    // Lets a QR scan made while logged out land back on the originally
+    // requested /app/... page (e.g. /app/lookup?type=...&id=...) once
+    // authenticated - the login route re-validates this strictly
+    // (src/lib/safe-next-path.ts) before ever redirecting to it.
+    params.set("next", next);
+    target.search = `?${params.toString()}`;
     return NextResponse.redirect(target);
   }
   if (path === "/login" && auth.user && hasActiveProfile) {

@@ -49,6 +49,14 @@ import {
   setEquipmentArchived,
   updateEquipmentStatus,
 } from "./actions";
+import {
+  LabelPrintBar,
+  LabelSelectionCheckbox,
+  LabelSelectionProvider,
+} from "@/components/label-selection";
+import { QrRowAction } from "@/components/qr-row-action";
+import { buildLookupUrl } from "@/lib/qr/payload";
+import { renderQrSvg } from "@/lib/qr/svg";
 
 export default async function Inventory({
   searchParams,
@@ -208,641 +216,723 @@ export default async function Inventory({
   const lowCoverageCount = (coverage ?? []).filter(
     (item) => item.low_coverage,
   ).length;
+  const appOrigin = process.env.APP_ORIGIN || "http://localhost:3107";
+  const lotQrSvgs = new Map(
+    await Promise.all(
+      (displayLots ?? []).map(
+        async (lot) =>
+          [
+            lot.id,
+            await renderQrSvg(
+              buildLookupUrl(appOrigin, "inventory_lot", lot.id),
+            ),
+          ] as const,
+      ),
+    ),
+  );
+  const equipmentQrSvgs = new Map(
+    await Promise.all(
+      (displayEquipment ?? []).map(
+        async (item) =>
+          [
+            item.id,
+            await renderQrSvg(buildLookupUrl(appOrigin, "equipment", item.id)),
+          ] as const,
+      ),
+    ),
+  );
   return (
-    <div className="page">
-      <Breadcrumbs
-        items={[{ label: "Accueil", href: "/app" }, { label: "Inventaire" }]}
-      />
-      <PageHeader
-        eyebrow={`Laboratoire · ${team.name}`}
-        title="Inventaire et mouvements"
-        description="Articles, lots, stocks et mouvements dans un registre transactionnel. Les quantités sont recalculées par PostgreSQL."
-        actions={
-          <>
-            <Link
-              className="button-link secondary"
-              href="/app/import-export/export?entity=inventory_lots&format=csv"
-              title="Exporter l’inventaire (lots de réactifs — CSV)"
-            >
-              Exporter l’inventaire
-            </Link>
-            <FormDrawer
-              label="Nouvel article"
-              title="Nouvel article"
-              description="Article de laboratoire suivi en stock."
-              icon="add"
-            >
-              <ActionForm
-                action={createInventoryItem}
-                className="form"
-                actionName="inventory-item"
-                submitLabel="Créer l’article"
+    <LabelSelectionProvider>
+      <div className="page">
+        <Breadcrumbs
+          items={[{ label: "Accueil", href: "/app" }, { label: "Inventaire" }]}
+        />
+        <LabelPrintBar />
+        <PageHeader
+          eyebrow={`Laboratoire · ${team.name}`}
+          title="Inventaire et mouvements"
+          description="Articles, lots, stocks et mouvements dans un registre transactionnel. Les quantités sont recalculées par PostgreSQL."
+          actions={
+            <>
+              <Link
+                className="button-link secondary"
+                href="/app/import-export/export?entity=inventory_lots&format=csv"
+                title="Exporter l’inventaire (lots de réactifs — CSV)"
               >
-                <h3>Nouvel article</h3>
-                <input type="hidden" name="organization_id" value={team.id} />
-                <label>
-                  Nom
-                  <input name="name" required maxLength={160} />
-                </label>
-                <div className="fields-3">
+                Exporter l’inventaire
+              </Link>
+              <FormDrawer
+                label="Nouvel article"
+                title="Nouvel article"
+                description="Article de laboratoire suivi en stock."
+                icon="add"
+              >
+                <ActionForm
+                  action={createInventoryItem}
+                  className="form"
+                  actionName="inventory-item"
+                  submitLabel="Créer l’article"
+                >
+                  <h3>Nouvel article</h3>
+                  <input type="hidden" name="organization_id" value={team.id} />
                   <label>
-                    Catégorie
-                    <input name="category" required maxLength={80} />
+                    Nom
+                    <input name="name" required maxLength={160} />
                   </label>
-                  <label>
-                    Unité
-                    <input
-                      name="default_unit"
-                      required
-                      maxLength={30}
-                      defaultValue="units"
-                    />
-                  </label>
-                  <label>
-                    Stock minimal
-                    <input
-                      name="minimum_stock"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      required
-                    />
-                  </label>
-                </div>
-                <fieldset className="form-section">
-                  <legend>Références</legend>
-                  <div className="fields-2">
+                  <div className="fields-3">
                     <label>
-                      CAS
-                      <input name="cas_number" maxLength={80} />
+                      Catégorie
+                      <input name="category" required maxLength={80} />
                     </label>
                     <label>
-                      Référence fournisseur
-                      <input name="supplier_reference" maxLength={120} />
+                      Unité
+                      <input
+                        name="default_unit"
+                        required
+                        maxLength={30}
+                        defaultValue="units"
+                      />
+                    </label>
+                    <label>
+                      Stock minimal
+                      <input
+                        name="minimum_stock"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <fieldset className="form-section">
+                    <legend>Références</legend>
+                    <div className="fields-2">
+                      <label>
+                        CAS
+                        <input name="cas_number" maxLength={80} />
+                      </label>
+                      <label>
+                        Référence fournisseur
+                        <input name="supplier_reference" maxLength={120} />
+                      </label>
+                    </div>
+                    <label>
+                      Stockage
+                      <input name="storage_requirements" maxLength={300} />
+                    </label>
+                  </fieldset>
+                </ActionForm>
+              </FormDrawer>
+              <FormDrawer
+                label="Nouveau lot"
+                title="Nouveau lot et réception"
+                description="La réception crée le premier mouvement du lot."
+                icon="lot"
+                variant="secondary"
+                disabled={!items?.length}
+                disabledReason="Créez d’abord un article"
+              >
+                <ActionForm
+                  action={createInventoryLot}
+                  className="form"
+                  actionName="inventory-lot"
+                  submitLabel="Créer et réceptionner"
+                  disabled={!items?.length}
+                >
+                  <h3>Nouveau lot et réception</h3>
+                  <label>
+                    Article
+                    <select name="inventory_item_id" required>
+                      <option value="">Choisir</option>
+                      {items?.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="fields-3">
+                    <label>
+                      Lot
+                      <input name="batch_number" required maxLength={120} />
+                    </label>
+                    <label>
+                      Réception
+                      <input name="received_at" type="date" required />
+                    </label>
+                    <label>
+                      Péremption
+                      <input name="expiration_date" type="date" />
+                    </label>
+                  </div>
+                  <div className="fields-2">
+                    <label>
+                      Quantité reçue
+                      <input
+                        name="quantity"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
+                      />
+                    </label>
+                    <label>
+                      Emplacement
+                      <input name="storage_location" maxLength={160} />
+                    </label>
+                  </div>
+                  {!items?.length && (
+                    <p className="form-hint blocked">
+                      Créez d’abord un article.
+                    </p>
+                  )}
+                </ActionForm>
+              </FormDrawer>
+              <FormDrawer
+                label="Mouvement"
+                title="Mouvement traçable"
+                description="Consommation, retour, ajustement ou destruction."
+                icon="history"
+                variant="secondary"
+                disabled={!lots?.length}
+                disabledReason="Réceptionnez d’abord un lot"
+              >
+                <ActionForm
+                  action={recordInventoryMovement}
+                  className="form"
+                  actionName="inventory-movement"
+                  submitLabel="Enregistrer le mouvement"
+                  disabled={!lots?.length}
+                >
+                  <h3>Mouvement traçable</h3>
+                  <label>
+                    Lot
+                    <select name="inventory_lot_id" required>
+                      <option value="">Choisir</option>
+                      {lots?.map((lot) => (
+                        <option key={lot.id} value={lot.id}>
+                          {itemName(lot.inventory_item_id)} · {lot.batch_number}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="fields-2">
+                    <label>
+                      Type
+                      <select name="movement_type" required>
+                        <option value="consumption">Consommation</option>
+                        <option value="receipt">
+                          Réception complémentaire
+                        </option>
+                        <option value="return">Retour</option>
+                        <option value="positive_adjustment">
+                          Ajustement positif
+                        </option>
+                        <option value="negative_adjustment">
+                          Ajustement négatif
+                        </option>
+                        <option value="destruction">Destruction</option>
+                      </select>
+                    </label>
+                    <label>
+                      Quantité
+                      <input
+                        name="quantity"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
+                      />
                     </label>
                   </div>
                   <label>
-                    Stockage
-                    <input name="storage_requirements" maxLength={300} />
+                    Date
+                    <input name="movement_date" type="date" required />
                   </label>
-                </fieldset>
-              </ActionForm>
-            </FormDrawer>
-            <FormDrawer
-              label="Nouveau lot"
-              title="Nouveau lot et réception"
-              description="La réception crée le premier mouvement du lot."
-              icon="lot"
-              variant="secondary"
-              disabled={!items?.length}
-              disabledReason="Créez d’abord un article"
-            >
-              <ActionForm
-                action={createInventoryLot}
-                className="form"
-                actionName="inventory-lot"
-                submitLabel="Créer et réceptionner"
-                disabled={!items?.length}
+                  <label>
+                    Motif (obligatoire pour ajustement)
+                    <input name="reason" maxLength={300} />
+                  </label>
+                  <label>
+                    Notes
+                    <input name="notes" maxLength={500} />
+                  </label>
+                  {!lots?.length && (
+                    <p className="form-hint blocked">
+                      Réceptionnez d’abord un lot.
+                    </p>
+                  )}
+                </ActionForm>
+              </FormDrawer>
+              <FormDrawer
+                label="Nouvel équipement"
+                title="Nouvel équipement"
+                description="Registre opérationnel du laboratoire — sans quantité ni mouvement."
+                icon="add"
+                variant="secondary"
               >
-                <h3>Nouveau lot et réception</h3>
-                <label>
-                  Article
-                  <select name="inventory_item_id" required>
-                    <option value="">Choisir</option>
-                    {items?.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="fields-3">
+                <ActionForm
+                  action={createEquipment}
+                  className="form"
+                  actionName="equipment"
+                  submitLabel="Ajouter l’équipement"
+                >
+                  <h3>Nouvel équipement</h3>
+                  <input type="hidden" name="organization_id" value={team.id} />
                   <label>
-                    Lot
-                    <input name="batch_number" required maxLength={120} />
+                    Nom
+                    <input name="name" required maxLength={160} />
                   </label>
+                  <div className="fields-2">
+                    <label>
+                      Catégorie
+                      <input name="category" required maxLength={80} />
+                    </label>
+                    <label>
+                      Statut
+                      <select
+                        name="operational_status"
+                        defaultValue="operational"
+                      >
+                        <option value="operational">Opérationnel</option>
+                        <option value="maintenance">En maintenance</option>
+                        <option value="out_of_service">Hors service</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="fields-2">
+                    <label>
+                      Fabricant
+                      <input name="manufacturer" maxLength={160} />
+                    </label>
+                    <label>
+                      Modèle
+                      <input name="model" maxLength={160} />
+                    </label>
+                  </div>
+                  <div className="fields-2">
+                    <label>
+                      Numéro de série
+                      <input name="serial_number" maxLength={160} />
+                    </label>
+                    <label>
+                      Emplacement
+                      <input name="location" maxLength={160} />
+                    </label>
+                  </div>
+                  <div className="fields-2">
+                    <label>
+                      Mise en service
+                      <input name="commissioned_at" type="date" />
+                    </label>
+                    <label>
+                      Prochaine maintenance
+                      <input name="next_maintenance_at" type="date" />
+                    </label>
+                  </div>
                   <label>
-                    Réception
-                    <input name="received_at" type="date" required />
+                    Notes
+                    <textarea name="notes" maxLength={1000} rows={2} />
                   </label>
-                  <label>
-                    Péremption
-                    <input name="expiration_date" type="date" />
-                  </label>
-                </div>
-                <div className="fields-2">
-                  <label>
-                    Quantité reçue
-                    <input
-                      name="quantity"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Emplacement
-                    <input name="storage_location" maxLength={160} />
-                  </label>
-                </div>
-                {!items?.length && (
-                  <p className="form-hint blocked">Créez d’abord un article.</p>
-                )}
-              </ActionForm>
-            </FormDrawer>
-            <FormDrawer
-              label="Mouvement"
-              title="Mouvement traçable"
-              description="Consommation, retour, ajustement ou destruction."
-              icon="history"
-              variant="secondary"
-              disabled={!lots?.length}
-              disabledReason="Réceptionnez d’abord un lot"
-            >
-              <ActionForm
-                action={recordInventoryMovement}
-                className="form"
-                actionName="inventory-movement"
-                submitLabel="Enregistrer le mouvement"
-                disabled={!lots?.length}
-              >
-                <h3>Mouvement traçable</h3>
-                <label>
-                  Lot
-                  <select name="inventory_lot_id" required>
-                    <option value="">Choisir</option>
-                    {lots?.map((lot) => (
-                      <option key={lot.id} value={lot.id}>
-                        {itemName(lot.inventory_item_id)} · {lot.batch_number}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="fields-2">
-                  <label>
-                    Type
-                    <select name="movement_type" required>
-                      <option value="consumption">Consommation</option>
-                      <option value="receipt">Réception complémentaire</option>
-                      <option value="return">Retour</option>
-                      <option value="positive_adjustment">
-                        Ajustement positif
-                      </option>
-                      <option value="negative_adjustment">
-                        Ajustement négatif
-                      </option>
-                      <option value="destruction">Destruction</option>
-                    </select>
-                  </label>
-                  <label>
-                    Quantité
-                    <input
-                      name="quantity"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      required
-                    />
-                  </label>
-                </div>
-                <label>
-                  Date
-                  <input name="movement_date" type="date" required />
-                </label>
-                <label>
-                  Motif (obligatoire pour ajustement)
-                  <input name="reason" maxLength={300} />
-                </label>
-                <label>
-                  Notes
-                  <input name="notes" maxLength={500} />
-                </label>
-                {!lots?.length && (
-                  <p className="form-hint blocked">
-                    Réceptionnez d’abord un lot.
-                  </p>
-                )}
-              </ActionForm>
-            </FormDrawer>
-            <FormDrawer
-              label="Nouvel équipement"
-              title="Nouvel équipement"
-              description="Registre opérationnel du laboratoire — sans quantité ni mouvement."
-              icon="add"
-              variant="secondary"
-            >
-              <ActionForm
-                action={createEquipment}
-                className="form"
-                actionName="equipment"
-                submitLabel="Ajouter l’équipement"
-              >
-                <h3>Nouvel équipement</h3>
-                <input type="hidden" name="organization_id" value={team.id} />
-                <label>
-                  Nom
-                  <input name="name" required maxLength={160} />
-                </label>
-                <div className="fields-2">
-                  <label>
-                    Catégorie
-                    <input name="category" required maxLength={80} />
-                  </label>
-                  <label>
-                    Statut
-                    <select
-                      name="operational_status"
-                      defaultValue="operational"
-                    >
-                      <option value="operational">Opérationnel</option>
-                      <option value="maintenance">En maintenance</option>
-                      <option value="out_of_service">Hors service</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="fields-2">
-                  <label>
-                    Fabricant
-                    <input name="manufacturer" maxLength={160} />
-                  </label>
-                  <label>
-                    Modèle
-                    <input name="model" maxLength={160} />
-                  </label>
-                </div>
-                <div className="fields-2">
-                  <label>
-                    Numéro de série
-                    <input name="serial_number" maxLength={160} />
-                  </label>
-                  <label>
-                    Emplacement
-                    <input name="location" maxLength={160} />
-                  </label>
-                </div>
-                <div className="fields-2">
-                  <label>
-                    Mise en service
-                    <input name="commissioned_at" type="date" />
-                  </label>
-                  <label>
-                    Prochaine maintenance
-                    <input name="next_maintenance_at" type="date" />
-                  </label>
-                </div>
-                <label>
-                  Notes
-                  <textarea name="notes" maxLength={1000} rows={2} />
-                </label>
-              </ActionForm>
-            </FormDrawer>
-          </>
-        }
-      />
-      <section className="metrics-grid" aria-label="Synthèse de l’inventaire">
-        <MetricCard label="Articles" value={items.length} />
-        <MetricCard label="Lots actifs" value={lots.length} />
-        <MetricCard
-          label="Alertes"
-          value={alertCount}
-          attention={alertCount > 0}
-        />
-        <MetricCard label="Mouvements affichés" value={movements.length} />
-        <MetricCard label="Équipements" value={equipment.length} />
-        <MetricCard
-          label="Couverture faible"
-          value={lowCoverageCount}
-          attention={lowCoverageCount > 0}
-        />
-      </section>
-
-      <section className="section-block">
-        <SectionHeader
-          title="Lots et alertes"
-          description="Stock courant, péremption et seuil minimal par lot."
-          aside={
-            <form method="get" className="inline-form" role="search">
-              <label className="sr-only" htmlFor="inventory-search">
-                Rechercher un lot
-              </label>
-              <input
-                id="inventory-search"
-                type="search"
-                name="q"
-                defaultValue={query}
-                placeholder="Article, CAS, référence"
-              />
-              <button className="secondary">Rechercher</button>
-            </form>
+                </ActionForm>
+              </FormDrawer>
+            </>
           }
         />
-        <Card className="flush">
-          {displayLots?.length ? (
-            <DataTable label="Lots et alertes">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Article</th>
-                    <th>Lot</th>
-                    <th className="num">Stock</th>
-                    <th>Péremption</th>
-                    <th>Alerte</th>
-                    <th>Emplacement</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayLots.map((lot) => {
-                    const item = items?.find(
-                      (value) => value.id === lot.inventory_item_id,
-                    );
-                    const alert = alertFor(lot.id);
-                    const level = alert?.alert_level
-                      ? alertLabels[alert.alert_level]
-                      : null;
-                    return (
-                      <tr key={lot.id}>
-                        <td>{item?.name}</td>
-                        <td className="code">{lot.batch_number}</td>
-                        <td className="num">
-                          {lot.current_quantity} {item?.default_unit}
-                        </td>
-                        <td className="num">
-                          {formatDay(lot.expiration_date)}
-                          {alert?.days_before_expiration != null && (
-                            <span className="secondary-line">
-                              {alert.days_before_expiration} j
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          {level ? (
-                            <StatusBadge tone={level.tone}>
-                              {level.label}
-                            </StatusBadge>
-                          ) : (
-                            <StatusBadge tone="success">Conforme</StatusBadge>
-                          )}
-                        </td>
-                        <td>{lot.storage_location ?? "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </DataTable>
-          ) : (
-            <EmptyState
-              title="Aucun lot"
-              message={
-                query
-                  ? `Aucun résultat pour « ${query} ».`
-                  : "Créez un article puis réceptionnez son premier lot."
-              }
-            />
-          )}
-        </Card>
-      </section>
+        <section className="metrics-grid" aria-label="Synthèse de l’inventaire">
+          <MetricCard label="Articles" value={items.length} />
+          <MetricCard label="Lots actifs" value={lots.length} />
+          <MetricCard
+            label="Alertes"
+            value={alertCount}
+            attention={alertCount > 0}
+          />
+          <MetricCard label="Mouvements affichés" value={movements.length} />
+          <MetricCard label="Équipements" value={equipment.length} />
+          <MetricCard
+            label="Couverture faible"
+            value={lowCoverageCount}
+            attention={lowCoverageCount > 0}
+          />
+        </section>
 
-      <section>
-        <Card className="flush">
-          <div className="card-heading">
-            <h2>Historique des mouvements</h2>
-          </div>
-          {movements?.length ? (
-            <DataTable label="Historique des mouvements">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Lot</th>
-                    <th>Type</th>
-                    <th className="num">Quantité</th>
-                    <th>Motif</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movements.map((movement) => (
-                    <tr key={movement.id}>
-                      <td className="num">
-                        {formatDay(movement.movement_date)}
-                      </td>
-                      <td className="code">
-                        {lotName(movement.inventory_lot_id)}
-                      </td>
-                      <td>
-                        {movementLabels[movement.movement_type] ??
-                          movement.movement_type}
-                      </td>
-                      <td className="num">
-                        {movement.quantity} {movement.unit}
-                      </td>
-                      <td>{movement.reason ?? "—"}</td>
+        <section className="section-block">
+          <SectionHeader
+            title="Lots et alertes"
+            description="Stock courant, péremption et seuil minimal par lot."
+            aside={
+              <form method="get" className="inline-form" role="search">
+                <label className="sr-only" htmlFor="inventory-search">
+                  Rechercher un lot
+                </label>
+                <input
+                  id="inventory-search"
+                  type="search"
+                  name="q"
+                  defaultValue={query}
+                  placeholder="Article, CAS, référence"
+                />
+                <button className="secondary">Rechercher</button>
+              </form>
+            }
+          />
+          <Card className="flush">
+            {displayLots?.length ? (
+              <DataTable label="Lots et alertes">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>
+                        <span className="sr-only">Étiquette</span>
+                      </th>
+                      <th>Article</th>
+                      <th>Lot</th>
+                      <th className="num">Stock</th>
+                      <th>Péremption</th>
+                      <th>Alerte</th>
+                      <th>Emplacement</th>
+                      <th>
+                        <span className="sr-only">QR</span>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </DataTable>
-          ) : (
-            <EmptyState
-              title="Aucun mouvement"
-              message="Les réceptions, consommations et ajustements apparaîtront ici."
-            />
-          )}
-        </Card>
-      </section>
-
-      <section className="section-block">
-        <SectionHeader
-          title="Couverture de stock estimée"
-          description="Consommation réelle moyenne sur 90 jours (hors réceptions et ajustements) ; aucune estimation n’est affichée sans historique de consommation."
-        />
-        <Card className="flush">
-          {coverage?.length ? (
-            <DataTable label="Couverture de stock estimée">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Article</th>
-                    <th className="num">Stock</th>
-                    <th className="num">Conso. moyenne / semaine</th>
-                    <th className="num">Couverture estimée</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {coverage.map((item) => (
-                    <tr key={item.inventory_item_id}>
-                      <td>{item.name}</td>
-                      <td className="num">
-                        {item.current_quantity} {item.default_unit}
-                      </td>
-                      <td className="num">
-                        {item.has_sufficient_data
-                          ? `${item.average_weekly_consumption} ${item.default_unit}`
-                          : "—"}
-                      </td>
-                      <td className="num">
-                        {item.has_sufficient_data ? (
-                          <>
-                            {item.estimated_weeks_remaining} sem.
-                            {item.low_coverage && (
+                  </thead>
+                  <tbody>
+                    {displayLots.map((lot) => {
+                      const item = items?.find(
+                        (value) => value.id === lot.inventory_item_id,
+                      );
+                      const alert = alertFor(lot.id);
+                      const level = alert?.alert_level
+                        ? alertLabels[alert.alert_level]
+                        : null;
+                      return (
+                        <tr key={lot.id}>
+                          <td>
+                            <LabelSelectionCheckbox
+                              type="inventory_lot"
+                              id={lot.id}
+                              label={lot.batch_number ?? lot.id}
+                            />
+                          </td>
+                          <td>{item?.name}</td>
+                          <td className="code">{lot.batch_number}</td>
+                          <td className="num">
+                            {lot.current_quantity} {item?.default_unit}
+                          </td>
+                          <td className="num">
+                            {formatDay(lot.expiration_date)}
+                            {alert?.days_before_expiration != null && (
                               <span className="secondary-line">
-                                <StatusBadge tone="warning">
-                                  Couverture faible
-                                </StatusBadge>
+                                {alert.days_before_expiration} j
                               </span>
                             )}
-                          </>
-                        ) : (
-                          <StatusBadge tone="info">
-                            Historique insuffisant
-                          </StatusBadge>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </DataTable>
-          ) : (
-            <EmptyState
-              title="Aucun article"
-              message="Créez un article d’inventaire pour voir sa couverture estimée."
-            />
-          )}
-        </Card>
-      </section>
-
-      <section className="section-block">
-        <SectionHeader
-          title="Équipements"
-          description="Registre opérationnel du laboratoire — distinct des lots de réactifs."
-          aside={
-            <form method="get" className="inline-form" role="search">
-              <label className="sr-only" htmlFor="equipment-search">
-                Rechercher un équipement
-              </label>
-              <input
-                id="equipment-search"
-                type="search"
-                name="eq"
-                defaultValue={equipmentQuery}
-                placeholder="Nom, catégorie, série, emplacement"
+                          </td>
+                          <td>
+                            {level ? (
+                              <StatusBadge tone={level.tone}>
+                                {level.label}
+                              </StatusBadge>
+                            ) : (
+                              <StatusBadge tone="success">Conforme</StatusBadge>
+                            )}
+                          </td>
+                          <td>{lot.storage_location ?? "—"}</td>
+                          <td className="cell-actions">
+                            <QrRowAction
+                              type="inventory_lot"
+                              svg={lotQrSvgs.get(lot.id) ?? ""}
+                              code={null}
+                              title={[item?.name, lot.batch_number]
+                                .filter(Boolean)
+                                .join(" · ")}
+                              subtitle={lot.storage_location}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </DataTable>
+            ) : (
+              <EmptyState
+                title="Aucun lot"
+                message={
+                  query
+                    ? `Aucun résultat pour « ${query} ».`
+                    : "Créez un article puis réceptionnez son premier lot."
+                }
               />
-              <button className="secondary">Rechercher</button>
-            </form>
-          }
-        />
-        <Card className="flush">
-          {displayEquipment?.length ? (
-            <DataTable label="Équipements">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Nom</th>
-                    <th>Catégorie</th>
-                    <th>Fabricant / modèle</th>
-                    <th>Emplacement</th>
-                    <th>Statut</th>
-                    <th>Prochaine maintenance</th>
-                    <th>
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayEquipment.map((item) => {
-                    const archived = Boolean(item.deleted_at);
-                    const status =
-                      equipmentStatusLabels[item.operational_status];
-                    return (
-                      <tr
-                        key={item.id}
-                        className={archived ? "archived" : undefined}
-                      >
-                        <td>
-                          <strong className="code">{item.name}</strong>
+            )}
+          </Card>
+        </section>
+
+        <section>
+          <Card className="flush">
+            <div className="card-heading">
+              <h2>Historique des mouvements</h2>
+            </div>
+            {movements?.length ? (
+              <DataTable label="Historique des mouvements">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Lot</th>
+                      <th>Type</th>
+                      <th className="num">Quantité</th>
+                      <th>Motif</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movements.map((movement) => (
+                      <tr key={movement.id}>
+                        <td className="num">
+                          {formatDay(movement.movement_date)}
                         </td>
-                        <td>{item.category}</td>
-                        <td>
-                          {[item.manufacturer, item.model]
-                            .filter(Boolean)
-                            .join(" · ") || "—"}
+                        <td className="code">
+                          {lotName(movement.inventory_lot_id)}
                         </td>
-                        <td>{item.location ?? "—"}</td>
                         <td>
-                          {archived ? (
-                            <StatusBadge tone="archived">Archivé</StatusBadge>
-                          ) : status ? (
-                            <StatusBadge tone={status.tone}>
-                              {status.label}
-                            </StatusBadge>
-                          ) : (
-                            item.operational_status
-                          )}
+                          {movementLabels[movement.movement_type] ??
+                            movement.movement_type}
                         </td>
                         <td className="num">
-                          {formatDay(item.next_maintenance_at)}
+                          {movement.quantity} {movement.unit}
                         </td>
-                        <td className="cell-actions">
-                          {!archived && (
+                        <td>{movement.reason ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </DataTable>
+            ) : (
+              <EmptyState
+                title="Aucun mouvement"
+                message="Les réceptions, consommations et ajustements apparaîtront ici."
+              />
+            )}
+          </Card>
+        </section>
+
+        <section className="section-block">
+          <SectionHeader
+            title="Couverture de stock estimée"
+            description="Consommation réelle moyenne sur 90 jours (hors réceptions et ajustements) ; aucune estimation n’est affichée sans historique de consommation."
+          />
+          <Card className="flush">
+            {coverage?.length ? (
+              <DataTable label="Couverture de stock estimée">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Article</th>
+                      <th className="num">Stock</th>
+                      <th className="num">Conso. moyenne / semaine</th>
+                      <th className="num">Couverture estimée</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coverage.map((item) => (
+                      <tr key={item.inventory_item_id}>
+                        <td>{item.name}</td>
+                        <td className="num">
+                          {item.current_quantity} {item.default_unit}
+                        </td>
+                        <td className="num">
+                          {item.has_sufficient_data
+                            ? `${item.average_weekly_consumption} ${item.default_unit}`
+                            : "—"}
+                        </td>
+                        <td className="num">
+                          {item.has_sufficient_data ? (
+                            <>
+                              {item.estimated_weeks_remaining} sem.
+                              {item.low_coverage && (
+                                <span className="secondary-line">
+                                  <StatusBadge tone="warning">
+                                    Couverture faible
+                                  </StatusBadge>
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <StatusBadge tone="info">
+                              Historique insuffisant
+                            </StatusBadge>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </DataTable>
+            ) : (
+              <EmptyState
+                title="Aucun article"
+                message="Créez un article d’inventaire pour voir sa couverture estimée."
+              />
+            )}
+          </Card>
+        </section>
+
+        <section className="section-block">
+          <SectionHeader
+            title="Équipements"
+            description="Registre opérationnel du laboratoire — distinct des lots de réactifs."
+            aside={
+              <form method="get" className="inline-form" role="search">
+                <label className="sr-only" htmlFor="equipment-search">
+                  Rechercher un équipement
+                </label>
+                <input
+                  id="equipment-search"
+                  type="search"
+                  name="eq"
+                  defaultValue={equipmentQuery}
+                  placeholder="Nom, catégorie, série, emplacement"
+                />
+                <button className="secondary">Rechercher</button>
+              </form>
+            }
+          />
+          <Card className="flush">
+            {displayEquipment?.length ? (
+              <DataTable label="Équipements">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>
+                        <span className="sr-only">Étiquette</span>
+                      </th>
+                      <th>Nom</th>
+                      <th>Catégorie</th>
+                      <th>Fabricant / modèle</th>
+                      <th>Emplacement</th>
+                      <th>Statut</th>
+                      <th>Prochaine maintenance</th>
+                      <th>
+                        <span className="sr-only">QR</span>
+                      </th>
+                      <th>
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayEquipment.map((item) => {
+                      const archived = Boolean(item.deleted_at);
+                      const status =
+                        equipmentStatusLabels[item.operational_status];
+                      return (
+                        <tr
+                          key={item.id}
+                          className={archived ? "archived" : undefined}
+                        >
+                          <td>
+                            <LabelSelectionCheckbox
+                              type="equipment"
+                              id={item.id}
+                              label={item.name}
+                            />
+                          </td>
+                          <td>
+                            <strong className="code">{item.name}</strong>
+                          </td>
+                          <td>{item.category}</td>
+                          <td>
+                            {[item.manufacturer, item.model]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </td>
+                          <td>{item.location ?? "—"}</td>
+                          <td>
+                            {archived ? (
+                              <StatusBadge tone="archived">Archivé</StatusBadge>
+                            ) : status ? (
+                              <StatusBadge tone={status.tone}>
+                                {status.label}
+                              </StatusBadge>
+                            ) : (
+                              item.operational_status
+                            )}
+                          </td>
+                          <td className="num">
+                            {formatDay(item.next_maintenance_at)}
+                          </td>
+                          <td>
+                            <QrRowAction
+                              type="equipment"
+                              svg={equipmentQrSvgs.get(item.id) ?? ""}
+                              code={null}
+                              title={item.name}
+                              subtitle={item.serial_number}
+                            />
+                          </td>
+                          <td className="cell-actions">
+                            {!archived && (
+                              <ActionForm
+                                action={updateEquipmentStatus}
+                                actionName={`equipment-status-${item.id}`}
+                                submitLabel="Changer"
+                                className="inline-form"
+                                resetOnSuccess={false}
+                              >
+                                <input
+                                  type="hidden"
+                                  name="id"
+                                  value={item.id}
+                                />
+                                <select
+                                  name="operational_status"
+                                  defaultValue={item.operational_status}
+                                >
+                                  <option value="operational">
+                                    Opérationnel
+                                  </option>
+                                  <option value="maintenance">
+                                    En maintenance
+                                  </option>
+                                  <option value="out_of_service">
+                                    Hors service
+                                  </option>
+                                </select>
+                              </ActionForm>
+                            )}
                             <ActionForm
-                              action={updateEquipmentStatus}
-                              actionName={`equipment-status-${item.id}`}
-                              submitLabel="Changer"
+                              action={setEquipmentArchived}
+                              actionName={`equipment-lifecycle-${item.id}`}
+                              submitLabel={archived ? "Restaurer" : "Archiver"}
                               className="inline-form"
                               resetOnSuccess={false}
                             >
                               <input type="hidden" name="id" value={item.id} />
-                              <select
-                                name="operational_status"
-                                defaultValue={item.operational_status}
-                              >
-                                <option value="operational">
-                                  Opérationnel
-                                </option>
-                                <option value="maintenance">
-                                  En maintenance
-                                </option>
-                                <option value="out_of_service">
-                                  Hors service
-                                </option>
-                              </select>
+                              <input
+                                type="hidden"
+                                name="operation"
+                                value={archived ? "restore" : "archive"}
+                              />
                             </ActionForm>
-                          )}
-                          <ActionForm
-                            action={setEquipmentArchived}
-                            actionName={`equipment-lifecycle-${item.id}`}
-                            submitLabel={archived ? "Restaurer" : "Archiver"}
-                            className="inline-form"
-                            resetOnSuccess={false}
-                          >
-                            <input type="hidden" name="id" value={item.id} />
-                            <input
-                              type="hidden"
-                              name="operation"
-                              value={archived ? "restore" : "archive"}
-                            />
-                          </ActionForm>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </DataTable>
-          ) : (
-            <EmptyState
-              title="Aucun équipement"
-              message={
-                equipmentQuery
-                  ? `Aucun résultat pour « ${equipmentQuery} ».`
-                  : "Ajoutez le premier équipement du laboratoire."
-              }
-            />
-          )}
-        </Card>
-      </section>
-    </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </DataTable>
+            ) : (
+              <EmptyState
+                title="Aucun équipement"
+                message={
+                  equipmentQuery
+                    ? `Aucun résultat pour « ${equipmentQuery} ».`
+                    : "Ajoutez le premier équipement du laboratoire."
+                }
+              />
+            )}
+          </Card>
+        </section>
+      </div>
+    </LabelSelectionProvider>
   );
 }

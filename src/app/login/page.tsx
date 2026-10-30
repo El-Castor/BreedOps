@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SubmitButton } from "./submit-button";
+import { safeNextPath } from "@/lib/safe-next-path";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,14 @@ const errors: Record<string, string> = {
 export default async function Login({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next } = await searchParams;
+  // Re-validated here too (defense in depth - the real enforcement is in
+  // the POST handler, src/app/auth/login/route.ts): never reflects an
+  // attacker-controlled value into the form without first collapsing it
+  // to a known-safe /app path.
+  const safeNext = safeNextPath(next);
   return (
     <main className="login">
       <section>
@@ -29,6 +35,9 @@ export default async function Login({
       <form className="card form login-card" action="/auth/login" method="post">
         <h2>Connexion</h2>
         {error && <p role="alert">{errors[error] ?? errors.unexpected}</p>}
+        {safeNext && safeNext !== "/app" && (
+          <input type="hidden" name="next" value={safeNext} />
+        )}
         <label>
           Email
           <input

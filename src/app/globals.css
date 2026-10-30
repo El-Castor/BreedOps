@@ -3584,3 +3584,119 @@ tr.archived-row td:first-child {
   stroke-width: 1.25;
   opacity: 0.6;
 }
+
+/* ============================================================
+   QR labels & printing (V2-01 — QR codes & scientific labeling)
+   Default label footprint: 70mm × 40mm, a common small lab/greenhouse
+   label size. Multi-label sheets lay the same cells out on A4.
+   ============================================================ */
+.qr-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 70mm;
+  height: 40mm;
+  padding: 4mm;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.qr-label-code {
+  flex-shrink: 0;
+  line-height: 0;
+}
+.qr-label-code svg {
+  width: 28mm;
+  height: 28mm;
+}
+.qr-label-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: break-word;
+}
+.qr-label-brand {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.qr-label-type {
+  margin: 0;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.qr-label-main-code {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.qr-label-title,
+.qr-label-subtitle {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.label-sheet {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 70mm);
+  gap: 4mm;
+}
+
+.label-print-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+/* Print isolation: whatever carries .print-area is the only thing the
+   browser's print dialog renders, wherever it sits in the page - an open
+   entity-inspector QR section or the dedicated /app/labels/print sheet.
+   Labels must stay legible in monochrome and never depend on the app's
+   current dark/light theme, so printing always forces a plain white
+   background with black text/borders regardless of theme. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: auto;
+  }
+  .print-area button {
+    display: none;
+  }
+  .qr-label {
+    background: #fff !important;
+    color: #000 !important;
+    border-color: #000 !important;
+  }
+  .qr-label-brand,
+  .qr-label-type,
+  .qr-label-title,
+  .qr-label-subtitle {
+    color: #000 !important;
+  }
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+}
