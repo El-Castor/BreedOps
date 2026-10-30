@@ -88,6 +88,7 @@ jobs:
       - run: npm run test:business-completion
       - run: npm run test:auth-rate-limiting
       - run: npm run test:audit-logs-cleanup
+      - run: npm run test:notifications-rls
       - name: Stop the disposable stack (runner is torn down regardless; this just frees Docker resources for later steps/jobs)
         if: always()
         run: npm run db:stop
@@ -124,6 +125,7 @@ jobs:
       - run: npm run test:inventory
       - run: npm run test:operations
       - run: npm run test:qr
+      - run: npm run test:notifications
       - name: Critical-path E2E (Playwright reuses the app server already running above)
         run: npm run test:e2e
       - name: Upload Playwright trace on failure

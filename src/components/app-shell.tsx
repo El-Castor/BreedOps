@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
+import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
+import type { NotificationItem } from "@/lib/notifications/service";
 
 type Role = "system_admin" | "team_admin" | "user";
 
@@ -65,10 +67,12 @@ const collapseKey = "breedops-sidebar";
 export function AppShell({
   identity,
   programs,
+  notifications,
   children,
 }: {
   identity: Identity;
   programs: Program[];
+  notifications: { items: NotificationItem[]; unreadCount: number };
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -237,14 +241,10 @@ export function AppShell({
             <span className="header-team">{identity.teamName}</span>
           )}
           <div className="header-spacer" />
-          <span
-            className="icon-button future-slot"
-            role="img"
-            aria-label="Notifications prévues ultérieurement"
-            title="Notifications · bientôt"
-          >
-            <Icon name="bell" />
-          </span>
+          <NotificationCenter
+            items={notifications.items}
+            unreadCount={notifications.unreadCount}
+          />
           <ThemeToggle />
           <details className="user-menu">
             <summary aria-label="Menu utilisateur">
