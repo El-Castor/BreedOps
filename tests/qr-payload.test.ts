@@ -96,6 +96,16 @@ describe("safe redirect target after login (next param)", () => {
     );
   });
 
+  it("accepts the exact /app root with no trailing segment", () => {
+    expect(safeNextPath("/app")).toBe("/app");
+  });
+
+  it("rejects a path that merely starts with the string /app", () => {
+    expect(safeNextPath("/application")).toBe("/app");
+    expect(safeNextPath("/app-evil")).toBe("/app");
+    expect(safeNextPath("/app.evil")).toBe("/app");
+  });
+
   it("falls back to /app for a missing or empty value", () => {
     expect(safeNextPath(undefined)).toBe("/app");
     expect(safeNextPath(null)).toBe("/app");

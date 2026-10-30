@@ -5,8 +5,10 @@
 // checking the origin didn't change is the standard way to reject an
 // absolute URL, a protocol-relative URL ("//evil.example"), or a
 // scheme-prefixed value, all of which would otherwise be a classic open
-// redirect. Only ever returns "/app" or a path that genuinely starts with
-// "/app".
+// redirect. Only ever returns exactly "/app" or a path that is genuinely a
+// descendant of "/app/" - not merely a pathname that happens to start with
+// the four characters "/app" (which would also accept "/application" or
+// "/app-evil").
 export function safeNextPath(raw: unknown): string {
   const fallback = "/app";
   if (typeof raw !== "string" || !raw || raw.length > 2048) return fallback;
@@ -14,7 +16,8 @@ export function safeNextPath(raw: unknown): string {
   try {
     const resolved = new URL(raw, "http://safe-next-path.invalid");
     if (resolved.origin !== "http://safe-next-path.invalid") return fallback;
-    if (!resolved.pathname.startsWith("/app")) return fallback;
+    if (resolved.pathname !== "/app" && !resolved.pathname.startsWith("/app/"))
+      return fallback;
     return `${resolved.pathname}${resolved.search}`;
   } catch {
     return fallback;
