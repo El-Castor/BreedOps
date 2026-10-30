@@ -119,6 +119,7 @@ try {
       ["test:import-export", "import/export"],
       ["test:business-completion", "business completion (seed lots, eliminatory criteria, inventory coverage)"],
       ["test:auth-rate-limiting", "login rate limiting"],
+      ["test:audit-logs-cleanup", "audit_logs cleanup trigger regression"],
     ];
     if (!fatal) {
       for (const [script] of dbSuites) {

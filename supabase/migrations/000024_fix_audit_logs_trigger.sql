@@ -1,0 +1,32 @@
+-- V1 final stabilization: running the critical-path E2E suite for real (the
+-- first time it ever executed against a genuinely isolated disposable
+-- Supabase stack - see "PR #8 - release-check isolation correction")
+-- surfaced a latent defect dating back to migration 000001: audit_logs has
+-- no updated_at column, but 000001 still attached the generic
+-- update_updated_at_column() trigger to it:
+--
+--   CREATE TRIGGER update_audit_logs_updated_at BEFORE UPDATE ON audit_logs
+--     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+--
+-- This is the exact same class of bug migration 000009 already fixed for
+-- selection_models/selection_criteria/phenotype_scores - but 000009 fixed
+-- those by ADDING the missing column, because they are genuinely mutable
+-- business tables. audit_logs is different by design: it is an append-only
+-- forensic record, never updated by any application code path (every write
+-- site is an INSERT, via SECURITY DEFINER functions - see migrations
+-- 000012, 000013, 000020, 000021, 000022). The only way an UPDATE ever
+-- reaches it is a referential action from another table's deletion, e.g.
+-- `DELETE FROM organizations ...` cascading `ON DELETE SET NULL` onto
+-- audit_logs.organization_id - at which point the invalid trigger fires and
+-- the whole statement fails:
+--
+--   ERROR:  record "new" has no field "updated_at"
+--   CONTEXT:  PL/pgSQL assignment "NEW.updated_at = NOW()"
+--
+-- Giving audit_logs a fake updated_at column purely to satisfy this
+-- generic trigger would misrepresent an append-only table as mutable.
+-- Dropping the trigger is the correct fix: it does not touch the table's
+-- columns, its RLS policies (migration 000003's audit_logs_read/
+-- audit_logs_insert - SELECT/INSERT only, already no UPDATE/DELETE
+-- policy), or any FK's ON DELETE SET NULL behavior on it.
+DROP TRIGGER IF EXISTS update_audit_logs_updated_at ON public.audit_logs;

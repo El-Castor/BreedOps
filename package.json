@@ -29,6 +29,7 @@
     "test:import-export": "node scripts/test-rls.mjs tests/import-export.sql",
     "test:business-completion": "node scripts/test-rls.mjs tests/business-completion.sql",
     "test:auth-rate-limiting": "node scripts/test-rls.mjs tests/auth-rate-limiting.sql",
+    "test:audit-logs-cleanup": "node scripts/test-rls.mjs tests/audit-logs-cleanup.sql",
     "media:check-orphans": "node scripts/check-media-orphans.mjs",
     "security:client-secrets": "node scripts/check-client-secrets.mjs",
     "db:start": "node scripts/db-start.mjs",

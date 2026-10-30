@@ -87,6 +87,7 @@ jobs:
       - run: npm run test:import-export
       - run: npm run test:business-completion
       - run: npm run test:auth-rate-limiting
+      - run: npm run test:audit-logs-cleanup
       - name: Stop the disposable stack (runner is torn down regardless; this just frees Docker resources for later steps/jobs)
         if: always()
         run: npm run db:stop
