@@ -28,7 +28,7 @@ async function signIn(page: Page, email: string, password: string) {
 }
 
 async function signOut(page: Page) {
-  await page.locator("header details > summary").click();
+  await page.locator("header details.user-menu > summary").click();
   await Promise.all([
     page.waitForURL(/\/login/),
     page.getByRole("button", { name: "Déconnexion" }).click(),
