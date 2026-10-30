@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { sameOrigin } from "@/lib/request-security";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { safeNextPath } from "@/lib/safe-next-path";
 
 function loginRedirect(error?: string) {
   const origin = process.env.APP_ORIGIN || "http://localhost:3107";
@@ -88,8 +89,9 @@ export async function POST(request: Request) {
     await client.auth.signOut();
     return loginRedirect("configuration");
   }
+  const next = safeNextPath(form.get("next"));
   return NextResponse.redirect(
-    `${process.env.APP_ORIGIN || "http://localhost:3107"}/app`,
+    `${process.env.APP_ORIGIN || "http://localhost:3107"}${next}`,
     303,
   );
 }

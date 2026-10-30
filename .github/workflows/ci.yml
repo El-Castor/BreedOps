@@ -123,6 +123,7 @@ jobs:
       - run: npm run test:phenotypes
       - run: npm run test:inventory
       - run: npm run test:operations
+      - run: npm run test:qr
       - name: Critical-path E2E (Playwright reuses the app server already running above)
         run: npm run test:e2e
       - name: Upload Playwright trace on failure

@@ -61,6 +61,8 @@ import {
   GanttChartSquare,
   Link2,
   ArrowLeftRight,
+  QrCode,
+  Printer,
   type LucideProps,
 } from "lucide-react";
 
@@ -133,6 +135,8 @@ const icons = {
   gantt: GanttChartSquare,
   dependency: Link2,
   importExport: ArrowLeftRight,
+  qr: QrCode,
+  print: Printer,
 } as const;
 
 export type IconName = keyof typeof icons;

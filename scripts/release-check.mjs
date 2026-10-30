@@ -117,7 +117,10 @@ try {
       ["test:media", "plant media"],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
-      ["test:business-completion", "business completion (seed lots, eliminatory criteria, inventory coverage)"],
+      [
+        "test:business-completion",
+        "business completion (seed lots, eliminatory criteria, inventory coverage)",
+      ],
       ["test:auth-rate-limiting", "login rate limiting"],
       ["test:audit-logs-cleanup", "audit_logs cleanup trigger regression"],
     ];
@@ -125,9 +128,13 @@ try {
       for (const [script] of dbSuites) {
         if (!npm(script)) fatal = true;
       }
-      if (fatal) console.error(`\n!!! A database suite failed against the disposable release-check stack !!!`);
+      if (fatal)
+        console.error(
+          `\n!!! A database suite failed against the disposable release-check stack !!!`,
+        );
     } else {
-      for (const [, label] of dbSuites) skip(label, "local:configure / safety guard failed");
+      for (const [, label] of dbSuites)
+        skip(label, "local:configure / safety guard failed");
     }
 
     // The disposable stack's URL/keys and app origin are passed as
@@ -177,6 +184,7 @@ try {
           ["test:phenotypes", "phenotypes integration"],
           ["test:inventory", "inventory integration"],
           ["test:operations", "operations integration"],
+          ["test:qr", "QR lookup authorization"],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;

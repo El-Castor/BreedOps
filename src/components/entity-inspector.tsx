@@ -18,7 +18,10 @@ import {
 import { ActionForm } from "@/components/action-form";
 import { Icon, type IconName } from "@/components/icons";
 import { MediaGallery } from "@/components/media-gallery";
+import { PrintLabelButton } from "@/components/print-label-button";
+import { QrLabel } from "@/components/qr-label";
 import { ActionMenu, DecisionBadge } from "@/components/ui";
+import { BREEDING_KIND_TO_QR_TYPE } from "@/lib/qr/breeding-kind";
 import type { MediaTargetType } from "@/lib/media/types";
 import {
   setBreedingEntityArchived,
@@ -86,6 +89,8 @@ export type BreedingEntityDetail = {
   };
   notes: string | null;
   edit: EditDescriptor;
+  /** Set by src/lib/qr/attach-breeding.ts after the page fetches this entity. */
+  qr?: { url: string; svg: string };
 };
 
 type InspectorContextValue = {
@@ -235,6 +240,7 @@ export function EntityInspector({
 }) {
   const closeButton = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const isOpen = Boolean(entity);
 
   // Focus moves into the panel when it opens and returns to the element that
@@ -295,10 +301,35 @@ export function EntityInspector({
               {editing ? "Annuler la modification" : "Modifier"}
             </button>
           )}
+          {entity.qr && (
+            <button
+              type="button"
+              aria-pressed={showQr}
+              onClick={() => setShowQr((value) => !value)}
+            >
+              <Icon name={showQr ? "close" : "qr"} size={14} />
+              {showQr ? "Masquer le QR" : "Afficher le QR"}
+            </button>
+          )}
           <LifecycleForm entity={entity} />
         </div>
         <div className="inspector-body">
           {editing && <EntityEditSection entity={entity} />}
+          {showQr && entity.qr && (
+            <section className="detail-section print-area">
+              <h3>
+                <Icon name="qr" size={14} />
+                Code QR
+              </h3>
+              <QrLabel
+                type={BREEDING_KIND_TO_QR_TYPE[entity.kind]}
+                svg={entity.qr.svg}
+                code={entity.code}
+                title={entity.title}
+              />
+              <PrintLabelButton />
+            </section>
+          )}
           <EntityFieldSection
             title="Aperçu"
             icon="info"
