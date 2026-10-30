@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
 import { hardDeleteOrganization } from "../tests/db-cleanup";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
 
 // Viewport smoke coverage at the 5 representative widths this milestone's
 // manual responsive pass used. Asserts the page itself never scrolls
@@ -21,8 +22,9 @@ const WIDTHS = [
   { width: 390, height: 844, label: "mobile" },
 ];
 
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
-if (backend.API_URL !== "http://127.0.0.1:55421")
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl)
   throw new Error("E2E requires isolated local Supabase");
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, {
   auth: { persistSession: false },

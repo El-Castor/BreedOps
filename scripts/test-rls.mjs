@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { currentProfile } from "./lib/stack-identity.mjs";
 
 const output = execFileSync(
   "docker",
   [
     "exec",
     "-i",
-    "supabase_db_BreedOps",
+    currentProfile().dbContainer,
     "psql",
     "-U",
     "postgres",

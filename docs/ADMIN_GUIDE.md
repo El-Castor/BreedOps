@@ -43,10 +43,19 @@ Chaque échec de connexion est compté côté serveur, par email et par adresse 
 
 ## 6. Migrations
 
-- **Nouvelle installation / pile jetable** : `npm run db:start` applique tout depuis zéro.
+- **Nouvelle installation** : `npm run db:start` applique tout depuis zéro, contre le projet Supabase canonique défini par `supabase/config.toml` de ce checkout (celui que `npm run release:check` ne touche jamais — voir l'encadré ci-dessous).
 - **Pile déjà en service, nouvelle version du code apportant de nouvelles migrations** : `npm run db:migrate` (`supabase migration up --local`) applique uniquement les migrations non encore appliquées, sans toucher aux données existantes.
 - **Ne jamais** exécuter `supabase db reset` ni `supabase stop --no-backup` contre une base contenant de vraies données — ces deux commandes détruisent les données locales. `npm run db:stop` arrête la pile en conservant son volume de données.
 - Toujours sauvegarder (§8) avant d'appliquer une nouvelle migration à une base réelle.
+
+> **`npm run db:start` n'est jetable que sous le profil `release-check`.** Par défaut
+> (sans `BREEDOPS_STACK_PROFILE=release-check`), `db:start`/`db:stop`/`local:configure`
+> opèrent sur le projet canonique de ce checkout — c'est le comportement voulu pour une
+> installation réelle. `npm run release:check` (voir `docs/RELEASE_CHECKLIST.md`) utilise
+> en interne un projet Supabase entièrement séparé (identité, ports, conteneur et volume
+> différents) précisément pour pouvoir s'exécuter sans risque sur une machine où la pile
+> réelle tourne déjà ; il ne faut pas en déduire que `db:start` lui-même est toujours
+> jetable.
 - Les migrations sont strictement additives et versionnées (`supabase/migrations/000001...`) ; aucune n'est jamais modifiée après avoir été appliquée à une base réelle.
 
 ## 7. Journaux et audit

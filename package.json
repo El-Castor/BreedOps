@@ -34,6 +34,8 @@
     "db:start": "node scripts/db-start.mjs",
     "db:stop": "node scripts/db-stop.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
+    "app:start": "node scripts/start-app.mjs",
+    "app:stop": "node scripts/stop-app.mjs",
     "release:check": "node scripts/release-check.mjs",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage"

@@ -8,7 +8,7 @@ BreedOps V1 est d'abord destiné à un hébergement propre (self-hosted), sur un
 
 - **Checkout de production dédié**, distinct de tout checkout de développement — jamais le même répertoire que celui utilisé pour coder/tester.
 - **Configuration d'environnement dédiée** (`.env.local` de production), jamais partagée avec un environnement de développement ou de test.
-- **Identité de projet et ports Supabase dédiés** — si plusieurs instances Supabase locales doivent coexister sur la même machine (développement + production), chacune a son propre `project_id` et ses propres ports dans `supabase/config.toml` du checkout correspondant, exactement comme ce jalon a utilisé des identités et ports distincts pour chaque pile jetable de validation.
+- **Identité de projet et ports Supabase dédiés** — si plusieurs instances Supabase locales doivent coexister sur la même machine (développement + production), chacune a son propre `project_id` et ses propres ports dans `supabase/config.toml` du checkout correspondant. C'est exactement le mécanisme que `npm run release:check` applique lui-même (voir le tableau d'isolation dans `docs/RELEASE_CHECKLIST.md`) pour pouvoir s'exécuter sans risque sur une machine où une pile réelle tourne déjà — le même principe, pas seulement une analogie.
 - **La donnée de production ne doit jamais dépendre d'une session shell développeur** : le service de production doit démarrer au boot de la machine et survivre à la fermeture de tout terminal, indépendamment de toute session de travail.
 
 ## Option A — Mac mini

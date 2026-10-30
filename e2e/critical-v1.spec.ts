@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
 import { hardDeleteOrganization } from "../tests/db-cleanup";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
 
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
-if (backend.API_URL !== "http://127.0.0.1:55421")
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl)
   throw new Error("E2E requires isolated local Supabase");
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -262,7 +264,10 @@ test("critical V1 journey persists through every module and changes KPIs", async
     .getByLabel("Motif (obligatoire pour ajustement)")
     .fill("Synthetic E2E use");
   await submit(page, form);
-  await expect(page.getByText("80 g", { exact: true })).toBeVisible();
+  // The remaining quantity legitimately appears in two widgets ("Lots et
+  // alertes" and "Couverture de stock estimée") - either confirms the
+  // movement was applied.
+  await expect(page.getByText("80 g", { exact: true }).first()).toBeVisible();
 
   await page.goto("/app/operations");
   form = await openForm(page, "Nouveau cycle", "cycle");

@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
+import { currentProfile } from "./lib/stack-identity.mjs";
 
 // Parallel sessions against the local database prove that generated breeding
 // codes stay unique and gap-free under concurrent inserts. Fixtures are removed.
@@ -7,7 +8,7 @@ const run = promisify(execFile);
 const psqlArgs = [
   "exec",
   "-i",
-  "supabase_db_BreedOps",
+  currentProfile().dbContainer,
   "psql",
   "-U",
   "postgres",

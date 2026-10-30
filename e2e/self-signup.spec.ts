@@ -3,8 +3,11 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
 
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
+
 const enabled = process.env.ALLOW_SELF_SIGNUP === "true";
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const email = `pending-${randomUUID()}@example.test`;
 let userId: string | undefined;
