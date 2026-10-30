@@ -279,10 +279,12 @@ test("critical V1 journey persists through every module and changes KPIs", async
     .getByLabel("Responsable")
     .selectOption({ label: "Synthetic E2E operator" });
   await submit(page, form);
+  await page.getByRole("link", { name: "Tâches", exact: true }).click();
   await expect(page.getByText("En retard", { exact: true })).toBeVisible();
   const statusForm = page.locator('form[data-action^="task-status-"]');
   await statusForm.locator('select[name="status"]').selectOption("completed");
   await statusForm.getByRole("button").click();
+  await page.getByRole("link", { name: "Vue d’ensemble", exact: true }).click();
 
   const metric = (label: string) =>
     page.locator(".metric").filter({ hasText: label }).locator("strong");

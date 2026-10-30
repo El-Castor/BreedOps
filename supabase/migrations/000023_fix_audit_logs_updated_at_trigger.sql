@@ -1,0 +1,22 @@
+-- Drop the stray updated_at trigger on audit_logs.
+--
+-- Migration 000001 attached update_updated_at_column() to every main table,
+-- including audit_logs, via a single blanket list of CREATE TRIGGER
+-- statements. audit_logs is append-only (INSERT only -- see 000012/000020/
+-- 000021/000022, which all only ever INSERT into it) and was never given an
+-- updated_at column, unlike every other table the trigger is attached to.
+--
+-- This stays latent until something UPDATEs an audit_logs row, which
+-- normally never happens from the application. It does happen when an
+-- organization with existing audit_logs rows is hard-deleted: audit_logs
+-- .organization_id REFERENCES organizations(id) ON DELETE SET NULL, so
+-- Postgres issues an UPDATE audit_logs SET organization_id = NULL for each
+-- affected row as part of the DELETE cascade, which fires this trigger and
+-- fails with:
+--   ERROR:  record "new" has no field "updated_at"
+--   CONTEXT:  PL/pgSQL assignment "NEW.updated_at = NOW()"
+--   PL/pgSQL function update_updated_at_column() line 3 at assignment
+--
+-- Fix: drop the trigger from audit_logs only. Every other table keeps its
+-- update_updated_at_column() trigger unchanged.
+DROP TRIGGER IF EXISTS update_audit_logs_updated_at ON audit_logs;
