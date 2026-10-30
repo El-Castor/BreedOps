@@ -95,9 +95,29 @@ function quoteCell(value: string): string {
   return needsQuoting(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+// CSV (unlike XLSX, which types each cell explicitly) has no type metadata:
+// spreadsheet applications guess a cell's meaning from its leading
+// character, so a free-text field that happens to start with =, +, -, @,
+// a tab, or a carriage return is opened by Excel/Sheets/Numbers as a
+// formula, not as the text it actually is ("CSV injection" / OWASP
+// spreadsheet formula injection). BreedOps exports plenty of user-entered
+// free text this way (notes, storage locations, names) that this app does
+// not and should not restrict to a safe character set just to make
+// exports incidentally safe. Prefixing a lone leading quote neutralizes
+// the formula interpretation in every common spreadsheet application
+// while leaving the value's own CSV quoting (for commas/newlines) applied
+// normally afterward.
+const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+
+function neutralizeFormula(value: string): string {
+  return FORMULA_TRIGGER.test(value) ? `'${value}` : value;
+}
+
 /** Writes rows of string cells back to CSV text, quoting only where needed,
  * with a trailing UTF-8 BOM-friendly, CRLF line ending so the result opens
- * correctly in common spreadsheet software. */
+ * correctly in common spreadsheet software. Every cell is first neutralized
+ * against spreadsheet formula injection (see neutralizeFormula) before any
+ * CSV-syntax quoting is applied. */
 export function writeCsv(
   rows: (string | number | null | undefined)[][],
 ): string {
@@ -106,7 +126,11 @@ export function writeCsv(
       .map((row) =>
         row
           .map((cell) =>
-            quoteCell(cell === null || cell === undefined ? "" : String(cell)),
+            quoteCell(
+              neutralizeFormula(
+                cell === null || cell === undefined ? "" : String(cell),
+              ),
+            ),
           )
           .join(","),
       )

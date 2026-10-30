@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
 import { hardDeleteOrganization } from "../tests/db-cleanup";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
 
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
-if (backend.API_URL !== "http://127.0.0.1:55421") throw new Error("E2E requires isolated local Supabase");
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl) throw new Error("E2E requires isolated local Supabase");
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const marker = randomUUID().slice(0, 8);
 const systemEmail = `system-${marker}@example.test`;
@@ -35,12 +37,12 @@ async function signOut(page: Page) {
 
 async function emailLink(recipient: string, subject: string) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const listing = await (await fetch("http://127.0.0.1:55424/api/v1/messages")).json();
+    const listing = await (await fetch(`${backend.MAILPIT_URL}/api/v1/messages`)).json();
     const summary = listing.messages.find((message: { Subject: string; To?: { Address: string }[] }) =>
       message.Subject === subject && message.To?.some((entry: { Address: string }) => entry.Address === recipient),
     );
     if (summary) {
-      const message = await (await fetch(`http://127.0.0.1:55424/api/v1/message/${summary.ID}`)).json();
+      const message = await (await fetch(`${backend.MAILPIT_URL}/api/v1/message/${summary.ID}`)).json();
       const match = String(message.HTML || message.Text).replace(/&amp;/g, "&").match(/https?:\/\/[^"'<>\s]+/);
       if (match) return match[0];
     }
@@ -76,7 +78,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
 
   const foreignOrigin = await request.post("/auth/login", { headers: { origin: "https://attacker.example" }, form: { email: systemEmail, password: systemPassword }, maxRedirects: 0 });
   expect(foreignOrigin.status()).toBe(303);
-  expect(foreignOrigin.headers().location).toBe("http://localhost:3107/login?error=unexpected");
+  expect(foreignOrigin.headers().location).toBe(`${profile.appOrigin}/login?error=unexpected`);
 
   await signIn(page, systemEmail, "incorrect-password");
   await expect(page).toHaveURL(/error=invalid/);
@@ -87,6 +89,10 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   await expect(page).toHaveURL(/\/app$/);
 
   await page.goto("/app/admin/users");
+  // Creation forms live in a drawer (FormDrawer) opened by its trigger
+  // button; the form exists in the DOM beforehand but stays hidden until
+  // then (same pattern as critical-v1.spec.ts's openForm helper).
+  await page.getByRole("button", { name: "Créer un compte", exact: true }).click();
   const create = page.locator('form[data-action="create-user"]');
   await create.getByLabel("Email").fill(memberEmail);
   await create.getByLabel("Nom affiché").fill("Synthetic managed member");
@@ -98,6 +104,7 @@ test("AUTH-01..15 real administration, reset, status, and scope journey", async 
   const created = await admin.auth.admin.listUsers();
   ids.member = created.data.users.find((user) => user.email === memberEmail)!.id;
 
+  await page.getByRole("button", { name: "Inviter", exact: true }).click();
   const invite = page.locator('form[data-action="invite-user"]');
   await invite.getByLabel("Email").fill(inviteEmail);
   await invite.getByLabel("Nom affiché").fill("Synthetic invited member");

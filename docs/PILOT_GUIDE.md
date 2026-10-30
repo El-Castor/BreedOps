@@ -15,6 +15,12 @@ come from local PostgreSQL through Supabase; the application does not require de
 Use `npm run local:reset-password` if the local administrator password must be replaced.
 Both local credential scripts verify a real Supabase password login before reporting success.
 
+Repeated failed login attempts (same email or same client IP) are throttled server-side:
+after 5 consecutive failures, the account/IP is locked out for a short, exponentially
+growing delay (starting at 30 seconds) — the page shows "Trop de tentatives de connexion.
+Réessayez dans quelques minutes." A correct password immediately clears the lockout for
+that email; refreshing the page or retrying faster does not bypass it.
+
 ## Users and access
 
 Open **Utilisateurs** as `system_admin` to invite a user or create a local test account.
@@ -239,6 +245,12 @@ in view. The phenotyping page also offers **Exporter la matrice de sélection**:
 read-only analytical report (not importable) with one column per active criterion of the
 program's active selection model, weighted and normalized score, eliminatory status and
 reason, and the final decision.
+
+These exports (CSV/Excel registers, the functional backup workbook, the selection-matrix
+export) are the application-level, portable data layer. They do not replace an
+infrastructure-level backup of the whole PostgreSQL database and the Plant Media files —
+see `docs/BACKUP.md` for that second layer, which an administrator runs outside the
+application.
 
 ## Pilot validation
 

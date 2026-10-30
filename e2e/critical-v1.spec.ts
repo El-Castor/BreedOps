@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { expect, test, type Page } from "@playwright/test";
 import { hardDeleteOrganization } from "../tests/db-cleanup";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
 
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
-if (backend.API_URL !== "http://127.0.0.1:55421")
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl)
   throw new Error("E2E requires isolated local Supabase");
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -262,7 +264,10 @@ test("critical V1 journey persists through every module and changes KPIs", async
     .getByLabel("Motif (obligatoire pour ajustement)")
     .fill("Synthetic E2E use");
   await submit(page, form);
-  await expect(page.getByText("80 g", { exact: true })).toBeVisible();
+  // The remaining quantity legitimately appears in two widgets ("Lots et
+  // alertes" and "Couverture de stock estimée") - either confirms the
+  // movement was applied.
+  await expect(page.getByText("80 g", { exact: true }).first()).toBeVisible();
 
   await page.goto("/app/operations");
   form = await openForm(page, "Nouveau cycle", "cycle");
@@ -279,13 +284,40 @@ test("critical V1 journey persists through every module and changes KPIs", async
     .getByLabel("Responsable")
     .selectOption({ label: "Synthetic E2E operator" });
   await submit(page, form);
-  await expect(page.getByText("En retard", { exact: true })).toBeVisible();
-  const statusForm = page.locator('form[data-action^="task-status-"]');
+
+  // The "En retard" badge and the task's status form only render on the
+  // "Tâches" tab, not the default "Vue d'ensemble" tab the creation drawer
+  // reloads back into - navigate there via the same tab link a real user
+  // would use (src/app/app/operations/filters.tsx's `tabs`). Scoped to the
+  // Opérations tab nav specifically: the main sidebar also has its own
+  // top-level "Vue d'ensemble" dashboard link with the same accessible
+  // name, so an unscoped lookup for that label further below would be
+  // ambiguous.
+  const operationsTabs = page.locator('nav[aria-label="Sections des opérations"]');
+  await operationsTabs.getByRole("link", { name: "Tâches", exact: true }).click();
+  const taskRow = page.getByRole("row").filter({ hasText: "Synthetic E2E task" });
+  await expect(taskRow).toBeVisible();
+  // .first(): the badge's own element and its containing <td> (whose only
+  // content is that badge) both match the same exact text - not two
+  // separate widgets this time, just nested elements with identical text.
+  await expect(
+    taskRow.getByText("En retard", { exact: true }).first(),
+  ).toBeVisible();
+  const statusForm = taskRow.locator('form[data-action^="task-status-"]');
   await statusForm.locator('select[name="status"]').selectOption("completed");
   await statusForm.getByRole("button").click();
 
+  // The KPI tiles asserted below only render on "Vue d’ensemble" - the
+  // status update above reloads back into the "Tâches" tab we navigated
+  // to, so go back the same way a real user would (same scoped nav as
+  // above).
+  await operationsTabs.getByRole("link", { name: "Vue d’ensemble", exact: true }).click();
+
+  // .first(): "Tâches en retard" is shown as its own KPI tile in both the
+  // top metrics grid and the "État opérationnel" grid below it (same
+  // underlying count, by design) - every other label here is unique.
   const metric = (label: string) =>
-    page.locator(".metric").filter({ hasText: label }).locator("strong");
+    page.locator(".metric").filter({ hasText: label }).locator("strong").first();
   for (const label of [
     "Croisements",
     "Lots de graines",
@@ -298,10 +330,15 @@ test("critical V1 journey persists through every module and changes KPIs", async
   await expect(metric("Germination moyenne")).toHaveText("92 %");
   await expect(metric("Tâches en retard")).toHaveText("0");
   await expect(metric("Tâches terminées")).toHaveText("100 %");
+
+  // The task title itself only renders in the Tâches tab's table, not on
+  // Vue d'ensemble.
+  await operationsTabs.getByRole("link", { name: "Tâches", exact: true }).click();
   await page.reload();
-  await expect(
-    page.getByText("Synthetic E2E task", { exact: true }),
-  ).toBeVisible();
+  // Scoped to the row's own title cell (a plain <strong>, not getByText on
+  // the whole page): the same row also renders a TaskDrawer whose closed
+  // <dialog> still has an <h2> with the identical title text in the DOM.
+  await expect(taskRow.locator("strong")).toHaveText("Synthetic E2E task");
   await page.goto("/app");
   await signOut(page);
   await expect(page).toHaveURL(/\/login/);

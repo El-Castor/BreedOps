@@ -4,14 +4,16 @@ import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { appendServerActionFields } from "./server-action";
 import { hardDeleteOrganization } from "./db-cleanup";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
 
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
-if (backend.API_URL !== "http://127.0.0.1:55421")
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl)
   throw new Error("Tests require isolated local Supabase");
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
-const base = "http://localhost:3107";
+const base = profile.appOrigin;
 const marker = randomUUID().slice(0, 8);
 const email = `phenotype-${marker}@example.test`;
 const password = randomUUID() + "Aa9!";

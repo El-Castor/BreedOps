@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
 
 // Synthetic test organizations must be fully removed after every run so they
 // never accumulate and leak into cross-team views (e.g. a system_admin's
@@ -22,7 +23,7 @@ export function hardDeleteOrganization(id: string) {
     [
       "exec",
       "-i",
-      "supabase_db_BreedOps",
+      currentProfile().dbContainer,
       "psql",
       "-U",
       "postgres",
@@ -34,7 +35,15 @@ export function hardDeleteOrganization(id: string) {
       "-At",
     ],
     {
-      input: `DELETE FROM public.organizations WHERE id = '${id}' RETURNING id;`,
+      // A profile row still referencing this org (e.g. because a caller's
+      // own `deleteUser` step did not run or did not actually remove it)
+      // would otherwise make the organizations DELETE below fail: the FK's
+      // ON DELETE SET NULL action conflicts with the profiles_organization_
+      // required CHECK constraint, aborting the whole statement. Clearing
+      // any such row explicitly first keeps this cleanup helper reliable
+      // regardless of what the caller already did.
+      input: `DELETE FROM public.profiles WHERE organization_id = '${id}';
+              DELETE FROM public.organizations WHERE id = '${id}' RETURNING id;`,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     },

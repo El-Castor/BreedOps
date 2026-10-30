@@ -1,0 +1,140 @@
+name: CI
+
+# Runs on every pull request and on pushes to main. Every job starts a
+# brand-new GitHub Actions runner with its own disposable Docker daemon -
+# there is no persistent/retained database here. The database and
+# integration-e2e jobs set BREEDOPS_STACK_PROFILE=release-check so they
+# exercise the exact same disposable-stack code path
+# (scripts/lib/stack-identity.mjs / scripts/lib/release-check-workdir.mjs)
+# that `npm run release:check` uses on a developer's own machine, where a
+# canonical retained stack may already be running - CI and local release
+# checks never diverge on which code path they test. CI never touches, and
+# has no way to touch, anyone's real local or self-hosted deployment.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  static:
+    name: Static checks (typecheck, lint, format, build, secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - name: Production build
+        run: npm run build
+        env:
+          # Placeholder local Supabase URL/key/service-role value - enough
+          # for `next build` (no live database call happens at build time),
+          # never a real project's credentials. The client-secret scan
+          # right after this step proves this placeholder (standing in for
+          # whatever the real service-role key is) never reaches the client
+          # bundle.
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:55421
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.placeholder-service-role-key-for-ci-build-only
+      - name: Client-secret scan (fails if the server-only secret above reaches the client bundle)
+        run: npm run security:client-secrets
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.placeholder-service-role-key-for-ci-build-only
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+
+  database:
+    name: Database suite (migrations from zero + RLS + domain pgTap suites)
+    runs-on: ubuntu-latest
+    env:
+      # Exercises the disposable release-check project identity
+      # (scripts/lib/stack-identity.mjs), not the canonical one - the same
+      # path `npm run release:check` uses locally.
+      BREEDOPS_STACK_PROFILE: release-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Start the disposable release-check Supabase stack (applies migrations 000001 -> latest from zero)
+        run: npm run db:start
+      - run: npm run local:configure
+      - run: npm run test:rls
+      - run: npm run test:identity
+      - run: npm run test:phenotyping
+      - run: npm run test:media
+      - run: npm run test:workflows
+      - run: npm run test:import-export
+      - run: npm run test:business-completion
+      - run: npm run test:auth-rate-limiting
+      - run: npm run test:audit-logs-cleanup
+      - name: Stop the disposable stack (runner is torn down regardless; this just frees Docker resources for later steps/jobs)
+        if: always()
+        run: npm run db:stop
+
+  integration-e2e:
+    name: Integration + E2E (critical user paths)
+    runs-on: ubuntu-latest
+    needs: static
+    env:
+      # Same disposable release-check identity as the database job above.
+      BREEDOPS_STACK_PROFILE: release-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright's Chromium browser
+        run: npx playwright install --with-deps chromium
+      - name: Start the disposable release-check Supabase stack (applies migrations 000001 -> latest from zero)
+        run: npm run db:start
+      - name: Point this checkout's local test config at the stack just started
+        run: npm run local:configure
+      - name: Export the disposable stack's app env vars (never written to .env.local)
+        run: node scripts/print-release-check-env.mjs >> "$GITHUB_ENV"
+      - name: Build against the disposable stack's app env vars
+        run: npm run build
+      - name: Start the built app in the background and wait for readiness (the integration suites make real HTTP requests and have no self-starting logic of their own)
+        run: npm run app:start
+      - run: npm run test:auth
+      - run: npm run test:breeding
+      - run: npm run test:phenotypes
+      - run: npm run test:inventory
+      - run: npm run test:operations
+      - name: Critical-path E2E (Playwright reuses the app server already running above)
+        run: npm run test:e2e
+      - name: Upload Playwright trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: test-results/
+          retention-days: 7
+      - name: Stop the built app
+        if: always()
+        run: npm run app:stop
+      - name: Stop the disposable stack
+        if: always()
+        run: npm run db:stop

@@ -284,6 +284,21 @@ test-results/
 playwright-report/
 blob-report/
 
+# ------------------------------------------------------------
+# Infrastructure backups (scripts/backup-infra.mjs default output) -
+# contains a full database dump and real media files, never committed.
+# ------------------------------------------------------------
+
+/backups/
+
+# ------------------------------------------------------------
+# Disposable release-check Supabase project (scripts/release-check.mjs /
+# scripts/lib/release-check-workdir.mjs) - regenerated from scratch on
+# every run, never the canonical supabase/ directory.
+# ------------------------------------------------------------
+
+/.release-check/
+
 
 # ------------------------------------------------------------
 # Package manager / local metadata

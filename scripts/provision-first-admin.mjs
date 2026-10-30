@@ -3,10 +3,12 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { createClient } from "@supabase/supabase-js";
 import { readSecret } from "./lib/read-secret.mjs";
+import { currentProfile } from "./lib/stack-identity.mjs";
 
 if (!stdin.isTTY) throw new Error("Run this command in an interactive local terminal.");
-const backend = JSON.parse(readFileSync(".local/test-backend.json", "utf8"));
-if (backend.API_URL !== "http://127.0.0.1:55421")
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl)
   throw new Error("Only the isolated local BreedOps backend is supported.");
 const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const authClient = createClient(backend.API_URL, backend.ANON_KEY, { auth: { persistSession: false } });

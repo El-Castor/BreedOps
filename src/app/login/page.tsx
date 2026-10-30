@@ -9,6 +9,7 @@ const errors: Record<string, string> = {
   unconfirmed: "Compte non confirmé. Consultez votre invitation.",
   expired: "Session expirée. Connectez-vous à nouveau.",
   membership: "Compte en attente d’affectation ou sans équipe active.",
+  locked: "Trop de tentatives de connexion. Réessayez dans quelques minutes.",
   configuration: "Erreur de configuration serveur.",
   unexpected: "Erreur inattendue. Réessayez.",
 };
