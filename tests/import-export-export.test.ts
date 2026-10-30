@@ -152,6 +152,32 @@ describe("export output format", () => {
     expect(csv).toContain('"Has, a ""comma"""');
   });
 
+  it("neutralizes CSV formula injection in free-text fields opened by spreadsheet software", () => {
+    const csv = writeCsv([
+      ["Note"],
+      ["=cmd|'/c calc'!A1"],
+      ["+1+1"],
+      ["-2+3"],
+      ["@SUM(A1:A2)"],
+      ["\t=HYPERLINK(https://evil.test)"],
+      ["Perte de 5% constatée"],
+      ["-ras, rien à signaler"],
+    ]);
+    const rows = csv.trim().split("\r\n").slice(1);
+    expect(rows[0]).toBe("'=cmd|'/c calc'!A1");
+    expect(rows[1]).toBe("'+1+1");
+    expect(rows[2]).toBe("'-2+3");
+    expect(rows[3]).toBe("'@SUM(A1:A2)");
+    expect(rows[4]).toBe("'\t=HYPERLINK(https://evil.test)");
+    // A value that merely contains a dash/plus/at mid-string, rather than
+    // leading with one, is never touched - only the spreadsheet-sniffed
+    // leading character matters.
+    expect(rows[5]).toBe("Perte de 5% constatée");
+    // A value containing a comma still gets its ordinary CSV quoting on
+    // top of the formula-neutralizing prefix, applied in that order.
+    expect(rows[6]).toBe('"\'-ras, rien à signaler"');
+  });
+
   it("writes a real XLSX workbook with the entity's rows on its own sheet", async () => {
     const table = await exportParentLines(
       fakeClient([

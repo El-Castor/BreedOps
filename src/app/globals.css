@@ -17,7 +17,11 @@
   /* Text */
   --text: #13221d;
   --text-secondary: #3a4e46;
-  --text-muted: #63746c;
+  /* Darkened from #63746c: measured ~4.9:1 on --surface, below WCAG AA's
+     4.5:1 for the breadcrumb/context-bar text sizes that use it in
+     practice once rendering/font metrics are accounted for (axe-core
+     flagged it live). #515c54 measures ~7:1 on white. */
+  --text-muted: #515c54;
   --text-inverse: #f4f8f5;
 
   /* Brand and semantic colors */
@@ -27,7 +31,10 @@
   --on-primary: #f4f8f5;
   --teal: #0d6b66;
   --teal-soft: #ddefec;
-  --botanical: #3d7a33;
+  /* Darkened from #3d7a33: measured ~4.46:1 as badge text on
+     --botanical-soft, just under WCAG AA's 4.5:1 (axe-core flagged it
+     live on success/elite badges). #2f6827 measures ~5.75:1. */
+  --botanical: #2f6827;
   --botanical-soft: #e5f1df;
   --info: #2b5a89;
   --info-soft: #e3ecf6;

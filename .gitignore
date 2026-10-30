@@ -284,6 +284,13 @@ test-results/
 playwright-report/
 blob-report/
 
+# ------------------------------------------------------------
+# Infrastructure backups (scripts/backup-infra.mjs default output) -
+# contains a full database dump and real media files, never committed.
+# ------------------------------------------------------------
+
+/backups/
+
 
 # ------------------------------------------------------------
 # Package manager / local metadata

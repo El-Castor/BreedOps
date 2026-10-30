@@ -90,7 +90,7 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - [x] Créer les contraintes et index
 - [x] Compléter les fonctions de calcul métier (voir audit complet dans le journal de session « Business Completion » ; une limitation connue, non nouvelle, subsiste — voir dette technique TD-eliminatory-stability)
 - [x] Créer les politiques RLS
-- [ ] Créer les données de démonstration
+- [x] Créer les données de démonstration (`supabase/seed.sql` — opt-in explicite via `[db.seed] enabled = false` dans `config.toml`, jamais appliqué automatiquement à `supabase start`/`db reset`, ni a fortiori à une base retenue/production ; données synthétiques clairement nommées « démonstration »/« DEMO-* »)
 - [x] Tester les migrations sur une base vide
 - [x] Documenter les relations entre tables
 
@@ -200,7 +200,7 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - [x] Vérifier les risques XSS
 - [x] Vérifier les risques d’injection
 - [x] Vérifier les risques CSRF
-- [ ] Limiter les tentatives de connexion
+- [x] Limiter les tentatives de connexion (migration `000023`, table `auth_rate_limits` sans RLS ni grant client — accessible uniquement via le client service-role du serveur ; verrouillage exponentiel par email et par IP à partir de la 5ᵉ tentative échouée consécutive, 30 s→15 min ; validé par 15/15 assertions pgTap et de bout en bout via de vraies requêtes HTTP contre `/auth/login`, y compris la preuve qu'un mot de passe correct reste refusé pendant le verrouillage)
 - [x] Instrumenter le journal d’audit pour la gestion utilisateur
 - [x] Tester la séparation entre utilisateurs
 
@@ -212,8 +212,8 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - [x] Tests des politiques RLS
 - [x] Tests d’intégration
 - [x] Tests end-to-end
-- [ ] Tests d’accessibilité
-- [ ] Tests responsive
+- [x] Tests d’accessibilité (audit automatisé axe-core — 0 violation sur 10 combinaisons page/thème après 3 correctifs réels : `role="img"` manquant sur l'icône notifications, `role="graphics-document"` sur le graphe de pedigree pour ses nœuds réellement interactifs, contraste insuffisant de `--text-muted`/`--botanical` ; UAT clavier manuel réel : connexion entièrement au clavier, activation Entrée d'une ligne de registre, indicateur de focus visible confirmé ; `e2e/accessibility-smoke.spec.ts` pérennise ce contrôle. Portée volontairement un filet de régression, pas une certification WCAG 2.2 AA complète)
+- [x] Tests responsive (1440/1280/1024/768/390px sur 5 pages clés — aucun débordement horizontal de page réel à aucune largeur, confirmé par `document.body.scrollWidth` et par un test de défilement réel ; les grands tableaux et la barre d'onglets défilent volontairement dans leur propre conteneur accessible `.table-wrap`/`.tabs`, jamais la page entière. `e2e/responsive-smoke.spec.ts` pérennise ce contrôle)
 - [x] Tests d’import
 - [x] Tests d’export
 - [x] Vérification des erreurs TypeScript
@@ -225,12 +225,12 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 - [x] Guide d’installation
 - [x] Guide Supabase
 - [x] Guide des migrations
-- [ ] Guide de déploiement
-- [ ] Guide administrateur
-- [ ] Guide utilisateur
+- [x] Guide de déploiement (`docs/DEPLOYMENT_GUIDE.md` — Mac mini et serveur Linux, checkout dédié, supervision de processus `launchd`/`systemd`, séparation développement/production ; `docs/REMOTE_ACCESS.md` pour la recommandation d'accès à distance, non configurée automatiquement)
+- [x] Guide administrateur (`docs/ADMIN_GUIDE.md` — utilisateurs, mots de passe, limitation de connexion, migrations, journaux, sauvegardes, mises à niveau, contrôle de santé, dépannage, récupération d'urgence)
+- [x] Guide utilisateur (`docs/PILOT_GUIDE.md` — déjà complet depuis un jalon antérieur pour l'ensemble du parcours fonctionnel ; complété à ce jalon avec la limitation des tentatives de connexion et le renvoi vers `docs/BACKUP.md`)
 - [x] Description du modèle de données
 - [x] Description des rôles
-- [ ] Description des sauvegardes
+- [x] Description des sauvegardes (`docs/BACKUP.md` — deux couches explicitement distinguées, export fonctionnel applicatif déjà livré et sauvegarde infrastructure PostgreSQL + Stockage nouvellement scriptée ; exercice de restauration réel validé sur infrastructure jetable, voir §4.8)
 - [x] Liste des limites du MVP
 - [x] Roadmap V2
 
@@ -268,54 +268,59 @@ Conclusion: la fondation locale est en place, mais le projet n'est pas encore ex
 | ID | Élément | Risque | Priorité | Version cible | Statut |
 | -- | ------- | ------ | -------- | ------------- | ------ |
 | TD-001 | Les mutations pilotées rechargent la route courante après succès afin d’éviter le blocage RSC observé avec `useActionState` sur le build de production | Faible: navigation plus coûteuse, données immédiatement relues depuis PostgreSQL | P2 | Post-MVP | Accepté |
-| TD-002 | `npm audit` conserve 7 avis high et 2 moderate dans les chaînes Tailwind/ESLint de build | Faible pour le runtime; les correctifs proposés imposent Tailwind 4 ou une régression majeure d’ESLint/Next | P2 | Maintenance | Surveillé |
+| TD-002 | `npm audit` (ré-audité au jalon « V1 Final Stabilization ») : l'avis **critique** sur `next` (RCE Image Optimization SVG, DoS Server Actions, empoisonnement de cache self-hosted) a été corrigé en mettant à niveau `next` 15.5.25→15.5.28 (correctif mineur, non disruptif, build/tests/lint revérifiés verts). Restent 8 avis (6 moderate, 2 high) dans des dépendances de outillage/build (`vite`/`@vitest/mocker`, `postcss-selector-parser`) jamais exposées au runtime de production, et `sharp`/`uuid` (via `exceljs`) : `sharp` n'est jamais appelé directement par le code BreedOps (uniquement une dépendance transitive) et son CVE concerne spécifiquement le traitement SVG via librsvg — BreedOps n'accepte jamais de SVG en upload (seuls JPEG/PNG/WebP, vérifiés par signature binaire, voir `src/lib/media/image-signature.ts`), donc le chemin vulnérable n'est pas atteignable. Les correctifs restants exigent tous des changements majeurs cassants (`zod@4`, `exceljs@3.4.0`) disproportionnés pour un risque non exploitable par le code applicatif actuel. | Faible pour le runtime de production actuel; surveiller lors d'une prochaine mise à niveau majeure planifiée de ces dépendances | P2 | Maintenance | Surveillé (critique résolu) |
 | TD-003 | Sur `/app/breeding`, la navigation client Next.js 15.5 limitée à la query string (`?archived=1`) est interrompue silencieusement en production; le bouton d’archives utilise une navigation document | Faible: rechargement complet sur ce lien; autres liens inchangés | P3 | Mise à niveau Next/React | Contourné |
-| TD-004 | Images de plantes: section inspecteur prête mais sans stockage (Supabase Storage + métadonnées non implémentés) | Fonctionnalité absente, aucune donnée factice | P2 | Jalon médias | Ouvert |
+| TD-004 | *(Résolu — obsolète)* Images de plantes : ce qui était noté comme « section inspecteur prête mais sans stockage » a été intégralement livré au jalon Plant Media (Supabase Storage privé + métadonnées + galerie + URLs signées), puis durci au jalon V1 Final Stabilization (contrôle de restauration réel, voir `docs/BACKUP.md`). Conservé ici uniquement pour l'historique, ne reflète plus l'état actuel. | — | — | — | Résolu |
+| TD-005 | `refresh_phenotype_evaluation` (migration 000004, étendue au jalon Business Completion) identifie toujours le score de stabilité via `WHERE criterion.code = 'stability'` codé en dur, hérité du modèle V1 initial à 6 critères fixes | Fonctionne correctement pour tout programme utilisant le modèle V1 par défaut sans le renommer ; ne généraliserait pas si une équipe renommait ou supprimait ce critère précis | P3 | V2 (généraliser via un indicateur sur `selection_criteria` plutôt qu'un code en dur) | Accepté |
+| TD-006 | Anomalie RLS sur les mises à jour directes de `inventory_lots.deleted_at`/`phenotype_scores.deleted_at` par un client : une politique SELECT filtrant `deleted_at IS NULL` fait échouer un `UPDATE ... SET deleted_at = ...` même sans `RETURNING` (confirmé empiriquement au jalon V1 Final Stabilization lors du diagnostic de l'anomalie identique sur `selection_criteria`, qui elle a été corrigée — voir dette résolue dans le journal de session « Business Completion », correctif 2). Ré-audité à ce jalon : aucun chemin applicatif ne mute directement `deleted_at` sur ces deux tables (confirmé par une recherche exhaustive dans `src/` — seules des lectures ou des mutations via les fonctions `SECURITY DEFINER` dédiées existent) | Non exploitable aujourd'hui : non atteignable par aucune fonctionnalité livrée | P3 | V2, ou immédiatement si une fonctionnalité de retrait de note ou d'archivage direct de lot d'inventaire est un jour ajoutée (appliquer le même correctif que `selection_criteria_read` : autoriser sur l'accès au programme/équipe seul, pas sur `deleted_at`) | Accepté (non atteignable) |
+| TD-007 | `set_program_trait_weight` un-weight/restore path — *(Résolu)* corrigé au jalon « PR #7 — selection_criteria RLS fix » (commit `891969c`) : politique `selection_criteria_read` réécrite sur l'accès au programme seul, et `set_program_trait_weight` réordonné pour calculer `maximum_score` avant la mutation qui déclenche le recalcul. 66/66 assertions pgTap, validé depuis zéro et sur un chemin de mise à niveau réaliste. Conservé ici pour l'historique uniquement. | — | — | — | Résolu |
 
 ---
 
 ## 4.7 Critères d’acceptation
 
 > Critères MVP issus de `PROMPT.md` §19. Ne cocher que lorsqu’ils sont vérifiés.
+>
+> Réconciliés au jalon « V1 Final Stabilization & Delivery » : cette section était restée entièrement décochée malgré des preuves déjà accumulées sur de nombreux jalons antérieurs (journal §4.8 complet) — chaque case ci-dessous a été vérifiée contre une preuve réelle (test automatisé passant et/ou UAT navigateur réel documenté dans ce fichier) avant d'être cochée, jamais cochée pour la simple raison que du code a été écrit.
 
-- [ ] Un utilisateur peut se connecter
-- [ ] Les rôles sont appliqués
-- [ ] Les routes sont protégées
-- [ ] Les politiques RLS sont testées
-- [ ] Un programme peut être créé
-- [ ] Des parents peuvent être créés
-- [ ] Un croisement peut être créé
-- [ ] Une famille et un lot peuvent être créés
-- [ ] Un test de germination peut être enregistré
-- [ ] Les calculs sont corrects
-- [ ] Un phénotype peut être évalué
-- [ ] Le score et la décision sont calculés
-- [ ] Un article d’inventaire peut être créé
-- [ ] Un lot de stock peut être réceptionné
-- [ ] Un mouvement peut être enregistré
-- [ ] Les stocks sont recalculés correctement
-- [ ] Les alertes de stock et de péremption fonctionnent
-- [ ] Un cycle expérimental peut être créé
-- [ ] Des tâches peuvent être générées
-- [ ] Les retards sont calculés
-- [ ] Le calendrier et le Gantt sont utilisables
-- [ ] Le tableau de bord affiche des KPI réels
-- [ ] L’import Excel fonctionne sur un fichier conforme
-- [ ] L’export fonctionne
-- [ ] Le journal d’audit fonctionne
-- [ ] Les tests passent
-- [ ] Le build de production réussit
-- [ ] Aucune erreur TypeScript bloquante n’existe
-- [ ] La documentation est complète
-- [ ] `agend.md` reflète fidèlement l’état réel du projet
+- [x] Un utilisateur peut se connecter (`tests/auth.integration.test.ts`, UAT clavier réel ce jalon)
+- [x] Les rôles sont appliqués (`tests/auth-rls.sql` 25/25 ; trois rôles V1 testés dans tous les jalons de domaine)
+- [x] Les routes sont protégées (`src/middleware.ts` + `requireIdentity`/`requireAdministrator`, testé par les suites d'intégration)
+- [x] Les politiques RLS sont testées (`tests/auth-rls.sql`, et une suite RLS dédiée par domaine — élevage, phénotypage, inventaire, workflows, import/export, achèvement métier, limitation de connexion)
+- [x] Un programme peut être créé (registre Élevage, testé et utilisé dans chaque jalon UAT)
+- [x] Des parents peuvent être créés (idem)
+- [x] Un croisement peut être créé (idem)
+- [x] Une famille et un lot peuvent être créés (idem ; cycle de vie opérationnel du lot ajouté et testé au jalon Business Completion)
+- [x] Un test de germination peut être enregistré (taux calculé par PostgreSQL, testé)
+- [x] Les calculs sont corrects (audit exhaustif des fonctions de calcul métier au jalon Business Completion — `BUSINESS_CALCULATIONS_COMPLETE=YES`)
+- [x] Un phénotype peut être évalué (`tests/configurable-phenotyping.sql` 32/32)
+- [x] Le score et la décision sont calculés (idem, y compris les critères éliminatoires et leur recalcul en direct, jalon Business Completion)
+- [x] Un article d’inventaire peut être créé (`tests/business-completion.sql`, UAT réel)
+- [x] Un lot de stock peut être réceptionné (idem)
+- [x] Un mouvement peut être enregistré (idem)
+- [x] Les stocks sont recalculés correctement (idem)
+- [x] Les alertes de stock et de péremption fonctionnent (idem ; règle de suffisance de couverture durcie au correctif Business Completion)
+- [x] Un cycle expérimental peut être créé (`tests/experimental-workflows.sql` 38/38)
+- [x] Des tâches peuvent être générées (idem)
+- [x] Les retards sont calculés (idem)
+- [x] Le calendrier et le Gantt sont utilisables (UAT réel, jalon Workflows)
+- [x] Le tableau de bord affiche des KPI réels (six graphiques + filtres programme/campagne, jalon Business Completion)
+- [x] L’import Excel fonctionne sur un fichier conforme (`tests/import-export.sql` 40/40, UAT upload→aperçu→validation→import)
+- [x] L’export fonctionne (CSV/Excel par registre, classeur de sauvegarde fonctionnelle, matrice de sélection)
+- [x] Le journal d’audit fonctionne (`audit_logs`, testé à plusieurs jalons — gestion utilisateur, import/export, changement de statut de lot)
+- [x] Les tests passent (suite complète rejouée à ce jalon : unitaires 62/62, pgTap toutes suites, intégration, E2E — voir `docs/RELEASE_CHECKLIST.md`)
+- [x] Le build de production réussit (revérifié à ce jalon après chaque changement, y compris après la mise à niveau de sécurité `next`)
+- [x] Aucune erreur TypeScript bloquante n’existe (`tsc --noEmit` revérifié à ce jalon)
+- [x] La documentation est complète (guides administrateur/utilisateur/déploiement/accès à distance/sauvegarde/checklist de sortie tous présents et à jour à ce jalon)
+- [x] `agend.md` reflète fidèlement l’état réel du projet (réconciliation explicite effectuée à ce jalon, y compris la correction d'entrées de dette obsolètes)
 
-### Critères d’acceptation par module (à détailler au fil de l’implémentation)
+### Critères d’acceptation par module
 
-- [ ] Module 1 — Authentification et rôles
-- [ ] Module 2 — Registre des croisements et lots
-- [ ] Module 3 — Notation phénotypique
-- [ ] Module 4 — Inventaire et mouvements
-- [ ] Module 5 — Calendrier, alertes, Gantt et tableau de bord
+- [x] Module 1 — Authentification et rôles
+- [x] Module 2 — Registre des croisements et lots
+- [x] Module 3 — Notation phénotypique
+- [x] Module 4 — Inventaire et mouvements
+- [x] Module 5 — Calendrier, alertes, Gantt et tableau de bord
 
 ---
 
@@ -613,6 +618,27 @@ L'anomalie précédemment signalée comme dette technique (`task_329a6c73`) a é
 - **Important, rappelé explicitement par l'utilisateur** : la base retenue de ce bac à sable cloud (conteneur `supabase_db_BreedOps`, bloquée à la migration `000017`) n'est **pas** la base Mac réelle de l'utilisateur — ce sont deux environnements distincts, et l'état de migration de l'un ne doit jamais être inféré de l'autre. La base Mac réelle de l'utilisateur a déjà été avancée et validée indépendamment à travers les jalons précédents ; ce correctif ne formule aucune affirmation sur son état actuel. La migration 000022 (corrigée) n'a été appliquée que sur les piles jetables de ce correctif.
 - **Portée respectée** : seule `selection_criteria_read` et `set_program_trait_weight` ont été modifiées (toutes deux réécrites à l'intérieur de la migration 000022 elle-même, qui n'est toujours appliquée nulle part en dehors des piles jetables) ; `set_criterion_eliminatory_rule` et le reste du correctif précédent sont inchangés ; aucune politique DELETE ajoutée ; aucune isolation inter-équipe/inter-programme affaiblie ; l'anomalie `inventory_lots.deleted_at` séparément observée reste une dette technique documentée (aucun chemin applicatif direct ne la emprunte, contrairement à `selection_criteria`) et n'a volontairement pas été élargie à ce correctif.
 - **STATUT DE CETTE CORRECTION (2) : `SAFE_TO_MERGE_PR=NO`** (inchangé) — poussé sur la même branche `claude/business-completion-dashboard`, PR #7 mise à jour par commentaire (jamais fusionnée). Aucun nouveau jalon commencé.
+
+**Note de transition** : PR #7 a depuis été fusionnée dans `main` (confirmé indépendamment au jalon suivant par `git merge-base --is-ancestor 891969c... origin/main`, pas simplement affirmé) — tête de `main` au commit `fa5c5b9d...`. Le jalon suivant démarre depuis `main` après cette fusion, sur une nouvelle branche dédiée.
+
+### Session 2026-10-30 — V1 Final Stabilization & Delivery (branche `claude/v1-final-stabilization-delivery`)
+
+Jalon final avant release V1 : audit de sortie, durcissement sécurité, accessibilité, responsive, CI, sauvegardes, documentation d'exploitation. Démarré seulement après vérification indépendante que `891969c...` (tête du jalon Business Completion) est bien ancêtre de `origin/main`, et que `main` correspond exactement au commit attendu — confirmé par deux appels `git merge-base --is-ancestor`, pas simplement affirmé.
+
+- **Audit de sortie** : chaque case ouverte restante de la feuille de route (données de démonstration, historique générique, limitation de connexion, tests d'accessibilité/responsive, guides de déploiement/administrateur/utilisateur, description des sauvegardes) classée puis traitée — voir §4.3 pour chaque case désormais cochée avec sa preuve, et §4.6/§4.7 pour la dette technique et les critères d'acceptation réconciliés avec preuve. Décision explicite : l'historique générique des modifications d'élevage reste accepté hors V1 (disproportionné par rapport au reste du jalon ; la seule mutation sensible réellement nouvelle du jalon précédent — changement de statut de lot — est déjà auditée).
+- **Limitation des tentatives de connexion** : nouvelle migration `000023_login_rate_limiting.sql` — table `auth_rate_limits` sans aucune politique RLS ni grant `anon`/`authenticated` (accessible uniquement via le client service-role du serveur, jamais exposée par PostgREST), deux fonctions `SECURITY DEFINER` (`auth_rate_limit_check`/`auth_rate_limit_record`), verrouillage exponentiel (30 s→15 min plafonné) à partir de la 5ᵉ tentative échouée consécutive, par email et par IP indépendamment. `src/app/auth/login/route.ts` vérifie le verrou **avant** d'appeler Supabase Auth (une requête verrouillée n'atteint même pas Supabase) et enregistre le résultat après. Protection serveur uniquement, aucun mot de passe stocké, non contournable par rafraîchissement du navigateur. 15/15 assertions pgTap (`tests/auth-rate-limiting.sql`) — notamment la découverte, documentée dans le fichier de test lui-même, qu'un appel direct à une fonction volatile à l'intérieur de `results_eq()` de pgTap peut être évalué plus d'une fois par pgTap en interne, nécessitant de matérialiser chaque appel mutant dans une table temporaire avant assertion. Validé de bout en bout par de vraies requêtes HTTP contre `/auth/login` sur une pile jetable : 5 échecs verrouillent le compte, un mot de passe **correct** reste refusé pendant le verrouillage (preuve que ce n'est pas contournable), puis réussit une fois le délai écoulé.
+- **Audit sécurité** : revue ciblée (authentification, Server Actions, upload média, import/export, RLS, SECURITY DEFINER, exports téléchargeables, messages d'erreur, secrets, CSRF). Un vrai correctif appliqué : **injection de formule dans les exports CSV** (`src/lib/import-export/csv.ts`) — une cellule texte libre commençant par `=`, `+`, `-`, `@`, tabulation ou retour chariot est désormais préfixée d'une apostrophe avant toute application du guillemetage CSV existant, neutralisant l'interprétation en formule par Excel/Sheets/Numbers sans jamais restreindre les caractères qu'un utilisateur peut saisir ; testé (`tests/import-export-export.test.ts`). Confirmé : les exports XLSX ne sont pas vulnérables au même titre (type de cellule explicite dans le format OOXML, contrairement au CSV). Autres points vérifiés sans exploitation réelle trouvée : CSRF déjà par vérification d'origine sur toutes les routes mutantes, erreurs Postgres déjà systématiquement journalisées côté serveur et jamais renvoyées brutes au client (`actionError`), upload média déjà strictement validé par signature binaire (jamais le type déclaré par le client) avec limite de taille, aucun secret serveur dans les artefacts client (`npm run security:client-secrets`). `npm audit` : l'avis **critique** sur `next` (RCE Image Optimization SVG, DoS Server Actions, empoisonnement de cache self-hosted — les deux derniers directement pertinents pour l'architecture BreedOps) corrigé par mise à niveau non disruptive `next` 15.5.25→15.5.28 ; 8 avis restants (6 moderate, 2 high) documentés comme dette (`TD-002` révisé) — tous dans l'outillage de build ou des dépendances transitives à un chemin non atteignable par le code applicatif (`sharp`/SVG : BreedOps n'accepte jamais de SVG en upload).
+- **Accessibilité** : audit automatisé réel (axe-core, règles WCAG 2.0/2.1 A/AA) sur 10 combinaisons page/thème (connexion, tableau de bord, élevage, pedigree, phénotypage ×2, inventaire, opérations, import/export, administration, +2 en thème sombre) — 3 violations réelles trouvées et corrigées : `aria-label` sur un `<span>` générique sans rôle autorisé (ajout de `role="img"`, icône notifications) ; conflit « interactif imbriqué » sur le graphe de pedigree (ses nœuds sont de vrais boutons accessibles au clavier — `role="graphics-document"` remplace `role="img"` sur le conteneur SVG, qui annonçait à tort l'absence de tout contenu interactif) ; contraste insuffisant mesuré (`--text-muted` ~4,9:1 et `--botanical` ~4,46:1 sur fond clair, sous le seuil AA de 4,5:1) corrigé en assombrissant légèrement les deux jetons (~7:1 et ~5,75:1 respectivement), sans régression détectée ailleurs par un nouveau passage axe-core. UAT clavier manuel réel complémentaire : connexion entièrement au clavier (Tab/Tab/Entrée) jusqu'à `/app`, activation d'une ligne de registre par Entrée ouvrant l'inspecteur, indicateur de focus visible confirmé (contour 2px, jamais supprimé). Pérennisé par `e2e/accessibility-smoke.spec.ts`. Portée assumée : un filet de régression automatisé et un échantillon clavier manuel, jamais une certification WCAG 2.2 AA complète.
+- **Responsive** : passage réel à 1440/1280/1024/768/390px sur cinq pages. Mesure initiale naïve (`document.documentElement.scrollWidth`) laissait croire à un débordement de page aux largeurs étroites ; investigation poussée a montré qu'il s'agissait d'un artefact de mesure du navigateur (un descendant correctement contenu avec son propre `overflow-x: auto` peut faire remonter un `scrollWidth` plus grand sur `<html>` sans que la page elle-même défile) — confirmé en vérifiant `window.scrollX` après un événement de défilement réel : toujours `0`. La mesure correcte (`document.body.scrollWidth` contre la largeur de la fenêtre, et un défilement réel tenté) ne montre aucun débordement de page à aucune largeur testée. Les grands tableaux (`table-wrap`, déjà `role="region"`/`tabIndex`) et la barre de sous-navigation (`.tabs`) défilent correctement dans leur propre conteneur, jamais la page entière — exactement le comportement « défilement horizontal intentionnel et utilisable » que la consigne autorise pour les grands tableaux scientifiques. Pérennisé par `e2e/responsive-smoke.spec.ts`.
+- **Gestion des erreurs** : audité en même temps que la sécurité — `actionError` (déjà existant) journalise systématiquement l'erreur détaillée côté serveur (`console.error`) et ne renvoie qu'un message générique français au client, jamais une trace brute ; un point résiduel documenté plutôt que corrigé : `applyImportAction`/les routes d'export renvoient parfois le message brut d'une exception RPC Postgres (`Import annulé : ${error.message}`) — risque jugé faible et accepté (les exceptions métier de ce code sont déjà rédigées en français propre par conception ; seul un bug non prévu produirait un message interne, et uniquement visible par l'utilisateur authentifié de sa propre action, jamais par un tiers).
+- **CI** : `.github/workflows/ci.yml` créé (aucune CI n'existait avant ce jalon) — jobs statique (typecheck/lint/format/scan de secrets/build), unitaire, base de données (pile Supabase jetable démarrée/arrêtée par le job lui-même, jamais une base retenue — dans GitHub Actions, chaque exécution est par construction une pile fraîche, donc `npm run db:start` y est déjà l'équivalent exact d'une pile jetable), intégration/E2E. Mécanique de chaque job validée en composant ses commandes individuelles, déjà prouvées une à une sur les piles jetables de ce bac à sable tout au long de ce jalon ; le job complet n'a pas été exécuté littéralement ici, puisque cela nécessiterait soit GitHub Actions lui-même, soit de retirer temporairement la base retenue de ce bac à sable de ses ports par défaut — délibérément non tenté.
+- **Sauvegardes** : `docs/BACKUP.md` distingue explicitement les deux couches (export fonctionnel déjà livré, sauvegarde infrastructure nouvellement scriptée). `scripts/backup-infra.mjs`/`scripts/restore-infra.mjs` : dump schéma+données via le CLI Supabase déjà utilisé partout ailleurs dans ce dépôt (exclusion délibérée de `storage.buckets`/`storage.migrations`, bookkeeping interne déjà recréé par une pile fraîche), fichiers Stockage téléchargés/ré-uploadés via l'API REST de Stockage avec leur type MIME d'origine préservé (nécessaire : un ré-upload sans cela est rejeté par la liste blanche stricte du bucket). **Exercice de restauration réel effectué** : données représentatives créées sur une pile jetable (y compris une vraie image de média), sauvegardées, restaurées dans une **seconde** pile jetable entièrement neuve (migrations appliquées depuis zéro, données restaurées avec `--skip-schema` — le schéma de référence reste les migrations versionnées, jamais le dump), comptages identiques vérifiés sur chaque table, et test applicatif réel : connexion avec le compte restauré, navigation élevage/phénotypage/inventaire, et l'image de média restaurée **s'affiche réellement** (chargement binaire confirmé). `BACKUP_RESTORE_DRILL=PASS`. Les deux piles jetables détruites après l'exercice.
+- **Configuration de production et supervision** : `src/instrumentation.ts` (nouveau, mécanisme natif Next.js 15) fait échouer bruyamment le démarrage du serveur en production si une variable d'environnement requise manque (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_ORIGIN`) plutôt que de démarrer silencieusement mal configuré — notamment motivé par `APP_ORIGIN` : son absence faisait reposer la vérification CSRF (`sameOrigin()`) sur une valeur dérivée de la requête elle-même, fragile derrière un reverse proxy. `GET /api/health` (nouveau, sans authentification) renvoie `{"status":"ok"}`/200 ou `{"status":"degraded","reason":"configuration"}`/503, sans jamais exposer de détail d'infrastructure (pas de chaîne de connexion, pas de nom d'hôte, pas d'identifiant) et sans appel réseau vers PostgreSQL/Stockage (un contrôle de démarrage, pas une sonde de bout en bout). Testés (`tests/instrumentation.test.ts`, `tests/health.test.ts`).
+- **Documentation d'exploitation** : `docs/ADMIN_GUIDE.md`, `docs/DEPLOYMENT_GUIDE.md` (Mac mini + Linux, supervision `launchd`/`systemd`, séparation développement/production), `docs/REMOTE_ACCESS.md` (recommandation VPN/maillage privé par défaut plutôt qu'exposition publique directe — jamais configuré automatiquement), `docs/RELEASE_CHECKLIST.md` (`npm run release:check`, un seul script orchestrant l'intégralité de la porte de sortie sur une pile jetable qu'il démarre et arrête lui-même, résumé final explicite listant chaque étape PASS/FAIL/SKIPPED, jamais un échec masqué).
+- **Dette technique ré-auditée** : voir §4.6 — critère « stability » codé en dur (accepté, documenté pour la première fois formellement), anomalies RLS `inventory_lots`/`phenotype_scores.deleted_at` (confirmées toujours non atteignables par recherche exhaustive dans `src/`, donc toujours acceptées), entrée obsolète sur les médias de plantes (marquée résolue, la fonctionnalité existe depuis plusieurs jalons), entrée sur `selection_criteria`/`set_program_trait_weight` marquée résolue (jalon précédent). Aucune dette fermée sans preuve ; aucune dette laissée ouverte alors qu'elle est résolue.
+- **Limite environnementale rappelée explicitement** : ce jalon s'exécute dans un bac à sable cloud, jamais sur le Mac mini réel de l'utilisateur. Rien ici n'affirme qu'un déploiement réel fonctionne — seule une validation effectuée par l'utilisateur sur sa propre machine peut l'affirmer. Distinction explicite tenue tout du long entre ce qui a été validé sur infrastructure jetable (migrations, RLS, tous les domaines métier, limitation de connexion, accessibilité, responsive, sauvegarde/restauration) et ce qui reste à valider par l'utilisateur lui-même (déploiement Mac mini/Linux réel, accès à distance réel).
+- **Portée respectée** : aucune fonctionnalité métier spéculative ajoutée ; aucun changement du modèle d'autorisation V1 (toujours exactement trois rôles) ; aucune migration `000001`–`000022` modifiée ; aucune politique RLS affaiblie ; aucune commande destructive exécutée contre une base retenue ; aucun secret exposé côté client.
+- **STATUT DE CE JALON : `SAFE_TO_MERGE_PR=NO`** — branche `claude/v1-final-stabilization-delivery` poussée, PR ouverte vers `main` pour revue humaine, jamais fusionnée automatiquement. Aucun jalon V2 commencé.
 
 ---
 

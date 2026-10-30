@@ -172,7 +172,14 @@ export function PedigreeGraph({
           </button>
         </div>
         <svg
-          role="img"
+          // Each pedigree node below is a real, keyboard-operable button
+          // (role="button", tabIndex, onClick/onKeyDown) - role="img" would
+          // claim the whole graphic has no interactive content, which axe
+          // correctly flags as a nested-interactive conflict.
+          // graphics-document (WAI-ARIA Graphics module) is the role meant
+          // for exactly this: an SVG container whose descendants are
+          // themselves interactive.
+          role="graphics-document"
           aria-label="Relations entre parents, croisements, familles et lots"
           viewBox={`0 0 1080 ${height}`}
           onPointerDown={(event) => {

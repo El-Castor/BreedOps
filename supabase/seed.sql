@@ -1,4 +1,14 @@
--- Local demonstration data only. It is applied by `supabase db reset`.
+-- Local demonstration data only: synthetic organization, program, and
+-- breeding records, clearly fictitious (see the "Démonstration"/"DEMO-*"
+-- naming throughout) and safe only for disposable/demo environments.
+-- Explicit opt-in: [db.seed] enabled = false in supabase/config.toml, so
+-- neither `supabase start` nor `supabase db reset` applies this file by
+-- default - including against the retained/production database. To seed
+-- a disposable or demo environment with this data, either run
+-- `supabase db reset` from a checkout with `enabled = true` set locally
+-- (never commit that change), or apply this file directly with
+-- `psql <db-url> -f supabase/seed.sql` against a stack you know is
+-- disposable. See docs/ADMIN_GUIDE.md "Données de démonstration".
 
 INSERT INTO organizations (id, name, slug)
 VALUES ('10000000-0000-0000-0000-000000000001', 'Équipe Démonstration', 'equipe-demo')

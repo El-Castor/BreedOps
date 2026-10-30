@@ -239,6 +239,7 @@ export function AppShell({
           <div className="header-spacer" />
           <span
             className="icon-button future-slot"
+            role="img"
             aria-label="Notifications prévues ultérieurement"
             title="Notifications · bientôt"
           >
