@@ -116,6 +116,7 @@ try {
       ["test:phenotyping", "phenotype configuration"],
       ["test:media", "plant media"],
       ["test:advanced-media", "advanced media metadata/annotations"],
+      ["test:trait-analytics", "trait analytics provenance/RLS"],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
       [
@@ -192,6 +193,7 @@ try {
             "test:advanced-media-integration",
             "advanced media metadata/annotations integration",
           ],
+          ["test:trait-analytics-integration", "trait analytics integration"],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;
