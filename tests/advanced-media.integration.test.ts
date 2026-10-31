@@ -302,12 +302,17 @@ describe.sequential("advanced media metadata and annotations", () => {
     body.set("scale_note", "règle 10cm");
     body.set("scientific_note", "Nécrose observée au bord du limbe.");
     body.set("is_primary", "false");
+    // uploadMedia (unlike e.g. markNotificationRead) never calls
+    // redirect() server-side - success/failure is reported back as an
+    // ActionState the client reads and then reloads on its own via JS,
+    // so a plain headless POST just gets an ordinary 200 RSC action
+    // response, not a 303. The database row is the real assertion.
     const response = await request(pageUrl, {
       method: "POST",
       headers: { origin: base },
       body,
     });
-    expect(response.status).toBe(303);
+    expect(response.status).toBe(200);
 
     const row = await admin
       .from("media_assets")
