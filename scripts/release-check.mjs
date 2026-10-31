@@ -123,6 +123,7 @@ try {
       ],
       ["test:auth-rate-limiting", "login rate limiting"],
       ["test:audit-logs-cleanup", "audit_logs cleanup trigger regression"],
+      ["test:notifications-rls", "notification center generation/RLS"],
     ];
     if (!fatal) {
       for (const [script] of dbSuites) {
@@ -185,6 +186,7 @@ try {
           ["test:inventory", "inventory integration"],
           ["test:operations", "operations integration"],
           ["test:qr", "QR lookup authorization"],
+          ["test:notifications", "notification center integration"],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;

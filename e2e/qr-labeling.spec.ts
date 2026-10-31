@@ -141,7 +141,7 @@ test("open an entity, display its QR label, scan-navigate to it, and deny it acr
 
   // 5. A different team's account scanning the exact same QR must not
   // retrieve it.
-  await page.locator("header details > summary").click();
+  await page.locator("header details.user-menu > summary").click();
   await Promise.all([
     page.waitForURL(/\/login/),
     page.getByRole("button", { name: "Déconnexion" }).click(),
