@@ -6,7 +6,7 @@
 -- migration 000026.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(31);
+SELECT plan(32);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-0000000000b1','AdvMedia A','adv-media-a'),
@@ -99,9 +99,13 @@ SELECT throws_ok(
   $$INSERT INTO media_annotations(media_asset_id,annotation_type,x,y,label) VALUES ('dddddddd-0000-0000-0000-0000000000b1','point',0.5,0.5,repeat('x',301))$$,
   '23514', NULL, 'an annotation label over 300 characters is rejected'
 );
+-- RLS evaluates (and rejects) this before the foreign key constraint
+-- ever gets a chance to - a non-existent media_asset_id gets the exact
+-- same rejection as a real cross-team one, consistent with this schema's
+-- "no distinguishing signal" convention elsewhere (e.g. the QR lookup).
 SELECT throws_ok(
   $$INSERT INTO media_annotations(media_asset_id,annotation_type,x,y) VALUES ('99999999-9999-9999-9999-999999999999','point',0.5,0.5)$$,
-  '23503', NULL, 'an annotation cannot reference a non-existent media asset'
+  '42501', NULL, 'an annotation cannot reference a non-existent media asset'
 );
 
 -- ───────── Cross-team isolation (derived from media_assets, not a client-supplied org) ─────────
@@ -130,9 +134,18 @@ SELECT throws_ok(
   $$INSERT INTO media_annotations(media_asset_id,annotation_type,x,y) VALUES ('dddddddd-0000-0000-0000-0000000000b1','point',0.3,0.3)$$,
   '42501', NULL, 'no new annotation may be created on already-archived media'
 );
-SELECT throws_ok(
+-- An UPDATE whose USING clause excludes every target row is a silent
+-- 0-row no-op in Postgres RLS, not a raised error (the same shape as
+-- "attempting to mark a teammate's notification as read" elsewhere in
+-- this schema) - the real assertion is that the label genuinely never
+-- changed.
+SELECT lives_ok(
   $$UPDATE media_annotations SET label='edited while archived' WHERE id='eeeeeeee-0000-0000-0000-0000000000b1'$$,
-  '42501', NULL, 'an existing annotation cannot be edited while its media is archived'
+  'editing an annotation while its media is archived does not raise (silently affects zero rows)'
+);
+SELECT is(
+  (SELECT label FROM media_annotations WHERE id='eeeeeeee-0000-0000-0000-0000000000b1'),
+  'bourgeon', 'the annotation''s label was not actually changed while its media was archived'
 );
 UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id='dddddddd-0000-0000-0000-0000000000b1';
 SELECT lives_ok(
@@ -141,9 +154,13 @@ SELECT lives_ok(
 );
 
 -- ───────── Annotation identity guard and lifecycle ─────────
+-- A second, same-team media asset to prove reassignment itself (not
+-- merely a no-op write of the same value) is rejected.
+INSERT INTO media_assets(id,parent_line_id,storage_path,original_filename,mime_type,byte_size) VALUES
+ ('dddddddd-0000-0000-0000-0000000000b2','77777777-0000-0000-0000-0000000000b1','org/b1/second.jpg','second.jpg','image/jpeg',500);
 SELECT throws_ok(
-  $$UPDATE media_annotations SET media_asset_id='dddddddd-0000-0000-0000-0000000000b1' WHERE id='eeeeeeee-0000-0000-0000-0000000000b2'$$,
-  '23514', NULL, 'an annotation''s media_asset_id is immutable (self-reassignment still rejected, same value or not)'
+  $$UPDATE media_annotations SET media_asset_id='dddddddd-0000-0000-0000-0000000000b2' WHERE id='eeeeeeee-0000-0000-0000-0000000000b2'$$,
+  '23514', NULL, 'an annotation''s media_asset_id is immutable (reassigning it to a different, even same-team, media asset is rejected)'
 );
 SELECT throws_ok(
   $$UPDATE media_annotations SET annotation_type='point' WHERE id='eeeeeeee-0000-0000-0000-0000000000b2'$$,
