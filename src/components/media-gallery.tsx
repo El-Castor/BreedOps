@@ -4,17 +4,33 @@ import { useEffect, useRef, useState } from "react";
 import { ActionForm } from "@/components/action-form";
 import { FormDrawer } from "@/components/form-drawer";
 import { Icon } from "@/components/icons";
+import { MediaTimelineDrawer } from "@/components/media-comparison";
+import {
+  AddAnnotationForm,
+  AnnotationList,
+  AnnotationOverlay,
+  ArchivedAnnotationList,
+} from "@/components/media-annotations";
 import {
   archiveMediaAction,
   listMedia,
+  listMediaAnnotations,
+  listMediaOperatorCandidates,
   restoreMediaAction,
   setMediaPrimaryAction,
   updateMediaMetadata,
   uploadMedia,
 } from "@/lib/media/actions";
+import { capturePrecision } from "@/lib/media/temporal";
 import {
+  imagingModalities,
+  imagingModalityLabels,
   mediaKindLabels,
   mediaKinds,
+  scaleUnits,
+  viewpointLabels,
+  viewpoints,
+  type MediaAnnotation,
   type MediaAsset,
   type MediaTargetType,
 } from "@/lib/media/types";
@@ -90,6 +106,7 @@ export function MediaGallery({
           targetId={targetId}
           disabled={!canUpload}
         />
+        <MediaTimelineDrawer targetType={targetType} targetId={targetId} />
       </div>
       {error && <p className="form-message error">{error}</p>}
       {items === null && !error && (
@@ -192,7 +209,164 @@ function MediaItemActions({ item }: { item: MediaAsset }) {
   );
 }
 
+/** Shared acquisition-metadata fields for both Upload and Edit - the
+ * caption/type/capture-date trio already existed; everything below the
+ * divider is new in V2-03. Every field is optional. */
+function AcquisitionMetadataFields({
+  defaults,
+  operators,
+}: {
+  defaults?: Partial<MediaAsset>;
+  operators: { id: string; name: string }[];
+}) {
+  return (
+    <>
+      <label>
+        Légende
+        <input
+          name="caption"
+          defaultValue={defaults?.caption ?? ""}
+          maxLength={500}
+        />
+      </label>
+      <label>
+        Type
+        <select name="media_kind" defaultValue={defaults?.mediaKind ?? ""}>
+          <option value="">Non précisé</option>
+          {mediaKinds.map((kind) => (
+            <option key={kind} value={kind}>
+              {mediaKindLabels[kind]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="fields-2">
+        <label>
+          Date de prise de vue
+          <input
+            type="date"
+            name="captured_at"
+            defaultValue={defaults?.capturedAt ?? ""}
+          />
+        </label>
+        <label>
+          Heure (si connue)
+          <input
+            type="time"
+            name="captured_at_time"
+            defaultValue={defaults?.capturedAtTime?.slice(0, 5) ?? ""}
+          />
+        </label>
+      </div>
+      <p className="form-hint">
+        Date seule, date et heure, ou aucune (image non datée) - jamais déduite
+        de la date d’envoi.
+      </p>
+      <hr />
+      <label>
+        Stade de développement
+        <input
+          name="developmental_stage"
+          defaultValue={defaults?.developmentalStage ?? ""}
+          maxLength={60}
+          placeholder="ex. D3, floraison, induction de callus"
+        />
+      </label>
+      <div className="fields-2">
+        <label>
+          Vue
+          <select name="viewpoint" defaultValue={defaults?.viewpoint ?? ""}>
+            <option value="">Non précisée</option>
+            {viewpoints.map((value) => (
+              <option key={value} value={value}>
+                {viewpointLabels[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Modalité d’imagerie
+          <select
+            name="imaging_modality"
+            defaultValue={defaults?.imagingModality ?? ""}
+          >
+            <option value="">Non précisée</option>
+            {imagingModalities.map((value) => (
+              <option key={value} value={value}>
+                {imagingModalityLabels[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Image acquise par
+        <select name="operator_id" defaultValue={defaults?.operatorId ?? ""}>
+          <option value="">Non précisé</option>
+          {operators.map((person) => (
+            <option key={person.id} value={person.id}>
+              {person.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="fields-2">
+        <label>
+          Échelle (valeur)
+          <input
+            name="scale_value"
+            type="number"
+            step="0.001"
+            min="0"
+            defaultValue={defaults?.scaleValue ?? ""}
+          />
+        </label>
+        <label>
+          Unité
+          <select name="scale_unit" defaultValue={defaults?.scaleUnit ?? ""}>
+            <option value="">—</option>
+            {scaleUnits.map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        Référence d’échelle
+        <input
+          name="scale_note"
+          defaultValue={defaults?.scaleNote ?? ""}
+          maxLength={255}
+          placeholder="ex. règle de 10 cm dans le champ"
+        />
+      </label>
+      <label>
+        Note scientifique
+        <textarea
+          name="scientific_note"
+          defaultValue={defaults?.scientificNote ?? ""}
+          maxLength={2000}
+          rows={3}
+        />
+      </label>
+    </>
+  );
+}
+
+function useOperatorCandidates() {
+  const [operators, setOperators] = useState<{ id: string; name: string }[]>(
+    [],
+  );
+  useEffect(() => {
+    listMediaOperatorCandidates().then(setOperators);
+  }, []);
+  return operators;
+}
+
 function EditDrawer({ item }: { item: MediaAsset }) {
+  const operators = useOperatorCandidates();
   return (
     <FormDrawer
       label="Modifier"
@@ -208,33 +382,7 @@ function EditDrawer({ item }: { item: MediaAsset }) {
         resetOnSuccess={false}
       >
         <input type="hidden" name="media_id" value={item.id} />
-        <label>
-          Légende
-          <input
-            name="caption"
-            defaultValue={item.caption ?? ""}
-            maxLength={500}
-          />
-        </label>
-        <label>
-          Type
-          <select name="media_kind" defaultValue={item.mediaKind ?? ""}>
-            <option value="">Non précisé</option>
-            {mediaKinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {mediaKindLabels[kind]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Date de prise de vue
-          <input
-            type="date"
-            name="captured_at"
-            defaultValue={item.capturedAt ?? ""}
-          />
-        </label>
+        <AcquisitionMetadataFields defaults={item} operators={operators} />
       </ActionForm>
     </FormDrawer>
   );
@@ -250,6 +398,7 @@ function UploadDrawer({
   disabled: boolean;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
+  const operators = useOperatorCandidates();
   useEffect(() => {
     return () => {
       if (preview) URL.revokeObjectURL(preview);
@@ -292,25 +441,7 @@ function UploadDrawer({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={preview} alt="Aperçu" className="media-upload-preview" />
         )}
-        <label>
-          Légende
-          <input name="caption" maxLength={500} />
-        </label>
-        <label>
-          Type
-          <select name="media_kind" defaultValue="">
-            <option value="">Non précisé</option>
-            {mediaKinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {mediaKindLabels[kind]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Date de prise de vue
-          <input type="date" name="captured_at" />
-        </label>
+        <AcquisitionMetadataFields operators={operators} />
         <label className="checkbox-field">
           <input type="checkbox" name="is_primary" value="true" />
           Définir comme image principale
@@ -332,11 +463,30 @@ function MediaViewer({
   onNavigate: (index: number) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [annotations, setAnnotations] = useState<MediaAnnotation[] | null>(
+    null,
+  );
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [annotating, setAnnotating] = useState(false);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
   const item = items[index];
+  useEffect(() => {
+    if (!item) return;
+    let active = true;
+    setAnnotations(null);
+    listMediaAnnotations(item.id).then((result) => {
+      if (!active) return;
+      setAnnotations(Array.isArray(result) ? result : []);
+    });
+    return () => {
+      active = false;
+    };
+  }, [item?.id]);
   if (!item) return null;
+  const archived = Boolean(item.archivedAt);
+  const precision = capturePrecision(item);
   return (
     <dialog
       ref={dialog}
@@ -381,16 +531,133 @@ function MediaViewer({
             <Icon name="next" />
           </button>
         )}
-        {item.signedUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.signedUrl} alt={item.caption ?? ""} />
-        ) : (
-          <div className="media-empty">
-            <Icon name="image" />
-            <p>Image indisponible.</p>
-          </div>
-        )}
+        <div className="media-viewer-image-wrap">
+          {item.signedUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.signedUrl} alt={item.caption ?? ""} />
+          ) : (
+            <div className="media-empty">
+              <Icon name="image" />
+              <p>Image indisponible.</p>
+            </div>
+          )}
+          <AnnotationOverlay
+            annotations={annotations ?? []}
+            visible={showOverlay}
+          />
+        </div>
         {item.caption && <p className="media-viewer-caption">{item.caption}</p>}
+        <dl className="detail-list media-viewer-metadata">
+          <div>
+            <dt>Date de prise de vue</dt>
+            <dd>
+              {item.capturedAt
+                ? `${item.capturedAt}${item.capturedAtTime ? ` ${item.capturedAtTime.slice(0, 5)}` : ""}`
+                : "Date inconnue"}
+              {precision === "unknown" && (
+                <span className="media-archived-badge">Non datée</span>
+              )}
+            </dd>
+          </div>
+          {item.developmentalStage && (
+            <div>
+              <dt>Stade</dt>
+              <dd>{item.developmentalStage}</dd>
+            </div>
+          )}
+          {item.viewpoint && (
+            <div>
+              <dt>Vue</dt>
+              <dd>{viewpointLabels[item.viewpoint]}</dd>
+            </div>
+          )}
+          {item.imagingModality && (
+            <div>
+              <dt>Modalité</dt>
+              <dd>{imagingModalityLabels[item.imagingModality]}</dd>
+            </div>
+          )}
+          {item.operatorName && (
+            <div>
+              <dt>Image acquise par</dt>
+              <dd>{item.operatorName}</dd>
+            </div>
+          )}
+          {item.scaleValue != null && (
+            <div>
+              <dt>Échelle</dt>
+              <dd>
+                {item.scaleValue} {item.scaleUnit}
+                {item.scaleNote ? ` (${item.scaleNote})` : ""}
+              </dd>
+            </div>
+          )}
+          {item.scientificNote && (
+            <div>
+              <dt>Note scientifique</dt>
+              <dd>{item.scientificNote}</dd>
+            </div>
+          )}
+        </dl>
+
+        <section className="media-viewer-annotations">
+          <div className="media-toolbar">
+            <h3 className="icon-heading">
+              <Icon name="edit" size={14} />
+              Annotations
+            </h3>
+            <button
+              type="button"
+              className="secondary"
+              aria-pressed={showOverlay}
+              onClick={() => setShowOverlay((value) => !value)}
+            >
+              {showOverlay
+                ? "Masquer les annotations"
+                : "Afficher les annotations"}
+            </button>
+            {!archived && (
+              <button
+                type="button"
+                className="secondary"
+                aria-pressed={annotating}
+                onClick={() => setAnnotating((value) => !value)}
+              >
+                <Icon name="add" size={14} />
+                {annotating ? "Fermer l’ajout" : "Annoter"}
+              </button>
+            )}
+          </div>
+          {archived && (
+            <p className="inspector-note">
+              Image archivée : les annotations restent consultables, mais aucune
+              nouvelle annotation ne peut être ajoutée.
+            </p>
+          )}
+          {annotations === null ? (
+            <p className="inspector-note">Chargement…</p>
+          ) : (
+            <>
+              <AnnotationList
+                annotations={annotations.filter((a) => !a.archivedAt)}
+                canWrite={!archived}
+              />
+              <ArchivedAnnotationList
+                annotations={annotations.filter((a) => a.archivedAt)}
+                canWrite={!archived}
+              />
+            </>
+          )}
+          {annotating && !archived && (
+            <AddAnnotationForm
+              mediaId={item.id}
+              imageUrl={item.signedUrl}
+              existingAnnotations={(annotations ?? []).filter(
+                (a) => !a.archivedAt,
+              )}
+            />
+          )}
+        </section>
       </div>
     </dialog>
   );

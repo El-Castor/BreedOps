@@ -83,6 +83,7 @@ jobs:
       - run: npm run test:identity
       - run: npm run test:phenotyping
       - run: npm run test:media
+      - run: npm run test:advanced-media
       - run: npm run test:workflows
       - run: npm run test:import-export
       - run: npm run test:business-completion
@@ -126,6 +127,7 @@ jobs:
       - run: npm run test:operations
       - run: npm run test:qr
       - run: npm run test:notifications
+      - run: npm run test:advanced-media-integration
       - name: Critical-path E2E (Playwright reuses the app server already running above)
         run: npm run test:e2e
       - name: Upload Playwright trace on failure

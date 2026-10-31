@@ -20,7 +20,12 @@ const BACKUP_FORMAT_VERSION = "breedops-backup-1";
  * recording when/what/which format version. Media binaries are explicitly
  * out of scope for V1 (per the milestone brief); their metadata/path
  * relationships are still recorded, deliberately, in their own sheet so
- * the gap is documented rather than silent. */
+ * the gap is documented rather than silent. V2-03 added a dedicated
+ * "Annotations" sheet so non-destructive overlay annotations never
+ * silently disappear from this export either - binaries (the images
+ * themselves) remain genuinely absent here and are only ever covered by
+ * the separate infrastructure backup (scripts/backup-infra.mjs), which
+ * dumps the whole Storage bucket's actual files. */
 export async function GET(request: Request) {
   const { client, profile } = await requireIdentity();
   const url = new URL(request.url);
@@ -91,9 +96,20 @@ export async function GET(request: Request) {
   const { data: mediaRows } = await client
     .from("media_assets")
     .select(
-      "original_filename,storage_bucket,storage_path,media_kind,caption,parent_line_id,family_id,seed_lot_id,phenotype_evaluation_id,created_at",
+      "id,original_filename,storage_bucket,storage_path,media_kind,caption,captured_at,captured_at_time,developmental_stage,viewpoint,imaging_modality,scale_value,scale_unit,scale_note,scientific_note,parent_line_id,family_id,seed_lot_id,phenotype_evaluation_id,created_at",
     )
     .eq("program_id", programId);
+
+  const mediaIds = (mediaRows ?? []).map((m) => m.id as string);
+  const { data: annotationRows } =
+    mediaIds.length > 0
+      ? await client
+          .from("media_annotations")
+          .select(
+            "media_asset_id,annotation_type,x,y,width,height,label,archived_at,created_at",
+          )
+          .in("media_asset_id", mediaIds)
+      : { data: [] as never[] };
 
   const metadataRows: (string | number | null)[][] = [
     ["Format", BACKUP_FORMAT_VERSION],
@@ -135,6 +151,15 @@ export async function GET(request: Request) {
         "Chemin de stockage",
         "Type",
         "Légende",
+        "Date de prise de vue",
+        "Heure de prise de vue",
+        "Stade de développement",
+        "Vue",
+        "Modalité d’imagerie",
+        "Échelle (valeur)",
+        "Échelle (unité)",
+        "Référence d’échelle",
+        "Note scientifique",
         "Créé le",
       ],
       rows: (mediaRows ?? []).map((m) => [
@@ -143,8 +168,45 @@ export async function GET(request: Request) {
         m.storage_path,
         m.media_kind,
         m.caption,
+        m.captured_at,
+        m.captured_at_time,
+        m.developmental_stage,
+        m.viewpoint,
+        m.imaging_modality,
+        m.scale_value,
+        m.scale_unit,
+        m.scale_note,
+        m.scientific_note,
         m.created_at,
       ]),
+    },
+    {
+      name: "Annotations",
+      headers: [
+        "Image (chemin de stockage)",
+        "Type",
+        "X",
+        "Y",
+        "Largeur",
+        "Hauteur",
+        "Texte",
+        "Archivée",
+        "Créée le",
+      ],
+      rows: (annotationRows ?? []).map((a) => {
+        const media = (mediaRows ?? []).find((m) => m.id === a.media_asset_id);
+        return [
+          media?.storage_path ?? null,
+          a.annotation_type,
+          a.x,
+          a.y,
+          a.width,
+          a.height,
+          a.label,
+          a.archived_at ? "oui" : "non",
+          a.created_at,
+        ];
+      }),
     },
   ]);
 

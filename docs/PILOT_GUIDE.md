@@ -103,6 +103,27 @@ it from the active gallery; **Afficher les archives** lists archived images, whi
 restored. Archiving the record itself does not remove its photos — they stay fully visible,
 including from the archived view — but blocks new uploads until the record is restored.
 
+**Métadonnées scientifiques avancées.** L'ajout et la modification d'image proposent
+désormais des champs optionnels supplémentaires : heure de prise de vue (en complément de
+la date), stade de développement, angle de vue, modalité d'imagerie, opérateur (la personne
+qui a pris la photo, distincte de la personne qui l'a importée), une échelle physique
+(valeur, unité, note) et une note scientifique libre. Aucun n'est obligatoire.
+
+**Annoter une image.** Dans le visualiseur plein écran, le bouton **Annoter** permet de
+placer un repère (point, rectangle ou texte) directement sur l'image, soit en cliquant sur
+l'image, soit via la section dépliable "Saisir les coordonnées précisément (clavier)" pour
+une saisie entièrement au clavier. Chaque annotation apparaît aussi dans une liste textuelle
+sous l'image, pour rester consultable sans dépendre de la couleur ou de la souris. Les
+annotations peuvent être modifiées ou archivées par la suite ; elles n'altèrent jamais
+l'image d'origine. Une fois une image archivée, ses annotations restent consultables mais
+aucune nouvelle annotation ne peut y être ajoutée tant qu'elle n'est pas restaurée.
+
+**Chronologie et comparaison.** Le bouton **Chronologie et comparaison** ouvre la liste des
+images d'un même lot/famille/lignée (ou, pour une évaluation phénotypique, de toutes les
+évaluations du même phénotype) triées chronologiquement — les images sans date connue
+apparaissent à la fin, clairement signalées. Cocher deux images affiche leurs métadonnées
+côte à côte pour suivre une évolution dans le temps.
+
 ## Pedigree
 
 Open **Pedigree** for the active programme. The graph uses persisted parent, cross,
