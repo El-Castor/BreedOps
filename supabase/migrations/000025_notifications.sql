@@ -9,7 +9,17 @@
 --    exactly the profile it was generated for.
 --  * dedup_key is globally unique and deterministic per (condition,
 --    recipient), so re-running the generator never creates duplicates and a
---    page reload is always idempotent.
+--    page reload is always idempotent. A dedup_key collision while the
+--    existing row is still active (resolved_at IS NULL) is a true no-op
+--    (ON CONFLICT ... WHERE leaves the row untouched, same as DO NOTHING -
+--    read_at is never disturbed by a repeat sync). A collision against an
+--    already-resolved row is instead a reactivation: the same logical
+--    condition recurred (e.g. stock dropped below the threshold again
+--    after being replenished), so the one row for that (condition,
+--    recipient) pair is flipped back to active/unread and its
+--    presentation fields and created_at are refreshed - never a second
+--    row for the same dedup_key, and never silently stuck resolved
+--    forever once the condition becomes true again.
 --  * resolved_at marks a notification whose underlying condition is no
 --    longer true (task completed, stock replenished, ...). Resolved rows
 --    are kept (never deleted) as a harmless history trail, matching this
@@ -259,11 +269,36 @@ BEGIN
     UNION ALL
     SELECT * FROM inventory_rows
   ),
+  -- A dedup_key collision means this exact (condition, recipient) pair was
+  -- already notified at some point. Two cases:
+  --  * the existing row is still active (resolved_at IS NULL, whether read
+  --    or unread) - the condition never stopped being true, so the WHERE
+  --    clause below is false and Postgres leaves the row completely
+  --    untouched (same as DO NOTHING): no new row, read_at/updated_at
+  --    unaffected, no churn on a plain repeat sync.
+  --  * the existing row was resolved - the condition had cleared and has
+  --    now recurred, so this is a genuinely new occurrence: reactivate the
+  --    same logical row (never insert a second one, dedup_key stays
+  --    unique) by clearing resolved_at/read_at and refreshing the
+  --    presentation fields and created_at from this occurrence. created_at
+  --    is refreshed deliberately: the UI sorts and age-labels by
+  --    created_at, and a reactivated alert is a new occurrence from the
+  --    user's point of view - leaving the old timestamp would bury a
+  --    currently-true alert under unrelated, genuinely older ones.
   inserted AS (
     INSERT INTO notifications (organization_id, program_id, recipient_profile_id, category, severity, title, body, link_path, dedup_key)
     SELECT organization_id, program_id, recipient_profile_id, category, severity, title, body, link_path, dedup_key
     FROM all_rows
-    ON CONFLICT (dedup_key) DO NOTHING
+    ON CONFLICT (dedup_key) DO UPDATE SET
+      program_id = EXCLUDED.program_id,
+      severity = EXCLUDED.severity,
+      title = EXCLUDED.title,
+      body = EXCLUDED.body,
+      link_path = EXCLUDED.link_path,
+      resolved_at = NULL,
+      read_at = NULL,
+      created_at = now()
+    WHERE notifications.resolved_at IS NOT NULL
     RETURNING id
   )
   SELECT array_agg(dedup_key), (SELECT count(*) FROM inserted)

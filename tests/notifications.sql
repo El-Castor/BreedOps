@@ -4,7 +4,7 @@
 -- mark-as-read ownership.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(22);
+SELECT plan(34);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-00000000a001','Notif Team A','notif-team-a'),
@@ -174,6 +174,93 @@ RESET ROLE;
 SELECT is(
   (SELECT read_at FROM notifications WHERE category='lot_expiring' AND recipient_profile_id='33333333-0000-0000-0000-00000000a001') IS NULL,
   true, 'a001''s own still-unread notification is unaffected by a002''s mark_all_notifications_read call'
+);
+
+-- Recurrence: a resolved condition must be able to become active again
+-- without being permanently stuck resolved, and without ever creating a
+-- second row for the same (condition, recipient) pair. At this point
+-- a001's and a002's stock_low notifications are both already read (a001
+-- from the explicit mark-as-read above; a002 from mark_all_notifications_read).
+
+-- 1. Read state is stable across a repeat sync while the condition has
+-- not changed - the WHERE resolved_at IS NOT NULL guard on the ON
+-- CONFLICT clause means an already-active row (read or not) is left
+-- completely untouched, never flipped back to unread by mere re-syncing.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a001',true);
+SELECT results_eq(
+  $$SELECT (sync_notifications_for_team('11111111-0000-0000-0000-00000000a001')->>'inserted')::int$$,
+  ARRAY[0], 'a repeat sync with the stock condition still true inserts/reactivates nothing'
+);
+RESET ROLE;
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND read_at IS NOT NULL),
+  2::bigint, 'both already-read stock_low notifications remain read after a no-op repeat sync'
+);
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND resolved_at IS NULL),
+  2::bigint, 'and both remain active (not resolved) since the stock is still low'
+);
+
+-- 2. Stock is replenished: the condition clears and the notification
+-- resolves (read_at is left as-is - a resolved row's own read state is
+-- never touched by the resolve step).
+UPDATE inventory_lots SET current_quantity = 100
+  WHERE inventory_item_id = '77777777-0000-0000-0000-00000000a001';
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a001',true);
+SELECT results_eq(
+  $$SELECT (sync_notifications_for_team('11111111-0000-0000-0000-00000000a001')->>'resolved')::int$$,
+  ARRAY[2], 'replenishing the stock resolves exactly the 2 stock_low notifications (one per recipient)'
+);
+RESET ROLE;
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND resolved_at IS NOT NULL),
+  2::bigint, 'both stock_low notifications are now resolved'
+);
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND read_at IS NOT NULL),
+  2::bigint, 'resolving a notification does not disturb its already-set read_at'
+);
+
+-- 3. The same logical condition recurs: stock drops below the threshold
+-- again for the exact same item. The same dedup_key must be reactivated
+-- in place - never a second row, and the notification must come back as
+-- unread regardless of whether it was read before it resolved.
+UPDATE inventory_lots SET current_quantity = 3
+  WHERE inventory_item_id = '77777777-0000-0000-0000-00000000a001';
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a001',true);
+SELECT results_eq(
+  $$SELECT (sync_notifications_for_team('11111111-0000-0000-0000-00000000a001')->>'inserted')::int$$,
+  ARRAY[2], 'the recurrence reactivates exactly the 2 existing rows (never a brand-new logical insert)'
+);
+RESET ROLE;
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low'),
+  2::bigint, 'still exactly one row per recipient for this condition - reactivation never duplicates it'
+);
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND resolved_at IS NULL),
+  2::bigint, 'the reactivated condition is active again (resolved_at cleared)'
+);
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND read_at IS NULL),
+  2::bigint, 'and unread again, even though both had previously been marked read before resolving'
+);
+
+-- 4. Idempotency holds for the reactivated row too: syncing again right
+-- away with nothing further changed must not re-touch it a second time.
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a001',true);
+SELECT results_eq(
+  $$SELECT (sync_notifications_for_team('11111111-0000-0000-0000-00000000a001')->>'inserted')::int$$,
+  ARRAY[0], 'a sync right after reactivation, with nothing further changed, reactivates/inserts nothing more'
+);
+RESET ROLE;
+SELECT is(
+  (SELECT count(*) FROM notifications WHERE category='stock_low' AND read_at IS NULL),
+  2::bigint, 'the freshly-reactivated notifications are still unread (not reset by the extra sync)'
 );
 
 SELECT * FROM finish();
