@@ -954,9 +954,18 @@ td strong.code {
   background: var(--surface-overlay);
   backdrop-filter: saturate(140%) blur(8px);
 }
+.app-header > .notification-center,
+.app-header > .icon-button,
+.app-header > .user-menu {
+  flex-shrink: 0;
+}
 .header-team {
+  overflow: hidden;
+  min-width: 0;
   color: var(--text-secondary);
   font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .icon-button {
   display: inline-grid;
@@ -980,9 +989,12 @@ td strong.code {
 }
 .program-selector {
   position: relative;
+  min-width: 0;
 }
 .program-selector-trigger {
   gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
   min-height: 2.1rem;
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
@@ -3086,6 +3098,9 @@ a.kpi:hover {
   }
 }
 @media (max-width: 640px) {
+  .program-selector-trigger .code {
+    display: none;
+  }
   .pipeline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
