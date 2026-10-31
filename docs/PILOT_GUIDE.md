@@ -179,6 +179,43 @@ their dashed, muted styling). Archiving a trait or module keeps every historical
 observation and evaluation that used it fully interpretable; it only stops it from being
 offered for new modules or program configuration until restored.
 
+## Analytique des traits
+
+Ouvrez **Analytique** dans le menu (section Sélection), choisissez un programme puis un
+trait numérique, entier ou ordinal — les traits catégoriels, booléens, de date ou de texte
+ne sont pas éligibles aux statistiques numériques. Des filtres optionnels (période, bloc,
+localisation, répétition, inclusion des éléments archivés) affinent la cohorte analysée.
+
+La page affiche, pour le trait choisi : le nombre d'observations et de données manquantes,
+les statistiques descriptives (moyenne, médiane, écart-type, CV — affiché « N/A » avec
+une explication quand il ne serait pas interprétable), un histogramme et une boîte à
+moustaches, un tableau des valeurs potentiellement aberrantes (jamais supprimées
+automatiquement — une valeur extrême peut être une information biologique précieuse), une
+trajectoire longitudinale (moyenne de population et jusqu'à 25 trajectoires individuelles),
+la stabilité du classement entre deux dates, la répétabilité (ou la raison précise pour
+laquelle elle n'est pas calculable), et les associations phénotypiques avec les autres
+traits du programme.
+
+**Terminologie importante** : BreedOps n'affiche jamais une corrélation phénotypique comme
+une corrélation génétique, ni une répétabilité comme une héritabilité. L'héritabilité est
+actuellement toujours affichée « NON ESTIMABLE » — le modèle de données actuel ne permet
+pas d'identifier de façon fiable un génotype, un plan expérimental validé ni un
+environnement normalisé ; produire un chiffre d'héritabilité malgré cela serait
+scientifiquement trompeur. Un refus explicite et justifié est le comportement attendu, pas
+une limitation à signaler.
+
+**Exploration de traits précoces.** Pour évaluer si une mesure précoce peut servir de proxy
+de sélection, choisissez un trait et une fenêtre de dates "précoce", puis un trait et une
+fenêtre "cible" : BreedOps affiche le nombre d'entités communes, l'avance en jours, les
+corrélations de Pearson et de Spearman, et la répétabilité du trait précoce si elle est
+calculable — toujours avec le rappel qu'une association phénotypique forte nécessite une
+validation biologique indépendante avant d'être utilisée comme critère de sélection.
+
+**Enregistrer une analyse** conserve une signature reproductible des données utilisées ; si
+les observations sous-jacentes changent ensuite, l'analyse enregistrée est signalée
+**PÉRIMÉE** plutôt que présentée comme à jour. Le jeu de données complet peut être exporté
+en CSV ou JSON pour une ré-analyse indépendante dans R, Python, JMP ou SAS.
+
 ## Inventory
 
 Open **Inventaire**, create an article, then create a lot with an initial receipt.

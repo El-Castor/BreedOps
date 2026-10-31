@@ -63,6 +63,7 @@ import {
   ArrowLeftRight,
   QrCode,
   Printer,
+  LineChart,
   type LucideProps,
 } from "lucide-react";
 
@@ -137,6 +138,7 @@ const icons = {
   importExport: ArrowLeftRight,
   qr: QrCode,
   print: Printer,
+  analytics: LineChart,
 } as const;
 
 export type IconName = keyof typeof icons;

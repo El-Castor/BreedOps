@@ -724,22 +724,35 @@ Troisième jalon fonctionnel post-V1. Démarré seulement après vérification i
 - **QR codes**: *(Livré — voir §4.8, session « V2-01 — QR codes & étiquetage scientifique ».)* parent, croisement, famille, lot de graines, article/lot d’inventaire, équipement ; impression d’étiquettes. `QR_LOCATION_SUPPORT=NOT_APPLICABLE_CURRENT_MODEL` : aucune entité « emplacement » normalisée n’existe dans le schéma — seuls des champs de localisation en texte libre (`storage_location`, `location`) existent sur les lots de graines, lots d’inventaire et équipements ; une table `locations` n’a pas été créée uniquement pour satisfaire cette ligne de roadmap.
 - **Photographies**: *(Livré — voir §4.8, session « V2-03 — Photographies scientifiques avancées ». `EXIF_STATUS=DEFERRED` et `EXPERIMENTAL_CONTEXT=DEFERRED` : voir cette session pour la justification de chacun.)* annotations non destructives (point/rectangle/texte), comparaison temporelle (chronologie + vue côte à côte), métadonnées d'acquisition avancées (heure, stade, angle de vue, modalité, opérateur, échelle). (Stockage privé, URLs signées, métadonnées de base, image principale et galerie restent inchangés depuis le MVP — voir « Médias végétaux » ci-dessus.) Capture EXIF automatique et upload par lot restent hors périmètre, non implémentés.
 - **Notifications**: *(Livré — voir §4.8, session « V2-02 — Notifications & rappels ». `EMAIL_DISPATCH_STATUS=DEFERRED` : le canal e-mail n'est volontairement pas câblé ce jalon, voir cette session pour la justification.)* notifications internes, rappels, alertes stock/péremption/retard.
-- **Statistiques**: descriptives, coefficient de variation, répétabilité, comparaison de familles, réponse à la sélection, graphiques avancés, export R/Python.
-- **Comparaison interannuelle**: campagnes, sites, environnements, génotype × environnement, progression génétique.
+- **Analytique des traits et stabilité longitudinale** *(V2-04, remplace l'ancienne ligne "Statistiques" — voir la reconciliation ci-dessous)*: contrôle qualité scientifique, statistiques descriptives, trajectoires longitudinales, répétabilité, stabilité intra-entité, stabilité du classement dans le temps, associations phénotypiques, exploration de traits précoces (proxy de sélection), fondation de modèle mixte, provenance/reproductibilité des analyses.
+- **Multi-environnement et stabilité G×E** *(V2-05, remplace l'ancienne ligne "Comparaison interannuelle")*: modèle normalisé campagne/site/environnement, essais multi-environnements, G, E, G×E, prédictions par environnement, Finlay-Wilkinson, AMMI/GGE, WAASB/WAASBY, adaptation large/spécifique.
+- **Décision de sélection et progrès génétique** *(V2-06, nouveau)*: sélection multi-traits, corrélations génétiques (lorsque estimables), indices de sélection type Smith-Hazel, MGIDI/MTSI, intensité de sélection, réponse à la sélection, gain génétique attendu, progression inter-générations, aide à l'avancement des candidats.
 - **Mode hors ligne**: PWA, cache local, file d’attente, résolution des conflits, synchronisation différée.
 
 L’architecture MVP doit utiliser des identifiants stables, des services métier séparés et des relations normalisées pour faciliter ces extensions.
+
+### Reconciliation de la feuille de route analytique (session V2-04)
+
+L'ancienne séquence `V2-04 Scientific statistics` / `V2-05 Campaign-site comparison` / `V2-06 G×E & genetic progress` reposait sur une vision "tableau de bord de moyennes et boxplots" insuffisamment rigoureuse pour un outil d'aide à la décision de sélection professionnel. Elle est remplacée par :
+
+```
+V2-04  Trait Analytics & Longitudinal Stability   (ex "Scientific statistics")
+V2-05  Multi-environment & G×E Stability          (ex "Campaign / site comparison")
+V2-06  Breeding Decision & Genetic Gain            (nouveau, absorbe "genetic progress")
+```
+
+Principe directeur (appliqué dans tout V2-04 et devant rester vrai pour V2-05/V2-06) : BreedOps distingue toujours *ce qui peut être calculé* de *ce qui peut être interprété scientifiquement*. `family_id`/`seed_lot_id` ne sont jamais automatiquement un génotype ; `location` en texte libre n'est jamais automatiquement un environnement normalisé ; une corrélation phénotypique n'est jamais présentée comme une corrélation génétique. Quand le modèle de données actuel ne permet pas une interprétation scientifiquement valide, le moteur retourne `NOT_ESTIMABLE` avec une raison précise plutôt que d'inventer un chiffre — un refus justifié est un succès, pas un échec.
 
 ### Suivi d'exécution V2 (jalons V2-01 à V2-07)
 
 Un jalon n'est marqué ✅ qu'après : implémentation, tests, vérification RLS/sécurité, validation navigateur réelle, documentation et CI — jamais pour la seule raison que du code a été écrit. Chaque jalon est développé sur sa propre branche dédiée, validé, puis une PR est ouverte vers `main` et jamais fusionnée automatiquement ; le jalon suivant ne démarre qu'après fusion confirmée du précédent.
 
 ```
-V2-01  QR codes & scientific labeling       ✅
-V2-02  Notifications & reminders            ✅
-V2-03  Advanced photographs                 ✅
-V2-04  Scientific statistics                ⬜
-V2-05  Campaign / site comparison           ⬜
-V2-06  G×E & genetic progress               ⬜
-V2-07  Offline mode / PWA                   ⬜
+V2-01  QR codes & scientific labeling             ✅
+V2-02  Notifications & reminders                  ✅
+V2-03  Advanced photographs                       ✅
+V2-04  Trait Analytics & Longitudinal Stability   ⬜
+V2-05  Multi-environment & G×E Stability          ⬜
+V2-06  Breeding Decision & Genetic Gain           ⬜
+V2-07  Offline mode / PWA                         ⬜
 ```
