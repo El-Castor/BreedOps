@@ -115,6 +115,7 @@ try {
       ["test:identity", "breeding identity/lifecycle"],
       ["test:phenotyping", "phenotype configuration"],
       ["test:media", "plant media"],
+      ["test:advanced-media", "advanced media metadata/annotations"],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
       [
@@ -187,6 +188,10 @@ try {
           ["test:operations", "operations integration"],
           ["test:qr", "QR lookup authorization"],
           ["test:notifications", "notification center integration"],
+          [
+            "test:advanced-media-integration",
+            "advanced media metadata/annotations integration",
+          ],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;

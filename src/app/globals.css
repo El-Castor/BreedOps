@@ -3473,6 +3473,198 @@ tr.archived-row td:first-child {
   text-align: center;
 }
 
+/* ───────────────────────── V2-03: advanced media (acquisition metadata, annotations, timeline) ───────────────────────── */
+.radio-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.radio-field input {
+  width: auto;
+  min-height: auto;
+}
+
+/* The image-wrap shrink-wraps the <img> itself (inline-block, not a
+   separately-sized box) so the overlay's percentage coordinates always
+   line up with the actually-rendered image, regardless of object-fit
+   letterboxing at other aspect ratios. */
+.media-viewer-image-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  justify-self: center;
+}
+.annotation-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.annotation-mark {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.annotation-mark.annotation-point,
+.annotation-mark.annotation-text {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 40%);
+}
+.annotation-mark.annotation-text {
+  background: var(--warning);
+}
+.annotation-mark.annotation-rectangle {
+  transform: none;
+  border: 2px solid var(--primary);
+  background: rgb(46 125 90 / 12%);
+}
+.annotation-mark.annotation-pending-corner {
+  background: var(--text-muted);
+}
+
+.media-viewer-metadata {
+  margin: 0;
+}
+.media-viewer-annotations {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.annotation-list {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.annotation-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.annotation-list-label {
+  font-size: var(--text-sm);
+}
+.annotation-item-actions {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+.annotation-edit-form {
+  display: flex;
+  gap: var(--space-1);
+}
+.annotation-edit-form input {
+  min-height: auto;
+  padding: var(--space-1);
+}
+.annotation-list-archived {
+  opacity: 0.75;
+}
+
+.annotation-add {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+.annotation-type-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.annotation-click-surface {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  cursor: crosshair;
+}
+.annotation-click-surface img {
+  display: block;
+  max-width: 100%;
+  max-height: 50vh;
+  object-fit: contain;
+}
+.annotation-click-hint {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.annotation-manual-coordinates {
+  font-size: var(--text-sm);
+}
+.annotation-manual-coordinates summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.media-timeline {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.media-timeline-row {
+  align-items: center;
+}
+.media-timeline-thumb {
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+}
+.media-timeline-meta {
+  display: grid;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+.media-timeline-meta span {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.media-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+@media (max-width: 720px) {
+  .media-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.media-comparison-side {
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.media-comparison-side img {
+  width: 100%;
+  max-height: 16rem;
+  border-radius: var(--radius);
+  object-fit: contain;
+  background: var(--surface-sunken);
+}
+.media-comparison-side figcaption {
+  font-weight: 600;
+}
+.media-comparison-metadata {
+  margin: 0;
+}
+
 /* ───────────────────────── Operations: filters, templates, checklist ───────────────────────── */
 .operations-filters {
   display: flex;
