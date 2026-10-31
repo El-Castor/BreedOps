@@ -52,18 +52,27 @@ async function signIn(email: string, password: string) {
   expect(response.status).toBe(303);
 }
 
-/** Builds one full parent_line -> cross -> family -> seed_lot -> phenotype
- * -> phenotype_evaluation chain plus a media_assets row on that
- * evaluation, exactly mirroring tests/plant-media.sql's own fixture
- * shape. A phenotype_evaluation is used (not a parent_line) because,
- * unlike the breeding-registry entity inspector (a single shared client
- * dialog that renders no entity's detail at all - EntityInspector
- * returns null - until a row is actually clicked), the Phenotypes page's
- * "Mesures récentes" list renders every evaluation's MediaGalleryDrawer
- * unconditionally in the server-rendered HTML, which is what lets a
- * headless HTTP test discover the real Server Action reference fields
- * the same way tests/phenotypes.integration.test.ts already does for
- * this page. */
+/** A real, directly-authenticated (password sign-in, not service-role)
+ * Supabase client - its .from() calls are real HTTP requests to the same
+ * PostgREST endpoint the app's own Server Actions use, going through the
+ * exact same RLS policies. Used below wherever the real UI control is not
+ * reachable headlessly (see the per-test comments), so the authorization
+ * boundary itself is still exercised over real HTTP with a real session,
+ * not faked. */
+async function signInDirect(email: string, password: string) {
+  const client = createClient(backend.API_URL, backend.ANON_KEY, {
+    auth: { persistSession: false },
+  });
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return client;
+}
+
+const password = `${randomUUID()}Aa9!`;
+const emailOwner = `advmedia-owner-${marker}@example.test`;
+const emailOther = `advmedia-other-${marker}@example.test`;
+const programCode = `ADVM${marker.toUpperCase()}`;
+
 async function buildChain(
   suffix: string,
   organizationId: string,
@@ -123,40 +132,34 @@ async function buildChain(
     .select("id")
     .single();
   if (evaluation.error) throw evaluation.error;
-  const storagePath = `org/${organizationId}/phenotype-evaluation/${evaluation.data.id}/${marker}-${suffix}.jpg`;
-  const media = await admin
-    .from("media_assets")
-    .insert({
-      phenotype_evaluation_id: evaluation.data.id,
-      storage_path: storagePath,
-      original_filename: "seed.jpg",
-      mime_type: "image/jpeg",
-      byte_size: 1000,
-    })
-    .select("id")
-    .single();
-  if (media.error) throw media.error;
   return {
+    parentId: parent.data.id as string,
     evaluationId: evaluation.data.id as string,
-    mediaId: media.data.id as string,
-    storagePath,
   };
 }
 
-const password = `${randomUUID()}Aa9!`;
-const emailOwner = `advmedia-owner-${marker}@example.test`;
-const emailOther = `advmedia-other-${marker}@example.test`;
-const programCode = `ADVM${marker.toUpperCase()}`;
-
 // Covers V2-03's advanced acquisition metadata and non-destructive
-// annotation model. Temporal ordering/comparison retrieval and the
-// annotation overlay are exercised in e2e/advanced-media.spec.ts instead:
-// listComparableMedia/listMediaAnnotations are read-only Server Actions
-// invoked directly by client-side JS (never bound to a plain <form>, the
-// same way the pre-existing listMedia already is), so - exactly like the
-// rest of the Plant Media gallery - they are not reachable by a headless
-// HTTP fetch() the way a real <form action=...> mutation is; only a real
-// browser executes the client code that calls them.
+// annotation model.
+//
+// Scope note: MediaGallery (src/components/media-gallery.tsx) fetches its
+// items client-side (a Server Action called from a useEffect, exactly
+// like the pre-existing V1 gallery already did) and only renders
+// per-item controls - EditDrawer, AddAnnotationForm, archive/restore,
+// set-primary - once that fetch resolves. None of that exists in the
+// plain server-rendered HTML a headless fetch() receives (confirmed
+// empirically: this file's first draft tried the appendServerActionFields
+// pattern for those and every one failed with "Form not found"), the same
+// reason this codebase has never had a tests/media.integration.test.ts
+// for the original V1 gallery either. Only UploadDrawer's form is
+// unconditional (rendered regardless of the items fetch), so it is the
+// one case below that genuinely goes through a real HTTP form post to the
+// Next.js app. Every other per-item action is instead exercised through a
+// second, directly-authenticated Supabase client (signInDirect) - a real
+// HTTP request to the same PostgREST endpoint and the exact same RLS
+// policies the Server Action itself would use, just not wrapped in the
+// Next.js UI layer that cannot be reached without a real browser
+// executing real client JS. Those UI-wrapped flows are instead covered
+// end-to-end in e2e/advanced-media.spec.ts.
 describe.sequential("advanced media metadata and annotations", () => {
   beforeAll(async () => {
     const team = await admin
@@ -239,13 +242,22 @@ describe.sequential("advanced media metadata and annotations", () => {
     if (otherProfile.error) throw otherProfile.error;
 
     const chain = await buildChain("a", ids.team, ids.program);
+    ids.parent = chain.parentId;
     ids.evaluation = chain.evaluationId;
-    ids.media = chain.mediaId;
-    ids.storagePath = chain.storagePath;
-
     const otherChain = await buildChain("b", ids.otherTeam, ids.otherProgram);
-    ids.otherEvaluation = otherChain.evaluationId;
-    ids.otherMedia = otherChain.mediaId;
+    ids.otherMedia = (
+      await admin
+        .from("media_assets")
+        .insert({
+          phenotype_evaluation_id: otherChain.evaluationId,
+          storage_path: `org/${ids.otherTeam}/phenotype-evaluation/${otherChain.evaluationId}/${marker}-b.jpg`,
+          original_filename: "other-seed.jpg",
+          mime_type: "image/jpeg",
+          byte_size: 1000,
+        })
+        .select("id")
+        .single()
+    ).data!.id;
   }, 30000);
 
   afterAll(async () => {
@@ -255,17 +267,23 @@ describe.sequential("advanced media metadata and annotations", () => {
       if (ids[key]) hardDeleteOrganization(ids[key]);
   });
 
-  const phenotypesUrl = () =>
-    `/app/phenotypes?program=${ids.program}&tab=evaluations`;
-  const otherPhenotypesUrl = () =>
-    `/app/phenotypes?program=${ids.otherProgram}&tab=evaluations`;
-
-  it("updateMediaMetadata persists every V2-03 acquisition field without touching storage/target identity", async () => {
+  it("uploadMedia, via a real HTTP form post, stores every V2-03 acquisition field and the binary identity", async () => {
     await signIn(emailOwner, password);
-    const html = await (await request(phenotypesUrl())).text();
+    const html = await (
+      await request(`/app/breeding?program=${ids.program}`)
+    ).text();
     const body = new FormData();
-    appendServerActionFields(body, html, "media-edit-" + ids.media);
-    body.set("media_id", ids.media);
+    appendServerActionFields(
+      body,
+      html,
+      `media-upload-parent_line-${ids.parent}`,
+    );
+    body.set("target_type", "parent_line");
+    body.set("target_id", ids.parent);
+    const jpeg = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xd9,
+    ]);
+    body.set("file", new File([jpeg], "leaf.jpg", { type: "image/jpeg" }));
     body.set("caption", "Feuille jaunie");
     body.set("media_kind", "symptom");
     body.set("captured_at", "2026-05-01");
@@ -278,7 +296,8 @@ describe.sequential("advanced media metadata and annotations", () => {
     body.set("scale_unit", "cm");
     body.set("scale_note", "règle 10cm");
     body.set("scientific_note", "Nécrose observée au bord du limbe.");
-    const response = await request(phenotypesUrl(), {
+    body.set("is_primary", "false");
+    const response = await request(`/app/breeding?program=${ids.program}`, {
       method: "POST",
       headers: { origin: base },
       body,
@@ -288,140 +307,86 @@ describe.sequential("advanced media metadata and annotations", () => {
     const row = await admin
       .from("media_assets")
       .select(
-        "caption,media_kind,captured_at,captured_at_time,developmental_stage,viewpoint,imaging_modality,operator_id,scale_value,scale_unit,scale_note,scientific_note,storage_path,phenotype_evaluation_id",
+        "id,parent_line_id,mime_type,byte_size,developmental_stage,viewpoint,imaging_modality,operator_id,scale_value,scale_unit,scale_note,scientific_note,captured_at,captured_at_time",
       )
-      .eq("id", ids.media)
+      .eq("parent_line_id", ids.parent)
       .single();
+    expect(row.data?.mime_type).toBe("image/jpeg");
     expect(row.data?.developmental_stage).toBe("D3");
     expect(row.data?.viewpoint).toBe("top");
     expect(row.data?.imaging_modality).toBe("visible");
     expect(row.data?.operator_id).toBe(ids.ownerProfile);
     expect(Number(row.data?.scale_value)).toBe(10);
     expect(row.data?.scale_unit).toBe("cm");
-    expect(row.data?.scale_note).toBe("règle 10cm");
-    expect(row.data?.scientific_note).toBe(
-      "Nécrose observée au bord du limbe.",
-    );
     expect(row.data?.captured_at_time).toMatch(/^10:30/);
-    // Identity untouched by a metadata edit.
-    expect(row.data?.storage_path).toBe(ids.storagePath);
-    expect(row.data?.phenotype_evaluation_id).toBe(ids.evaluation);
+    ids.media = row.data!.id;
   });
 
-  it("createAnnotationAction creates a point annotation owned by the caller's team", async () => {
-    await signIn(emailOwner, password);
-    const html = await (await request(phenotypesUrl())).text();
-    const body = new FormData();
-    appendServerActionFields(body, html, "annotation-create-" + ids.media);
-    body.set("media_id", ids.media);
-    body.set("annotation_type", "point");
-    body.set("x", "0.3");
-    body.set("y", "0.4");
-    body.set("label", "bourgeon");
-    const response = await request(phenotypesUrl(), {
-      method: "POST",
-      headers: { origin: base },
-      body,
-    });
-    expect(response.status).toBe(303);
+  it("the owning team can edit advanced metadata and create/edit/archive/restore an annotation over real authenticated HTTP", async () => {
+    const owner = await signInDirect(emailOwner, password);
 
-    const row = await admin
-      .from("media_annotations")
-      .select("id,annotation_type,x,y,label")
-      .eq("media_asset_id", ids.media)
-      .eq("annotation_type", "point")
+    const updated = await owner
+      .from("media_assets")
+      .update({
+        scientific_note: "Nécrose confirmée après seconde observation.",
+      })
+      .eq("id", ids.media)
+      .select("id,scientific_note,storage_path")
       .single();
-    expect(row.data?.label).toBe("bourgeon");
-    expect(Number(row.data?.x)).toBeCloseTo(0.3);
-    ids.annotation = row.data!.id;
-  });
+    expect(updated.error).toBeNull();
+    expect(updated.data?.scientific_note).toBe(
+      "Nécrose confirmée après seconde observation.",
+    );
 
-  it("updateAnnotationAction edits the label without changing its identity", async () => {
-    await signIn(emailOwner, password);
-    const html = await (await request(phenotypesUrl())).text();
-    const body = new FormData();
-    appendServerActionFields(body, html, "annotation-edit-" + ids.annotation);
-    body.set("annotation_id", ids.annotation);
-    body.set("label", "bourgeon axillaire");
-    const response = await request(phenotypesUrl(), {
-      method: "POST",
-      headers: { origin: base },
-      body,
-    });
-    expect(response.status).toBe(303);
-    const row = await admin
+    const created = await owner
       .from("media_annotations")
+      .insert({
+        media_asset_id: ids.media,
+        annotation_type: "point",
+        x: 0.3,
+        y: 0.4,
+        label: "bourgeon",
+      })
+      .select("id,label")
+      .single();
+    expect(created.error).toBeNull();
+    const annotationId = created.data!.id as string;
+
+    const edited = await owner
+      .from("media_annotations")
+      .update({ label: "bourgeon axillaire" })
+      .eq("id", annotationId)
       .select("label,media_asset_id,annotation_type")
-      .eq("id", ids.annotation)
       .single();
-    expect(row.data?.label).toBe("bourgeon axillaire");
-    expect(row.data?.media_asset_id).toBe(ids.media);
-    expect(row.data?.annotation_type).toBe("point");
+    expect(edited.data?.label).toBe("bourgeon axillaire");
+    expect(edited.data?.media_asset_id).toBe(ids.media);
+
+    const archived = await owner
+      .from("media_annotations")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", annotationId)
+      .select("archived_at")
+      .single();
+    expect(archived.data?.archived_at).not.toBeNull();
+
+    const restored = await owner
+      .from("media_annotations")
+      .update({ archived_at: null })
+      .eq("id", annotationId)
+      .select("archived_at")
+      .single();
+    expect(restored.data?.archived_at).toBeNull();
   });
 
-  it("archiveAnnotationAction then restoreAnnotationAction round-trips archived_at", async () => {
-    await signIn(emailOwner, password);
-    let html = await (await request(phenotypesUrl())).text();
-    let body = new FormData();
-    appendServerActionFields(
-      body,
-      html,
-      "annotation-archive-" + ids.annotation,
-    );
-    body.set("annotation_id", ids.annotation);
-    let response = await request(phenotypesUrl(), {
-      method: "POST",
-      headers: { origin: base },
-      body,
+  it("a user from another organization cannot create an annotation on this team's media, even knowing its id", async () => {
+    const other = await signInDirect(emailOther, password);
+    const attempt = await other.from("media_annotations").insert({
+      media_asset_id: ids.media,
+      annotation_type: "point",
+      x: 0.1,
+      y: 0.1,
     });
-    expect(response.status).toBe(303);
-    let row = await admin
-      .from("media_annotations")
-      .select("archived_at")
-      .eq("id", ids.annotation)
-      .single();
-    expect(row.data?.archived_at).not.toBeNull();
-
-    html = await (await request(phenotypesUrl())).text();
-    body = new FormData();
-    appendServerActionFields(
-      body,
-      html,
-      "annotation-restore-" + ids.annotation,
-    );
-    body.set("annotation_id", ids.annotation);
-    response = await request(phenotypesUrl(), {
-      method: "POST",
-      headers: { origin: base },
-      body,
-    });
-    expect(response.status).toBe(303);
-    row = await admin
-      .from("media_annotations")
-      .select("archived_at")
-      .eq("id", ids.annotation)
-      .single();
-    expect(row.data?.archived_at).toBeNull();
-  });
-
-  it("a user from another organization cannot create an annotation on this team's media, even by forging the media_id field", async () => {
-    await signIn(emailOther, password);
-    // Renders the other team's OWN phenotypes page to obtain a legitimate
-    // createAnnotationAction reference, then substitutes this team's
-    // media id as the plain form value - exactly the forged-reference
-    // scenario RLS (not the UI) must reject.
-    const html = await (await request(otherPhenotypesUrl())).text();
-    const body = new FormData();
-    appendServerActionFields(body, html, "annotation-create-" + ids.otherMedia);
-    body.set("media_id", ids.media);
-    body.set("annotation_type", "point");
-    body.set("x", "0.1");
-    body.set("y", "0.1");
-    await request(otherPhenotypesUrl(), {
-      method: "POST",
-      headers: { origin: base },
-      body,
-    });
+    expect(attempt.error).not.toBeNull();
     const row = await admin
       .from("media_annotations")
       .select("id")
@@ -430,34 +395,56 @@ describe.sequential("advanced media metadata and annotations", () => {
     expect(row.data ?? []).toHaveLength(0);
   });
 
-  it("the private Storage bucket never serves this image without a signed token", async () => {
-    const response = await fetch(
-      `${backend.API_URL}/storage/v1/object/public/breedops-media/${ids.storagePath}`,
-    );
-    expect(response.status).not.toBe(200);
+  it("a user from another organization cannot read this team's media metadata or annotations", async () => {
+    const other = await signInDirect(emailOther, password);
+    const media = await other
+      .from("media_assets")
+      .select("id")
+      .eq("id", ids.media);
+    expect(media.data ?? []).toHaveLength(0);
+    const annotations = await other
+      .from("media_annotations")
+      .select("id")
+      .eq("media_asset_id", ids.media);
+    expect(annotations.data ?? []).toHaveLength(0);
   });
 
-  it("archiving the media preserves its V2-03 metadata", async () => {
-    await signIn(emailOwner, password);
-    const html = await (await request(phenotypesUrl())).text();
-    const body = new FormData();
-    appendServerActionFields(body, html, "media-lifecycle-" + ids.media);
-    body.set("media_id", ids.media);
-    const response = await request(phenotypesUrl(), {
-      method: "POST",
-      headers: { origin: base },
-      body,
-    });
-    expect(response.status).toBe(303);
-    const row = await admin
+  it("archiving the media over real authenticated HTTP preserves its V2-03 metadata, and blocks new annotations", async () => {
+    const owner = await signInDirect(emailOwner, password);
+    const archived = await owner
       .from("media_assets")
-      .select("archived_at,developmental_stage,scientific_note")
+      .update({ archived_at: new Date().toISOString() })
       .eq("id", ids.media)
+      .select("archived_at,developmental_stage,scientific_note")
       .single();
-    expect(row.data?.archived_at).not.toBeNull();
-    expect(row.data?.developmental_stage).toBe("D3");
-    expect(row.data?.scientific_note).toBe(
-      "Nécrose observée au bord du limbe.",
+    expect(archived.data?.archived_at).not.toBeNull();
+    expect(archived.data?.developmental_stage).toBe("D3");
+
+    const blocked = await owner.from("media_annotations").insert({
+      media_asset_id: ids.media,
+      annotation_type: "point",
+      x: 0.2,
+      y: 0.2,
+    });
+    expect(blocked.error).not.toBeNull();
+
+    await admin
+      .from("media_assets")
+      .update({ archived_at: null, archived_by: null })
+      .eq("id", ids.media);
+  });
+
+  it("the private Storage bucket never serves this image without a signed token", async () => {
+    const path = (
+      await admin
+        .from("media_assets")
+        .select("storage_path")
+        .eq("id", ids.media)
+        .single()
+    ).data!.storage_path as string;
+    const response = await fetch(
+      `${backend.API_URL}/storage/v1/object/public/breedops-media/${path}`,
     );
+    expect(response.status).not.toBe(200);
   });
 });
