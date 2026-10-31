@@ -376,6 +376,54 @@ read-only maintenance check that diffs the bucket's objects against
 `media_assets.storage_path` and reports (without deleting) any orphan object or dangling
 row.
 
+### Advanced media: acquisition metadata and annotations (V2-03, migration 000026)
+
+Additive only; `000018` and every earlier migration are untouched. Nine new nullable
+columns on `media_assets`: `captured_at_time` (an optional companion to the existing
+`captured_at` DATE — never reinterprets a historical row, and a CHECK forbids setting it
+without a date), `developmental_stage` (a bounded ≤60-character free label, deliberately
+not an enum — BreedOps programs span different species, so a single universal growth
+ontology would be wrong for most of them), `viewpoint` and `imaging_modality` (controlled
+vocabularies — `top`/`side`/`front`/`back`/`macro`/`microscope`/`other` and
+`visible`/`fluorescence`/`microscopy`/`scanner`/`other` respectively, both genuinely stable
+across every current context, unlike developmental stage), `operator_id` ("image acquired
+by", a `profiles` FK distinct from the existing `created_by` — "uploaded by" — `ON DELETE
+SET NULL` like `created_by`, and validated same-organization by extending
+`validate_media_asset_target()`), and `scale_value`/`scale_unit`/`scale_note` (an optional
+physical calibration reference, distinct from the existing pixel `width`/`height`; a CHECK
+requires `scale_unit` whenever `scale_value` is set). `EXIF_STATUS=DEFERRED`: no
+EXIF-reading dependency was introduced this milestone — every field above is entered
+manually, and embedded file metadata was never trustworthy as authoritative scientific
+data anyway. Capture-precision (unknown/date/datetime) is never a stored column — it is
+derived purely from which of `captured_at`/`captured_at_time` are present, with the
+temporal ordering rule (precise timestamp, else capture date, else `created_at` as a
+last-resort fallback for undated images — which always trail every dated image in both
+sort directions) implemented once in `src/lib/media/temporal.ts`.
+
+`media_annotations` is a new, dedicated, non-destructive overlay model — `point`,
+`rectangle` or `text` — over an image; the source Storage object is never touched.
+Coordinates are normalized to the original image (`x`/`y`/`width`/`height` ∈ [0,1], never
+screen pixels), with CHECK constraints enforcing a rectangle never claims to extend past
+the image (`x + width <= 1`, `y + height <= 1`), a point/text carries no width/height, and a
+text annotation always has a non-null label. RLS never stores a redundant
+`organization_id` on this table (nothing to drift or be spoofed): every policy derives
+authorization by joining back to the row's own `media_assets.organization_id` via
+`can_access_team`/`can_write_team`. A new annotation may not normally be created once its
+underlying media is already archived (`WITH CHECK ... AND ma.archived_at IS NULL` on the
+INSERT and UPDATE policies) — existing annotations on media archived afterward remain
+fully readable, just no longer writable, until the media is restored.
+`guard_media_annotation_identity` mirrors `guard_media_asset_identity`: only
+`media_asset_id`, `annotation_type` and `created_at` are immutable after creation: label,
+coordinates and archive state may all change.
+
+Temporal comparison (an opt-in "Chronologie et comparaison" view, never the default gallery
+grid's own query) reuses the gallery's existing single-target scope for `parent_line`/
+`family`/`seed_lot`. For `phenotype_evaluation` it widens to every sibling evaluation
+sharing the same `phenotype_id` — the actual stable biological specimen; a single
+`phenotype_evaluation` is a scoring *event*, not the specimen itself, audited against this
+schema before deciding the widening was scientifically safe to do via the existing FK
+rather than inventing a new relation.
+
 ## Relationships
 
 ```mermaid

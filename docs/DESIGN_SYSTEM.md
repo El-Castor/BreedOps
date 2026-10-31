@@ -187,6 +187,36 @@ propagating past their own `<dialog>` element, so closing the nested one never a
 its host. Any future drawer or viewer opened from inside an existing dialog should do the
 same.
 
+### 10.1 Advanced scientific metadata and annotations (V2-03)
+
+Upload and Edit share one `AcquisitionMetadataFields` block: capture date plus an optional
+time (grouped as one "Date et heure de prise de vue" field pair), developmental stage
+(free text), viewpoint and imaging modality (both `<select>`s from a fixed option list),
+an operator `<select>` populated from the owning team's profiles via
+`useOperatorCandidates()`, scale value/unit/note, and a scientific note textarea. Every
+field stays optional; nothing here replaces the V1 caption/type/capture-date trio, it only
+extends the same drawer.
+
+The viewer (`.media-viewer`) now shows a metadata `<dl>` under the image whenever any
+advanced field is set, and an `.media-viewer-image-wrap` that wraps the `<img>` so
+percentage-based annotation coordinates line up with the rendered image despite
+`object-fit: contain`. An **Annoter** toggle reveals `AddAnnotationForm`: a type selector
+(point/rectangle/text), a click-to-place surface over a copy of the image (existing
+annotations shown for context), and a collapsible "Saisir les coordonnées précisément
+(clavier)" fallback with plain numeric x/y/width/height inputs — the fully
+keyboard-operable path, since click-to-place alone would exclude keyboard-only and screen
+reader use. Every annotation also renders as a plain-text list item
+(`AnnotationList`/`ArchivedAnnotationList`) alongside its overlay mark, so position and
+label are always available without relying on hover, colour or pointer position. A
+show/hide toggle controls the overlay only; the textual list stays visible regardless.
+
+A new **Chronologie et comparaison** button opens `MediaTimelineDrawer`: a chronologically
+ordered list (per the rule in `docs/database.md`) with a checkbox per item, feeding a
+`ComparisonPanel` of up to two side-by-side `ComparisonSide` panels (image + its full
+metadata table). The grid (`.media-comparison-grid`) stacks to one column below 720px
+instead of overflowing. This drawer fetches its data lazily on open, not on gallery mount,
+to avoid an extra query on every page that embeds a gallery.
+
 ## 11. Pedigree
 
 Four labelled columns (lignées → croisements → familles → lots). Nodes are white with a 4px
