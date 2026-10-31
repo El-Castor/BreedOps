@@ -82,6 +82,28 @@ COMMENT ON COLUMN public.media_assets.operator_id IS
 COMMENT ON COLUMN public.media_assets.scale_value IS
   'Optional physical calibration reference (e.g. a ruler in frame), never an automated measurement. Distinct from the existing pixel width/height columns.';
 
+-- Shared by both the INSERT path (validate_media_asset_target, below) and
+-- the UPDATE path (validate_media_operator_update, further below): raises
+-- unless operator_id is NULL or belongs to the given organization. Kept as
+-- its own SECURITY DEFINER function so the same organization boundary is
+-- enforced identically on insert and on update, rather than duplicated
+-- inline and risking the two copies drifting apart.
+CREATE FUNCTION public.assert_operator_same_organization(p_operator_id UUID, p_organization_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  operator_org UUID;
+BEGIN
+  IF p_operator_id IS NULL THEN
+    RETURN;
+  END IF;
+  SELECT organization_id INTO operator_org FROM profiles WHERE id = p_operator_id;
+  IF operator_org IS DISTINCT FROM p_organization_id THEN
+    RAISE EXCEPTION 'operator_id must belong to the same organization as the media target' USING ERRCODE = '23514';
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.assert_operator_same_organization(UUID, UUID) FROM PUBLIC, anon, authenticated;
+
 -- Re-derive organization_id/program_id exactly as migration 000018 did,
 -- plus validate the new operator_id: if set, it must belong to the same
 -- organization the media row is being attached to. Re-created in full
@@ -93,7 +115,6 @@ RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_t
 DECLARE
   target_org UUID;
   target_program UUID;
-  operator_org UUID;
 BEGIN
   IF NEW.parent_line_id IS NOT NULL THEN
     SELECT p.organization_id, p.id INTO target_org, target_program
@@ -120,12 +141,7 @@ BEGIN
   NEW.organization_id := target_org;
   NEW.program_id := target_program;
 
-  IF NEW.operator_id IS NOT NULL THEN
-    SELECT organization_id INTO operator_org FROM profiles WHERE id = NEW.operator_id;
-    IF operator_org IS DISTINCT FROM target_org THEN
-      RAISE EXCEPTION 'operator_id must belong to the same organization as the media target' USING ERRCODE = '23514';
-    END IF;
-  END IF;
+  PERFORM public.assert_operator_same_organization(NEW.operator_id, target_org);
 
   RETURN NEW;
 END;
@@ -135,6 +151,34 @@ $$;
 -- new columns above are presentation/scientific metadata, exactly like
 -- the existing caption/media_kind/captured_at, and must stay editable —
 -- none of them belong in that immutability guard.
+--
+-- But validate_media_asset_target_trigger (000018) only fires BEFORE
+-- INSERT, and updateMediaMetadata() allows operator_id to be changed after
+-- creation — so without a dedicated UPDATE-time check, re-pointing an
+-- existing media row's operator_id at a profile in a different
+-- organization would pass straight through to RLS/storage with no
+-- validation at all (the INSERT-only trigger never runs again). This is a
+-- genuine database-level integrity gap, not merely a UI concern: it must
+-- be rejected inside Postgres regardless of what the UI happens to allow.
+-- A dedicated column-scoped trigger (rather than widening the existing
+-- 000018 BEFORE INSERT trigger, which belongs to an already-merged,
+-- immutable migration) is the simplest, safest fix — it only ever runs
+-- when operator_id is part of the UPDATE's target list, reuses the exact
+-- same organization check as the INSERT path via
+-- assert_operator_same_organization() above, and trusts NEW.organization_id
+-- directly: that column is itself guarded immutable on UPDATE by
+-- guard_media_asset_identity_trigger (000018), so it always still reflects
+-- the row's real, already-validated target organization at this point.
+CREATE FUNCTION public.validate_media_operator_update()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  PERFORM public.assert_operator_same_organization(NEW.operator_id, NEW.organization_id);
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.validate_media_operator_update() FROM PUBLIC, anon, authenticated;
+CREATE TRIGGER validate_media_operator_update_trigger BEFORE UPDATE OF operator_id ON public.media_assets
+  FOR EACH ROW EXECUTE FUNCTION public.validate_media_operator_update();
 
 -- ───────────────────────── media_annotations ─────────────────────────
 -- Non-destructive scientific annotations over an image: the source

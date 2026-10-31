@@ -6,7 +6,7 @@
 -- migration 000026.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(32);
+SELECT plan(40);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-0000000000b1','AdvMedia A','adv-media-a'),
@@ -66,6 +66,47 @@ SELECT is(
   (SELECT operator_id FROM media_assets WHERE id='dddddddd-0000-0000-0000-0000000000b1'),
   '33333333-0000-0000-0000-0000000000b2'::uuid,
   'a same-organization operator_id is accepted and stored'
+);
+
+-- ───────── operator_id is validated on UPDATE too, not only INSERT ─────────
+-- validate_media_asset_target_trigger (migration 000018) only fires BEFORE
+-- INSERT. Without a dedicated UPDATE-time check, updateMediaMetadata()
+-- could silently re-point an existing row's operator_id at a profile in
+-- another organization after creation, with nothing in the database ever
+-- rejecting it. This is the critical regression test.
+SELECT throws_ok(
+  $$UPDATE media_assets SET operator_id='33333333-0000-0000-0000-0000000000b3' WHERE id='dddddddd-0000-0000-0000-0000000000b1'$$,
+  '23514', NULL, 'updating operator_id to a profile in another organization is rejected at the database level'
+);
+SELECT is(
+  (SELECT operator_id FROM media_assets WHERE id='dddddddd-0000-0000-0000-0000000000b1'),
+  '33333333-0000-0000-0000-0000000000b2'::uuid,
+  'after the rejected cross-organization update, operator_id still holds its previous (valid) value'
+);
+SELECT lives_ok(
+  $$UPDATE media_assets SET operator_id='33333333-0000-0000-0000-0000000000b1' WHERE id='dddddddd-0000-0000-0000-0000000000b1'$$,
+  'updating operator_id to a different, same-organization profile is accepted'
+);
+SELECT is(
+  (SELECT operator_id FROM media_assets WHERE id='dddddddd-0000-0000-0000-0000000000b1'),
+  '33333333-0000-0000-0000-0000000000b1'::uuid,
+  'the same-organization operator update was actually applied'
+);
+SELECT lives_ok(
+  $$UPDATE media_assets SET operator_id=NULL WHERE id='dddddddd-0000-0000-0000-0000000000b1'$$,
+  'clearing operator_id to NULL is accepted'
+);
+SELECT is(
+  (SELECT operator_id FROM media_assets WHERE id='dddddddd-0000-0000-0000-0000000000b1'),
+  NULL, 'operator_id was actually cleared to NULL'
+);
+SELECT lives_ok(
+  $$UPDATE media_assets SET developmental_stage='D4' WHERE id='dddddddd-0000-0000-0000-0000000000b1'$$,
+  'updating other scientific metadata (not operator_id) still works - the new operator-update trigger does not block unrelated updates'
+);
+SELECT is(
+  (SELECT developmental_stage FROM media_assets WHERE id='dddddddd-0000-0000-0000-0000000000b1'),
+  'D4', 'the developmental_stage update was actually applied'
 );
 
 -- ───────── Annotation creation and geometry validation ─────────
