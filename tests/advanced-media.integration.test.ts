@@ -269,17 +269,22 @@ describe.sequential("advanced media metadata and annotations", () => {
 
   it("uploadMedia, via a real HTTP form post, stores every V2-03 acquisition field and the binary identity", async () => {
     await signIn(emailOwner, password);
-    const html = await (
-      await request(`/app/breeding?program=${ids.program}`)
-    ).text();
+    // The Phenotypes page's "Mesures récentes" list (unlike the breeding
+    // registry's entity inspector, a single shared client dialog that
+    // renders nothing at all - EntityInspector returns null - until a row
+    // is actually clicked) renders every evaluation's MediaGalleryDrawer,
+    // UploadDrawer included, unconditionally in the server-rendered HTML -
+    // see the top-of-file comment for why this is the one reachable case.
+    const pageUrl = `/app/phenotypes?program=${ids.program}&tab=evaluations`;
+    const html = await (await request(pageUrl)).text();
     const body = new FormData();
     appendServerActionFields(
       body,
       html,
-      `media-upload-parent_line-${ids.parent}`,
+      `media-upload-phenotype_evaluation-${ids.evaluation}`,
     );
-    body.set("target_type", "parent_line");
-    body.set("target_id", ids.parent);
+    body.set("target_type", "phenotype_evaluation");
+    body.set("target_id", ids.evaluation);
     const jpeg = new Uint8Array([
       0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xd9,
     ]);
@@ -297,7 +302,7 @@ describe.sequential("advanced media metadata and annotations", () => {
     body.set("scale_note", "règle 10cm");
     body.set("scientific_note", "Nécrose observée au bord du limbe.");
     body.set("is_primary", "false");
-    const response = await request(`/app/breeding?program=${ids.program}`, {
+    const response = await request(pageUrl, {
       method: "POST",
       headers: { origin: base },
       body,
@@ -307,9 +312,9 @@ describe.sequential("advanced media metadata and annotations", () => {
     const row = await admin
       .from("media_assets")
       .select(
-        "id,parent_line_id,mime_type,byte_size,developmental_stage,viewpoint,imaging_modality,operator_id,scale_value,scale_unit,scale_note,scientific_note,captured_at,captured_at_time",
+        "id,phenotype_evaluation_id,mime_type,byte_size,developmental_stage,viewpoint,imaging_modality,operator_id,scale_value,scale_unit,scale_note,scientific_note,captured_at,captured_at_time",
       )
-      .eq("parent_line_id", ids.parent)
+      .eq("phenotype_evaluation_id", ids.evaluation)
       .single();
     expect(row.data?.mime_type).toBe("image/jpeg");
     expect(row.data?.developmental_stage).toBe("D3");
