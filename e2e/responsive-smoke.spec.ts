@@ -20,6 +20,7 @@ const WIDTHS = [
   { width: 1024, height: 1366, label: "tablet-landscape" },
   { width: 768, height: 1024, label: "tablet-portrait" },
   { width: 390, height: 844, label: "mobile" },
+  { width: 320, height: 844, label: "mobile-narrow" },
 ];
 
 const profile = currentProfile();
@@ -36,9 +37,17 @@ const programCode = `RESPE2E${marker.toUpperCase()}`;
 const ids: Record<string, string> = {};
 
 test.beforeAll(async () => {
+  // Intentionally long team/program/display names throughout this fixture:
+  // a short synthetic name can pass by accident even when the underlying
+  // layout isn't genuinely responsive (see task review: the previous
+  // program-selector-only fix was never exercised against a long user
+  // display name or team name, nor against the popovers' own positioning).
   const team = await admin
     .from("organizations")
-    .insert({ name: "Synthetic responsive team", slug: `responsive-${marker}` })
+    .insert({
+      name: "Coopérative expérimentale agro-biologique du Plateau central",
+      slug: `responsive-${marker}`,
+    })
     .select("id")
     .single();
   if (team.error) throw team.error;
@@ -52,7 +61,7 @@ test.beforeAll(async () => {
     .insert({
       organization_id: ids.team,
       code: programCode,
-      name: "Programme de sélection tomate ancienne de montagne",
+      name: "Programme de sélection tomate ancienne de montagne à haute valeur patrimoniale régionale",
       species: "Synthetic species",
     })
     .select("id")
@@ -70,7 +79,7 @@ test.beforeAll(async () => {
     user_id: ids.user,
     organization_id: ids.team,
     role: "team_admin",
-    display_name: "Synthetic responsive operator",
+    display_name: "Marie-Alexandrine de Montmorency-Beauharnais-Lafayette",
   });
   if (profile.error) throw profile.error;
 });
@@ -107,13 +116,15 @@ for (const vp of WIDTHS) {
 // mobile widths, even though document.body.scrollWidth checks scoped to
 // main.app-content never caught it, since the overflowing elements belong
 // to the shell, not to any one page. Covers widths below the AppShell's
-// mobile breakpoint (960px), with the header's popovers open, since
-// that's the realistic worst case.
-for (const width of [390, 480, 640, 768]) {
-  test(`app-header does not overflow its viewport at ${width}px`, async ({
+// mobile breakpoint (960px) plus the full 320-1440px matrix, with the
+// header's popovers open, since that's the realistic worst case. Runs on
+// /app/phenotypes (a program-scoped page distinct from the dashboard
+// tested above) per the task's explicit ask to cover more than one route.
+for (const width of [320, 390, 480, 640, 768, 1024, 1440]) {
+  test(`app-header and its popovers do not overflow the viewport at ${width}px`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width, height: 844 });
+    await page.setViewportSize({ width, height: 900 });
     await page.goto("/login");
     await page.fill('input[name="email"]', email);
     await page.fill('input[name="password"]', password);
@@ -121,9 +132,7 @@ for (const width of [390, 480, 640, 768]) {
       page.waitForURL(/\/app/),
       page.click('button[type="submit"]'),
     ]);
-
-    await page.locator(".notification-center summary").click();
-    await page.locator(".user-menu summary").click();
+    await page.goto(`/app/phenotypes?program=${ids.program}`);
 
     const header = page.locator(".app-header");
     const headerBox = await header.boundingBox();
@@ -133,12 +142,50 @@ for (const width of [390, 480, 640, 768]) {
       "app-header should not extend past the viewport width",
     ).toBeLessThanOrEqual(width + 1);
 
-    const bodyOverflow = await page.evaluate(
-      () => document.body.scrollWidth > window.innerWidth + 1,
-    );
-    expect(
-      bodyOverflow,
-      "document.body.scrollWidth should not exceed the viewport with header popovers open",
-    ).toBe(false);
+    // Each of the three header popovers, opened one at a time: program
+    // selector, notification center, user menu. A regression here is a
+    // popover whose own bounding box runs off either edge of the
+    // viewport - the kind of overflow document.body.scrollWidth alone
+    // does not reliably catch for an absolutely/fixed-positioned element
+    // (see the CSS fix's own comment in globals.css).
+    for (const [trigger, popover] of [
+      [".program-selector-trigger", ".program-selector-menu"],
+      [".notification-center summary", ".notification-popover"],
+      [".user-menu summary", ".user-popover"],
+    ] as const) {
+      const triggerLocator = page.locator(trigger);
+      const ariaExpandedBefore = await triggerLocator
+        .getAttribute("aria-expanded")
+        .catch(() => null);
+      await triggerLocator.click();
+      const box = await page.locator(popover).boundingBox();
+      expect(
+        box,
+        `${popover} should be visible once its trigger is clicked`,
+      ).not.toBeNull();
+      expect(
+        box!.x,
+        `${popover} left edge at ${width}px`,
+      ).toBeGreaterThanOrEqual(-1);
+      expect(
+        box!.x + box!.width,
+        `${popover} right edge at ${width}px`,
+      ).toBeLessThanOrEqual(width + 1);
+      // Only the program selector exposes aria-expanded today (native
+      // <details>/<summary> communicates its own open state to assistive
+      // technology without it) - toggling must not silently break that.
+      if (ariaExpandedBefore !== null) {
+        await expect(triggerLocator).toHaveAttribute("aria-expanded", "true");
+      }
+      await triggerLocator.click();
+
+      const bodyOverflow = await page.evaluate(
+        () => document.body.scrollWidth > window.innerWidth + 1,
+      );
+      expect(
+        bodyOverflow,
+        `no document body overflow with ${popover} open at ${width}px`,
+      ).toBe(false);
+    }
   });
 }
