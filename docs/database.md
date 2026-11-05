@@ -470,6 +470,100 @@ architecture decision and formula references. Heritability is hard-coded
 `NOT_ESTIMABLE` in V2-04: no genotype entity, validated experimental design, or
 normalized environment model exists yet to support it (see `docs/ANALYTICS.md` §7).
 
+### Multi-environment & G×E stability (V2-05, migrations 000028-000030)
+
+A normalized model for multi-environment trials (MET), additive only — every existing
+`phenotypes` row keeps working unchanged, and raw phenotype/evaluation/trait-value data
+is never rewritten. `experimental_cycles` (migration 000001) was audited first and found
+unsuitable: it is a scheduling concept (name/dates/status), with no site dimension and no
+link to phenotype data at all.
+
+New tables:
+
+- **`sites`** — a normalized physical/organizational location, organization-scoped.
+  Distinct from the pre-existing free-text `phenotypes.location`, which is never
+  auto-migrated into a site (see the mapping workflow below).
+- **`environments`** — one MET environment = one site observed under one campaign/
+  management context, program-scoped. `campaign` reuses the exact free-text season/year
+  convention already established by `programs.campaign`.
+- **`trials`** — a named multi-environment trial, program-scoped: an explicit set of
+  environments (`trial_environments`) and entries (`trial_entries`) analyzed together.
+- **`trial_environments`** — join table (no own `organization_id`/`program_id`; RLS
+  derives scope by joining to `trials`), with a trigger cross-checking the environment's
+  own program matches the trial's program.
+- **`trial_entries`** — the experimental material compared across a trial's environments.
+  `scientific_role` (`genotype`/`family`/`population`/`seed_lot`/`other`) is always an
+  explicit, user-stated classification — never inferred from which optional lineage FK
+  (`parent_line_id`/`family_id`/`seed_lot_id`) happens to be set. Only a `genotype`-role
+  entry may ever be labelled G×E in the UI; every other role is Entry×Environment.
+- **`phenotypes.environment_id`/`phenotypes.trial_entry_id`** (nullable, additive) — the
+  only new columns on an existing table. A `validate_phenotype_met_links` trigger
+  enforces that both resolve to the phenotype's own program, and that when both are set,
+  the environment is actually one of the entry's own trial's `trial_environments`.
+
+All four new tables' `*_read` SELECT policies deliberately do **not** filter
+`deleted_at IS NULL` (`sites_read`/`environments_read`/`trials_read`/`trial_entries_read`
+check only `can_access_team`/`can_access_program`) — matching the established convention
+(`equipment`/`task_templates`/`selection_criteria`, see migration 000022 §E): `deleted_at`
+is lifecycle state, not an authorization boundary, and PostgreSQL re-checks a table's
+SELECT policy against the post-UPDATE row for a plain `UPDATE ... SET deleted_at = now()`
+with no explicit `WITH CHECK` override of it — a `deleted_at IS NULL` SELECT policy would
+otherwise reject the archive operation itself. An archived row stays readable so it can be
+inspected and restored, same as every other reversible BreedOps lifecycle record.
+
+`analytics_runs.analysis_type` gains `'multi_environment'` (sibling of `'trait_intelligence'`,
+never a replacement); `trial_id` is nullable and required exactly when
+`analysis_type = 'multi_environment'` (enforced by the replaced
+`validate_analytics_run_scope()`), with its program cross-checked against the run's own
+`program_id`. The engine/version provenance reuses the already-generic
+`engine_name`/`engine_version` columns — `breedops-r-mixed-models`/`sommer`'s version for a
+completed `met_base_v1` run, `metan`'s for AMMI/WAASB/GGE/Finlay-Wilkinson.
+
+New `SECURITY INVOKER` SQL functions:
+
+- **`met_observation_dataset(target_trial_id, target_trait_id, include_archived, row_limit)`**
+  — the one server-side reader every V2-05 analysis is built from, mirroring
+  `trait_observation_dataset`'s filter-before-cap pattern exactly (`LIMIT LEAST(row_limit,
+  5001)`, a caller can never raise it; a result of exactly `row_limit` rows is the
+  deterministic `dataset_too_large` signal, never a silently truncated dataset).
+- **`legacy_phenotype_location_summary(target_program_id)` /
+  `legacy_phenotype_material_summary(target_program_id)`** (migration 000029) — read-only
+  summaries of which free-text `location` values and `(family_id, seed_lot_id)`
+  combinations still have no `environment_id`/`trial_entry_id`, for the mapping workflow
+  below to offer as candidates.
+
+New `SECURITY DEFINER` functions, each with an explicit `can_write_program()` check (the
+same belt-and-suspenders convention `import_phenotypes` already uses):
+
+- **`map_legacy_location_to_environment(target_program_id, target_location,
+  target_environment_id)` / `map_legacy_material_to_trial_entry(target_program_id,
+  target_family_id, target_seed_lot_id, target_trial_entry_id)`** (migration 000029) — the
+  legacy mapping workflow itself. Legacy `location`/`family_id`/`seed_lot_id` are never
+  auto-interpreted as a normalized environment/entry (B8/B41): a human picks one explicit
+  mapping, applied in bulk to every still-unmapped phenotype sharing that exact value.
+  Never overwrites an existing mapping (only touches rows where the target FK is still
+  `NULL`). The material mapping skips (rather than aborting the whole batch on) any row
+  whose existing `environment_id` is not part of the target trial — `validate_phenotype_
+  met_links` would otherwise reject that one row and roll back the entire `UPDATE`.
+- **`import_met_observations(target_program_id, target_trial_id, target_trait_id, rows)`**
+  (migration 000030) — bulk CSV import of MET *observations* into an already-defined
+  trial, following `import_phenotypes`' exact convention (one JSONB rows array, any row
+  failing an invariant `RAISE`s and aborts the whole import, idempotent on
+  `phenotype_code`). Never creates a `trial_entry` or `environment` from the file — both
+  must already exist; `entry_code`/`environment_code` are resolved against the target
+  trial only. On re-import, `entry_code`/`environment_code` are treated as immutable
+  identity fields (same rule `import_phenotypes` already applies to family/seed lot) — a
+  row may only update its numeric value, never silently move to a different
+  entry/environment.
+
+The statistical engine is a server-only R runtime (`analytics-r/`, driven from Node via
+`src/lib/met/r-runner.ts`) — see `docs/DEPLOYMENT_GUIDE.md` for the subprocess
+environment/renv setup and the full architecture rationale. No REML/BLUP/mixed-model math
+is hand-rolled in TypeScript. Heritability remains out of scope for V2-05 for the same
+reason as V2-04 (no validated genotype-identity/replication model); the factor-analytic
+MET model is formally **deferred** (not implemented) — see `agend.md`'s decision log for
+the full justification.
+
 ## Relationships
 
 ```mermaid

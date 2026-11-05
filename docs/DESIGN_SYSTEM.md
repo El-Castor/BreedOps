@@ -386,3 +386,35 @@ info/warning/danger tokens as `StatusBadge`, never an arbitrary colour.
 Responsive: the filters form and every `stat-grid`/comparison grid collapse to a single
 column below 720px (`@media (max-width: 720px)` in `globals.css`), the same breakpoint
 convention `media-comparison-grid` (V2-03) already uses.
+
+## 20. Multi-environment analytics (`/app/trials`, `/app/analytics/multi-environment`)
+
+Two new top-level nav entries under "Sélection": "Essais multi-environnements" (a new
+`trial` icon, `MapPin`) for the experimental-design CRUD, and "Analytique" gains a sibling
+page rather than a tab bolted onto the already-large V2-04 analytics page. Both reuse the
+same primitives as §19 throughout (`PageHeader`, `Card`, `DataTable`, `StatusBadge`,
+`ProgramContext`/`ProgramSwitch`, `EmptyState`/`ActionForm`) — no isolated visual language.
+A new generic `.section-grid` utility class (responsive card grid, `auto-fit minmax(300px,
+1fr)`) is reused across `/app/trials`' site/environment/trial columns and its trial-detail
+two-column layout.
+
+Two new chart primitives in `src/components/met-charts.tsx`:
+
+- `EntryEnvironmentHeatmap` — a plain `<table>` with cell background colour set via
+  `color-mix(in srgb, var(--teal) <pct>% , var(--surface))`, where `<pct>` is relative to
+  *this dataset's own* observed min/max (never a fixed absolute scale) — theme-aware in
+  both light and dark without a separate dark-mode colour ramp. Every cell also prints its
+  own numeric value (the accessible equivalent is the number itself, not a separate table,
+  since the heatmap *is* the table); an empty cell (no observation) renders as `—`, never a
+  fabricated 0.
+- `WaasbStabilityScatter` — a Recharts scatter plot of performance (x) vs WAASB (y),
+  following `AssociationScatter`'s exact existing pattern (§19) rather than a new one.
+
+Every analysis result is rendered by `MetRunResult` (`src/components/met-run-result.tsx`),
+which switches on the stored result's shape (never fabricates a table for a shape it does
+not recognize): an eligibility-gate `NOT_ESTIMABLE` lists its reasons as plain `<ul>` text;
+an engine-level `NOT_ESTIMABLE`/error shows the precise message; a completed result renders
+the fields specific to its model type (variance components/BLUPs, AMMI/GGE principal
+components and scores, WAASB entries plus the scatter above, or Finlay-Wilkinson's
+slope/stability table) — the same "visible reason, never a disabled control with no
+explanation" rule as every `.eligibility-panel` in §19.

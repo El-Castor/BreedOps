@@ -23,11 +23,11 @@ causal evidence. Where the current data model cannot support a scientifically
 valid interpretation, the engine returns a structured `NOT_ESTIMABLE` result
 with the exact missing requirement, never a fabricated number.
 
-Out of scope for V2-04 (deferred to V2-05/V2-06 — see `agend.md`'s roadmap
-reconciliation): full normalized multi-environment model, G×E decomposition,
-AMMI, GGE biplots, WAASB/WAASBY, broad/specific adaptation, genetic gain over
-generations, Smith-Hazel selection indices, MGIDI, MTSI, genomic
-selection/GBLUP.
+Out of scope for V2-04: full normalized multi-environment model, G×E
+decomposition, AMMI, GGE biplots, WAASB/WAASBY, broad/specific adaptation —
+delivered in V2-05, see `docs/MULTI_ENVIRONMENT_ANALYTICS.md`. Still deferred to
+V2-06 (see `agend.md`'s roadmap reconciliation): genetic gain over generations,
+Smith-Hazel selection indices, MGIDI, MTSI, genomic selection/GBLUP.
 
 ## 2. Terminology discipline
 

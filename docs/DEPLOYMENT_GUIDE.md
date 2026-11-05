@@ -153,6 +153,72 @@ sudo systemctl start breedops.service
 
 (Toujours précédé d'une sauvegarde — `docs/ADMIN_GUIDE.md` §8/§9.)
 
+## Moteur statistique R (V2-05, les deux options)
+
+L'analyse multi-environnement (`docs/MULTI_ENVIRONMENT_ANALYTICS.md`) dépend d'un
+runtime R serveur (`analytics-r/`), distinct de Node/Next.js et requis en plus de
+l'application elle-même — un déploiement qui omet cette étape démarre normalement
+mais échoue dès la première analyse multi-environnement lancée.
+
+### 1. Dépendances système
+
+```sh
+# Ubuntu/Debian (Option B) ; sur macOS (Option A), via Homebrew : brew install r libgit2
+sudo apt-get install -y r-base libblas-dev liblapack-dev gfortran
+```
+
+`libblas-dev`/`liblapack-dev`/`gfortran` sont nécessaires pour compiler `RcppArmadillo`/
+`sommer` depuis les sources lors de l'installation des packages R (distinct de l'accès
+réseau CRAN ci-dessous).
+
+### 2. Accès réseau sortant vers CRAN
+
+L'installation des packages R (`renv::restore()`) nécessite un accès réseau sortant vers
+`cloud.r-project.org`. Sur un serveur dont le réseau sortant est restreint par
+pare-feu/proxy, autoriser explicitement ce domaine avant l'étape suivante.
+
+### 3. Restauration des packages épinglés (`renv`)
+
+```sh
+cd analytics-r
+Rscript -e 'install.packages("renv"); renv::restore()'
+```
+
+`renv.lock` épingle des versions exactes (R, `sommer`, `lme4`, `metan`, `jsonlite`,
+`testthat`) — jamais une branche de développement GitHub. `renv::restore()` compile
+`sommer`/`RcppArmadillo` depuis les sources (plusieurs minutes la première fois).
+
+### 4. Vérification (health check)
+
+```sh
+cd analytics-r
+LC_ALL=C.UTF-8 LANG=C.UTF-8 RENV_CONFIG_STARTUP_QUIET=TRUE Rscript scripts/health_check.R
+```
+
+Doit retourner `{"status":"ok",...}` avec les versions des packages installés et un
+ajustement de modèle minimal réussi. Si cette étape échoue, l'application elle-même
+démarrera normalement mais toute analyse multi-environnement échouera avec une erreur
+interne — ne pas considérer le déploiement terminé sans ce contrôle au vert.
+
+### 5. Variables d'environnement requises par le sous-processus R
+
+`src/lib/met/r-runner.ts` les fixe déjà explicitement à chaque appel du sous-processus
+(aucune configuration supplémentaire n'est nécessaire côté application Next.js/`.env.local`)
+— documenté ici uniquement pour qui invoquerait `analytics-r/scripts/met_models.R`
+manuellement (tests, diagnostic) :
+
+- `LC_ALL=C.UTF-8` / `LANG=C.UTF-8` — sans cela, R décode mal les caractères accentués
+  des messages français dès le démarrage du processus (un problème d'analyse syntaxique
+  au lancement, non corrigible depuis l'intérieur du script R lui-même).
+- `RENV_CONFIG_STARTUP_QUIET=TRUE` — supprime la banderole de démarrage de `renv`, qui
+  sinon pollue la sortie standard et casse le contrat « un seul objet JSON sur stdout ».
+
+### 6. Mise à niveau
+
+Après un `git pull` qui modifie `analytics-r/renv.lock` ou `analytics-r/scripts/`, relancer
+les étapes 3 et 4 ci-dessus en plus de la mise à niveau habituelle de l'application
+(§ « Mise à niveau » ci-dessus).
+
 ## Sécurité réseau (les deux options)
 
 Ce guide ne configure **aucun accès réseau externe** — ni reverse proxy, ni TLS, ni VPN. Voir `docs/REMOTE_ACCESS.md` pour la comparaison des approches et la recommandation, à mettre en place séparément et volontairement par l'utilisateur. Par défaut, dans les deux options ci-dessus, le serveur Next.js écoute sur `127.0.0.1` uniquement (jamais `0.0.0.0`) — il n'est donc **pas** atteignable depuis le réseau tant qu'aucun reverse proxy n'est explicitement configuré devant lui.
