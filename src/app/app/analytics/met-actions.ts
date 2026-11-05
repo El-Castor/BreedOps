@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import {
   actionError,
   actionSuccess,
@@ -18,6 +19,8 @@ import {
 } from "@/lib/met/r-runner";
 import { datasetFingerprint } from "@/lib/analytics/fingerprint";
 import type { MetObservationRecord } from "@/lib/met/types";
+import { parseCsv } from "@/lib/import-export/csv";
+import { IMPORT_LIMITS, assertUploadSize } from "@/lib/import-export/limits";
 import { metRunInputFromFormData, type MetRunInput } from "./met-filters";
 
 function toMetModelRows(rows: MetObservationRecord[]): MetModelRow[] {
@@ -330,4 +333,93 @@ export async function getLatestMetAnalysisRun(
       null,
     result: row.result as Record<string, unknown> | null,
   };
+}
+
+// ───────────────────────── MET import (B42) ─────────────────────────
+// A fixed, documented CSV shape rather than the generic column-mapping
+// flow in src/app/app/import-export/: a deliberate scope reduction (see
+// agend.md) - this imports OBSERVATIONS for an already-defined trial
+// only. Entry/environment identity is never created from the file (same
+// B3/B41 discipline as the legacy mapping workflow); import_met_
+// observations (migration 000030) rejects any row whose entry_code/
+// environment_code does not already resolve within the target trial.
+const MET_IMPORT_REQUIRED_HEADERS = [
+  "phenotype_code",
+  "entry_code",
+  "environment_code",
+  "value",
+] as const;
+const MET_IMPORT_OPTIONAL_HEADERS = ["block", "evaluation_date"] as const;
+
+export async function importMetObservations(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const programId = z.string().uuid().parse(form.get("program_id"));
+    const trialId = z.string().uuid().parse(form.get("trial_id"));
+    const traitId = z.string().uuid().parse(form.get("trait_id"));
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return actionError(new Error("no file"), "Aucun fichier reçu.");
+    }
+    assertUploadSize(file.size);
+    const text = Buffer.from(await file.arrayBuffer()).toString("utf8");
+    const allRows = parseCsv(text);
+    if (allRows.length === 0) {
+      return actionError(new Error("empty file"), "Le fichier est vide.");
+    }
+    const headerRow = allRows[0].map((h) => h.trim().toLowerCase());
+    const missing = MET_IMPORT_REQUIRED_HEADERS.filter(
+      (h) => !headerRow.includes(h),
+    );
+    if (missing.length > 0) {
+      return actionError(
+        new Error("missing headers"),
+        `Colonnes manquantes dans le fichier : ${missing.join(", ")}.`,
+      );
+    }
+    const dataRows = allRows.slice(1).filter((r) => r.some((cell) => cell.trim() !== ""));
+    if (dataRows.length > IMPORT_LIMITS.maxRows) {
+      return actionError(
+        new Error("too many rows"),
+        `Le fichier dépasse ${IMPORT_LIMITS.maxRows} lignes.`,
+      );
+    }
+    const columnIndex = (name: string) => headerRow.indexOf(name);
+    const rows = dataRows.map((cells, index) => ({
+      row_index: index + 1,
+      phenotype_code: cells[columnIndex("phenotype_code")]?.trim() || null,
+      entry_code: cells[columnIndex("entry_code")]?.trim() || null,
+      environment_code: cells[columnIndex("environment_code")]?.trim() || null,
+      value: cells[columnIndex("value")]?.trim() || null,
+      block:
+        columnIndex("block") >= 0
+          ? cells[columnIndex("block")]?.trim() || null
+          : null,
+      evaluation_date:
+        columnIndex("evaluation_date") >= 0
+          ? cells[columnIndex("evaluation_date")]?.trim() || null
+          : null,
+    }));
+
+    const { client } = await requireIdentity();
+    const { data, error } = await client.rpc("import_met_observations", {
+      target_program_id: programId,
+      target_trial_id: trialId,
+      target_trait_id: traitId,
+      rows,
+    });
+    if (error) {
+      return actionError(error, `Import annulé : ${error.message}`);
+    }
+    const results = (data ?? []) as { status: "created" | "updated" }[];
+    const created = results.filter((r) => r.status === "created").length;
+    const updated = results.filter((r) => r.status === "updated").length;
+    return actionSuccess(
+      `Import réussi : ${created} créée(s), ${updated} mise(s) à jour.`,
+    );
+  } catch (error) {
+    return actionError(error, "L’import des observations a échoué.");
+  }
 }

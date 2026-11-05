@@ -122,6 +122,7 @@ try {
         "test:legacy-met-mapping",
         "legacy location/material mapping workflow RLS/integrity",
       ],
+      ["test:met-import", "multi-environment bulk import RLS/integrity"],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
       [

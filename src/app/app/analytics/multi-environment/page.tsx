@@ -23,6 +23,7 @@ import { listTrials } from "../../trials/actions";
 import {
   createMetAnalysisRun,
   getLatestMetAnalysisRun,
+  importMetObservations,
   listMetAnalysisRuns,
 } from "../met-actions";
 
@@ -36,6 +37,49 @@ const modelTypeLabels: Record<string, string> = {
 
 const fmt = (value: number | null | undefined, decimals = 2) =>
   value == null || !Number.isFinite(value) ? "—" : value.toFixed(decimals);
+
+/** Shared by both the "no observations yet" empty state and the main
+ * results view below - importing is exactly how the former gets out of
+ * being empty, so the form must be reachable from there too, not only
+ * once a dataset already exists. */
+function MetImportCard({
+  programId,
+  trialId,
+  traitId,
+}: {
+  programId: string;
+  trialId: string;
+  traitId: string;
+}) {
+  return (
+    <Card>
+      <h3 className="chart-title">Importer des observations (CSV)</h3>
+      <p className="chart-description">
+        Colonnes requises : <code>phenotype_code</code>, <code>entry_code</code>
+        , <code>environment_code</code>, <code>value</code> ; optionnelles :{" "}
+        <code>block</code>, <code>evaluation_date</code>. Les entrées et
+        environnements doivent déjà exister dans cet essai (
+        <Link href="/app/trials">gérer l’essai</Link>) - l’import ne crée jamais
+        d’identité à partir du fichier. Réimporter le même{" "}
+        <code>phenotype_code</code> met à jour sa valeur plutôt que de créer un
+        doublon.
+      </p>
+      <ActionForm
+        action={importMetObservations}
+        actionName="met-import-observations"
+        submitLabel="Importer"
+      >
+        <input type="hidden" name="program_id" value={programId} />
+        <input type="hidden" name="trial_id" value={trialId} />
+        <input type="hidden" name="trait_id" value={traitId} />
+        <label>
+          Fichier CSV
+          <input type="file" name="file" accept=".csv,text/csv" required />
+        </label>
+      </ActionForm>
+    </Card>
+  );
+}
 
 export default async function MultiEnvironmentAnalytics({
   searchParams,
@@ -181,11 +225,16 @@ export default async function MultiEnvironmentAnalytics({
         <ProgramContext team={team.name} program={program} />
         <EmptyState
           title="Aucune observation liée à cet essai"
-          message="Aucun phénotype n’est encore lié à cet essai/trait. Liez des phénotypes existants à des entrées et environnements avant d’analyser."
+          message="Aucun phénotype n’est encore lié à cet essai/trait. Liez des phénotypes existants à des entrées et environnements (B41) ou importez-en de nouvelles ci-dessous."
           action={{
             label: "Gérer l’essai",
             href: `/app/trials?program=${programId}&trial=${trial.id}`,
           }}
+        />
+        <MetImportCard
+          programId={programId}
+          trialId={trial.id}
+          traitId={traitId}
         />
       </div>
     );
@@ -357,6 +406,12 @@ export default async function MultiEnvironmentAnalytics({
         </Card>
       )}
 
+      <MetImportCard
+        programId={programId}
+        trialId={trial.id}
+        traitId={traitId}
+      />
+
       <Card>
         <h3 className="chart-title">Lancer une analyse</h3>
         {!eligibility.eligible && (
@@ -474,6 +529,20 @@ export default async function MultiEnvironmentAnalytics({
           Chaque résultat ci-dessus reste traçable jusqu’à ces observations (les
           200 premières sont affichées).
         </p>
+        <div className="page-actions">
+          <Link
+            className="button-link secondary"
+            href={`${basePath}/export?${trialQuery({})}&format=csv`}
+          >
+            Exporter en CSV
+          </Link>
+          <Link
+            className="button-link secondary"
+            href={`${basePath}/export?${trialQuery({})}&format=json`}
+          >
+            Exporter en JSON
+          </Link>
+        </div>
         <DataTable label="Observations brutes">
           <table>
             <thead>

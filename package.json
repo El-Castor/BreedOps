@@ -33,6 +33,7 @@
     "test:trait-analytics": "node scripts/test-rls.mjs tests/trait-analytics.sql",
     "test:multi-environment": "node scripts/test-rls.mjs tests/multi-environment.sql",
     "test:legacy-met-mapping": "node scripts/test-rls.mjs tests/legacy-met-mapping.sql",
+    "test:met-import": "node scripts/test-rls.mjs tests/met-import.sql",
     "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",
     "test:import-export": "node scripts/test-rls.mjs tests/import-export.sql",
     "test:business-completion": "node scripts/test-rls.mjs tests/business-completion.sql",
