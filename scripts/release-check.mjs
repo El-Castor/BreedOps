@@ -117,6 +117,7 @@ try {
       ["test:media", "plant media"],
       ["test:advanced-media", "advanced media metadata/annotations"],
       ["test:trait-analytics", "trait analytics provenance/RLS"],
+      ["test:multi-environment", "multi-environment MET schema RLS/integrity"],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
       [
