@@ -339,3 +339,50 @@ conventions rather than a new page or visual language; its own `operational_stat
 (`operational`→success, `maintenance`→warning, `out_of_service`→danger) are a local label
 map, kept separate from every other status vocabulary in the app on purpose, since none of
 them describe the same real-world states.
+
+## 19. Trait analytics (`/app/analytics`)
+
+A new top-level nav entry under "Sélection" (alongside Programme/Pedigree/Phénotypes —
+analytics is phenotyping-derived and program-scoped the same way), not a tab bolted onto
+the already-large Phénotypes page. Unlike `MediaGallery` (V2-03), this page is a plain
+Server Component reading `searchParams` — there is no client-side `useEffect` fetch
+gating its content, so every filter (trait, date range, block, location, replicate,
+archived-inclusion) is a native `<form method="get">`, fully keyboard- and
+headless-HTTP-reachable, with no JavaScript required to see a result.
+
+Reuses the existing primitives throughout: `PageHeader`, `Card`, `DataTable`,
+`StatusBadge`, `ProgramContext`/`ProgramSwitch`, `EmptyState`/`ErrorState`, and the
+`ActionForm`/`FormDrawer` action-state conventions for the one real mutation on the page
+("Enregistrer cette analyse", which inserts an `analytics_runs` row). No isolated visual
+language was introduced.
+
+Three new chart primitives in `src/components/analytics-charts.tsx`, all Recharts (like
+`DistributionChart`) plus one dependency-free SVG box plot (Recharts has no native
+boxplot), all using the same semantic CSS tokens so they already match dark/light mode and
+every existing badge's palette:
+
+- `HistogramChart` — pre-binned bar chart, paired with a visible `<table>` of the same
+  bin/count pairs (the accessible text equivalent, same convention as `chart-legend`
+  elsewhere).
+- `BoxPlot` — min/Q1/median/Q3/max as a labelled SVG box-and-whisker; its `aria-label`
+  spells out all five numbers, and the same numbers are already shown in the descriptive
+  statistics panel next to it.
+- `TrajectoryChart` — a population median line with a Q1-Q3 band, plus up to 25
+  individually-coloured (and capped) entity lines on top. This is the *only* way multiple
+  entities' trajectories are ever drawn simultaneously — never hundreds of raw lines (task
+  requirement: avoid an unreadable "spaghetti plot"). A `<table>` of the per-date n/median/
+  Q1/Q3 sits underneath.
+- `AssociationScatter` — a single labelled scatter plot for one trait pair, kept but not
+  wired into the current associations table (which already has paired-n/r/rho/q in tabular
+  form); available for a future per-pair detail view.
+
+Every eligibility result renders through one shared pattern: `.eligibility-panel.eligible`
+(teal, matches `--teal-soft`) or `.eligibility-panel.not-estimable` (warning amber,
+`--warning-soft`), each showing its own diagnostics or every missing-requirement reason as
+plain visible `<ul>` text — never a disabled button with no explanation. Three warning
+levels (`.analysis-warning.info|caution|not_estimable`) use the same semantic
+info/warning/danger tokens as `StatusBadge`, never an arbitrary colour.
+
+Responsive: the filters form and every `stat-grid`/comparison grid collapse to a single
+column below 720px (`@media (max-width: 720px)` in `globals.css`), the same breakpoint
+convention `media-comparison-grid` (V2-03) already uses.

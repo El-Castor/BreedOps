@@ -424,6 +424,52 @@ sharing the same `phenotype_id` — the actual stable biological specimen; a sin
 schema before deciding the widening was scientifically safe to do via the existing FK
 rather than inventing a new relation.
 
+### Trait analytics (V2-04, migration 000027)
+
+`analytics_runs` is the only new table: a reproducible provenance record for an explicitly
+saved trait-analysis snapshot. It never stores raw observations — `specification` is the
+exact, server-validated filter set used (program/trait/date-range/cohort filters),
+`result` is a compact structured summary (descriptive stats, QC, eligibility diagnostics,
+a bounded outlier list), and both JSONB columns are size-capped at the database level
+(`octet_length(...) <= 20000`/`200000`) so a bug can never turn this table into a raw-data
+dump. `dataset_fingerprint` is a sha256 hex digest over the canonically-ordered
+observation tuples that fed the run (see `src/lib/analytics/fingerprint.ts`); reading a
+saved run recomputes the current fingerprint for its own stored specification and flags a
+mismatch as stale (`PÉRIMÉE` in the UI) rather than silently presenting it as current.
+`organization_id` is re-derived from `program_id` by trigger — the same forged-value
+override pattern `media_assets`/`notifications` already use — and `trait_id`/
+`secondary_trait_id` are cross-checked to belong to that same organization. There is
+deliberately **no UPDATE and no DELETE grant at all** (not merely no policy): a saved
+analysis run is a fact about what was computed, when, and from what data; if the question
+or the data changes, a new run is created rather than editing an old one in place.
+
+Two new `SECURITY INVOKER` SQL functions are the sole server-side readers every V2-04
+chart/table is built from — no action queries `phenotype_trait_values`/
+`phenotype_evaluations`/`phenotypes` directly:
+
+- `trait_observation_dataset(...)` returns the canonical per-observation rows for one
+  program/trait (plus optional date-range/family/seed-lot/block/replicate/location
+  filters and an archived-inclusion flag), capped server-side at 5000 rows
+  (`LIMIT LEAST(row_limit, 5000)` — a caller cannot raise the cap) and restricted to
+  `numeric`/`integer`/`ordinal` traits only; a categorical/boolean/date/text trait is
+  refused at the SQL level, not just in the UI.
+- `program_evaluation_dataset(...)` returns every scoring event for the same cohort,
+  trait-independent — the real, schema-honest denominator for "missing" (BreedOps does
+  not require every evaluation to score every active trait; see `submit_trait_evaluation`,
+  migration 000016).
+
+Both are `SECURITY INVOKER`, so the pre-existing RLS policies on all three joined tables
+still apply in full underneath; each also carries its own explicit `can_access_program()`
+check, the same belt-and-suspenders pattern `program_active_traits()` already uses.
+
+The statistical engine itself (`src/lib/analytics/*`) is plain, dependency-free
+TypeScript — no Python subprocess, no new runtime. The one calculation that could be
+mistaken for "a mixed model" (repeatability/ICC) is a one-way random-effects ANOVA, which
+has an exact closed form (no REML/BLUP iteration); see `docs/ANALYTICS.md` for the full
+architecture decision and formula references. Heritability is hard-coded
+`NOT_ESTIMABLE` in V2-04: no genotype entity, validated experimental design, or
+normalized environment model exists yet to support it (see `docs/ANALYTICS.md` §7).
+
 ## Relationships
 
 ```mermaid
