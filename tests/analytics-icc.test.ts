@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   estimateRepeatability,
+  estimateTraitRepeatability,
   MIN_ICC_ENTITIES,
 } from "../src/lib/analytics/icc";
 
@@ -105,6 +106,73 @@ describe("repeatability (ICC) - one-way random-effects ANOVA", () => {
       expect(first.ciLow).toBe(second.ciLow);
       expect(first.ciHigh).toBe(second.ciHigh);
       expect(first.bootstrapSeed).toBe(second.bootstrapSeed);
+    }
+  });
+});
+
+describe("estimateTraitRepeatability - longitudinal eligibility (task review finding #3)", () => {
+  // Same balanced fixture as above, reshaped as per-observation rows.
+  const sameOccasionRows = [
+    { phenotypeId: "p1", evaluationDate: "2026-01-01", value: 10 },
+    { phenotypeId: "p1", evaluationDate: "2026-01-01", value: 11 },
+    { phenotypeId: "p1", evaluationDate: "2026-01-01", value: 9 },
+    { phenotypeId: "p2", evaluationDate: "2026-01-01", value: 20 },
+    { phenotypeId: "p2", evaluationDate: "2026-01-01", value: 21 },
+    { phenotypeId: "p2", evaluationDate: "2026-01-01", value: 19 },
+    { phenotypeId: "p3", evaluationDate: "2026-01-01", value: 30 },
+    { phenotypeId: "p3", evaluationDate: "2026-01-01", value: 31 },
+    { phenotypeId: "p3", evaluationDate: "2026-01-01", value: 29 },
+    { phenotypeId: "p4", evaluationDate: "2026-01-01", value: 40 },
+    { phenotypeId: "p4", evaluationDate: "2026-01-01", value: 41 },
+    { phenotypeId: "p4", evaluationDate: "2026-01-01", value: 39 },
+    { phenotypeId: "p5", evaluationDate: "2026-01-01", value: 50 },
+    { phenotypeId: "p5", evaluationDate: "2026-01-01", value: 51 },
+    { phenotypeId: "p5", evaluationDate: "2026-01-01", value: 49 },
+  ];
+
+  it("a single measurement occasion (same date) remains fully eligible, matching the closed-form ICC", () => {
+    const result = estimateTraitRepeatability(sameOccasionRows);
+    expect(result.status).toBe("eligible");
+    if (result.status === "eligible") {
+      expect(result.icc).toBeCloseTo(749 / 752, 8);
+    }
+  });
+
+  it("observations spanning multiple evaluation dates are NOT_ESTIMABLE, never a one-way ICC confounding growth with noise", () => {
+    const longitudinalRows = sameOccasionRows.map((row, index) => ({
+      ...row,
+      // Every third row (one per entity) moves to a later date - a
+      // genuine developmental design (D10 -> D20 -> D30-like), not a
+      // single occasion.
+      evaluationDate: index % 3 === 0 ? "2026-02-01" : row.evaluationDate,
+    }));
+    const result = estimateTraitRepeatability(longitudinalRows);
+    expect(result.status).toBe("not_estimable");
+    if (result.status === "not_estimable") {
+      expect(result.reasons.join(" ")).toMatch(/dates de mesure distinctes/);
+    }
+  });
+
+  it("undated rows never trigger the multi-date refusal by themselves", () => {
+    const rowsWithSomeUndated = sameOccasionRows.map((row, index) => ({
+      ...row,
+      evaluationDate: index === 0 ? null : row.evaluationDate,
+    }));
+    const result = estimateTraitRepeatability(rowsWithSomeUndated);
+    expect(result.status).toBe("eligible");
+  });
+
+  it("still enforces the usual entity/observation-count eligibility beneath the date check", () => {
+    const tooFewEntities = [
+      { phenotypeId: "p1", evaluationDate: "2026-01-01", value: 1 },
+      { phenotypeId: "p1", evaluationDate: "2026-01-01", value: 2 },
+      { phenotypeId: "p2", evaluationDate: "2026-01-01", value: 3 },
+      { phenotypeId: "p2", evaluationDate: "2026-01-01", value: 4 },
+    ];
+    const result = estimateTraitRepeatability(tooFewEntities);
+    expect(result.status).toBe("not_estimable");
+    if (result.status === "not_estimable") {
+      expect(result.reasons.join(" ")).toMatch(/entités/);
     }
   });
 });

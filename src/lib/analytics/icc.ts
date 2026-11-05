@@ -140,3 +140,49 @@ export function estimateRepeatability(
     msWithin: anova.msWithin,
   };
 }
+
+export type RepeatabilityObservation = {
+  phenotypeId: string;
+  evaluationDate: string | null;
+  value: number;
+};
+
+/** The entry point every caller (Trait Intelligence's own repeatability
+ * panel, and the early-selection proxy's source-trait repeatability) must
+ * use instead of calling `estimateRepeatability` directly on raw groups
+ * (task review finding #3).
+ *
+ * A one-way random-intercept ICC assumes every repeated measurement of an
+ * entity is exchangeable - draws from the same underlying distribution,
+ * differing only by residual noise. That assumption breaks down the
+ * moment the repeated measurements span genuinely different developmental
+ * occasions (e.g. D10 -> D20 -> D30): systematic biological change over
+ * time would then be counted as "within-entity variability", which can
+ * report a misleadingly LOW repeatability for a perfectly well-behaved,
+ * simply-growing trait. Fixing this properly needs a time-adjusted mixed
+ * model, which V2-04 deliberately does not implement from scratch (see
+ * docs/ANALYTICS.md §6) - so the correct, honest behavior here is
+ * NOT_ESTIMABLE whenever the observations being pooled span more than one
+ * distinct evaluation date, not a number that quietly conflates growth
+ * with noise. When every observation shares one occasion (e.g. several
+ * technical replicates recorded the same day), the existing closed-form
+ * ICC remains fully valid and is still reported. */
+export function estimateTraitRepeatability(
+  rows: RepeatabilityObservation[],
+): EligibilityResult<IccResult> {
+  const distinctDates = new Set(
+    rows.map((r) => r.evaluationDate).filter((d): d is string => d != null),
+  );
+  if (distinctDates.size > 1) {
+    return notEstimable(
+      "Ces observations couvrent plusieurs dates de mesure distinctes. Un ICC à un facteur confondrait une évolution biologique temporelle réelle avec la variance résiduelle intra-entité ; un modèle mixte ajusté sur le temps serait nécessaire pour une répétabilité longitudinale valide.",
+    );
+  }
+  const groups = new Map<string, number[]>();
+  for (const row of rows) {
+    const list = groups.get(row.phenotypeId) ?? [];
+    list.push(row.value);
+    groups.set(row.phenotypeId, list);
+  }
+  return estimateRepeatability([...groups.values()]);
+}

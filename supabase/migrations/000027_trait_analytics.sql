@@ -149,11 +149,26 @@ GRANT SELECT, INSERT ON public.analytics_runs TO authenticated;
 -- is an additional, redundant guard (the same belt-and-suspenders pattern
 -- program_active_traits already uses), not a replacement for RLS. Only
 -- numeric/integer/ordinal traits are accepted - categorical/boolean/date/
--- text traits are never fed into a numeric model (task §7/§34). Rows are
--- capped server-side (LEAST(row_limit, 5000)) so a request can never pull
--- an organization's entire phenotyping history into the application
--- (task §40); the cap is enforced here even if a caller passes a larger
--- row_limit.
+-- text traits are never fed into a numeric model (task §7/§34; see
+-- trait_categorical_dataset below for those).
+--
+-- ALL filters (date range, family/seed-lot/block/replicate/location,
+-- archived-inclusion) are applied in this WHERE clause, i.e. server-side and
+-- BEFORE the row cap below - never after. An earlier revision of the
+-- TypeScript caller fetched an unfiltered, already-capped 5000-row page and
+-- filtered client-side, which could silently return zero rows for a filter
+-- value that only occurs past row 5000 of a larger unfiltered dataset. That
+-- bug is why every filter parameter here is load-bearing, not decorative.
+--
+-- The cap is LEAST(row_limit, 5001) - one more than the officially
+-- supported analysis size (5000, src/lib/analytics/dataset.ts's
+-- MAX_OBSERVATION_ROWS) - never 5000 itself. This lets the caller
+-- distinguish "exactly 5000 rows, and that is the complete filtered
+-- dataset" from "more than 5000 rows exist" deterministically from the
+-- returned row count alone, so it can refuse to compute statistics on an
+-- oversized dataset (DATASET_TOO_LARGE) rather than silently analyzing an
+-- arbitrary truncated subset (task: "do not silently sample/truncate
+-- scientific data").
 CREATE FUNCTION public.trait_observation_dataset(
   target_program_id UUID,
   target_trait_id UUID,
@@ -165,7 +180,7 @@ CREATE FUNCTION public.trait_observation_dataset(
   filter_replicates INTEGER[] DEFAULT NULL,
   filter_locations TEXT[] DEFAULT NULL,
   include_archived BOOLEAN DEFAULT FALSE,
-  row_limit INTEGER DEFAULT 5000
+  row_limit INTEGER DEFAULT 5001
 )
 RETURNS TABLE (
   trait_value_id UUID,
@@ -207,7 +222,7 @@ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp AS $$
     AND (filter_replicates IS NULL OR p.replicate = ANY (filter_replicates))
     AND (filter_locations IS NULL OR p.location = ANY (filter_locations))
   ORDER BY e.evaluation_date NULLS LAST, tv.id
-  LIMIT LEAST(COALESCE(row_limit, 5000), 5000);
+  LIMIT LEAST(COALESCE(row_limit, 5001), 5001);
 $$;
 REVOKE ALL ON FUNCTION public.trait_observation_dataset(
   UUID, UUID, DATE, DATE, UUID[], UUID[], TEXT[], INTEGER[], TEXT[], BOOLEAN, INTEGER
@@ -217,20 +232,32 @@ GRANT EXECUTE ON FUNCTION public.trait_observation_dataset(
 ) TO authenticated;
 
 -- Sibling of trait_observation_dataset, scoped to the SAME cohort (program +
--- date range + archived-inclusion) but NOT to one trait: every evaluation
--- event for a matching phenotype, whether or not it carries a value for the
--- trait being analyzed. This is what makes a real "n missing" meaningful
--- (task §11): BreedOps does not require every evaluation to score every
--- active trait (submit_trait_evaluation, migration 000016, accepts a
--- partial submission), so "missing" here means "a scoring event happened
--- for this phenotype in this window, but not for this particular trait" -
--- never an invented denominator.
+-- date range + family/seed-lot/block/replicate/location filters +
+-- archived-inclusion - the exact same filter set, applied the same way,
+-- server-side and before the row cap) but NOT to one trait: every
+-- evaluation event for a matching phenotype, whether or not it carries a
+-- value for the trait being analyzed.
+--
+-- IMPORTANT (task review finding #2): this is NOT a reliable "missing
+-- data" denominator. submit_trait_evaluation (migration 000016) explicitly
+-- accepts a partial submission - a trait absent from an evaluation may
+-- simply never have been scheduled for it, not have been missed. There is
+-- no historical measurement-plan snapshot in this schema that could
+-- distinguish "expected but not recorded" from "never scheduled". The
+-- TypeScript layer therefore reports this only as "evaluation events" /
+-- "observation coverage", never as "missing observations" - see
+-- docs/ANALYTICS.md §4 and src/lib/analytics/types.ts's CoverageSummary.
 CREATE FUNCTION public.program_evaluation_dataset(
   target_program_id UUID,
   date_from DATE DEFAULT NULL,
   date_to DATE DEFAULT NULL,
+  filter_family_ids UUID[] DEFAULT NULL,
+  filter_seed_lot_ids UUID[] DEFAULT NULL,
+  filter_blocks TEXT[] DEFAULT NULL,
+  filter_replicates INTEGER[] DEFAULT NULL,
+  filter_locations TEXT[] DEFAULT NULL,
   include_archived BOOLEAN DEFAULT FALSE,
-  row_limit INTEGER DEFAULT 5000
+  row_limit INTEGER DEFAULT 5001
 )
 RETURNS TABLE (
   evaluation_id UUID,
@@ -250,8 +277,82 @@ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp AS $$
     AND (include_archived OR (p.deleted_at IS NULL AND e.deleted_at IS NULL))
     AND (date_from IS NULL OR e.evaluation_date >= date_from)
     AND (date_to IS NULL OR e.evaluation_date <= date_to)
+    AND (filter_family_ids IS NULL OR p.family_id = ANY (filter_family_ids))
+    AND (filter_seed_lot_ids IS NULL OR p.seed_lot_id = ANY (filter_seed_lot_ids))
+    AND (filter_blocks IS NULL OR p.block = ANY (filter_blocks))
+    AND (filter_replicates IS NULL OR p.replicate = ANY (filter_replicates))
+    AND (filter_locations IS NULL OR p.location = ANY (filter_locations))
   ORDER BY e.id
-  LIMIT LEAST(COALESCE(row_limit, 5000), 5000);
+  LIMIT LEAST(COALESCE(row_limit, 5001), 5001);
 $$;
-REVOKE ALL ON FUNCTION public.program_evaluation_dataset(UUID, DATE, DATE, BOOLEAN, INTEGER) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.program_evaluation_dataset(UUID, DATE, DATE, BOOLEAN, INTEGER) TO authenticated;
+REVOKE ALL ON FUNCTION public.program_evaluation_dataset(
+  UUID, DATE, DATE, UUID[], UUID[], TEXT[], INTEGER[], TEXT[], BOOLEAN, INTEGER
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.program_evaluation_dataset(
+  UUID, DATE, DATE, UUID[], UUID[], TEXT[], INTEGER[], TEXT[], BOOLEAN, INTEGER
+) TO authenticated;
+
+-- ───────────────────────── Categorical/boolean dataset ─────────────────────────
+-- Sibling of trait_observation_dataset for the two non-numeric data types
+-- V2-04 is required to summarize (task review finding #5): categorical and
+-- boolean. Deliberately a separate function, not a relaxed
+-- trait_observation_dataset, so the numeric path can never accidentally
+-- receive a text_value/boolean_value row - the data_type restriction is a
+-- hard SQL-level split, not a shared, broadened query. Same filter set, same
+-- server-side-before-cap discipline, same SECURITY INVOKER/can_access_program
+-- guard as its numeric sibling.
+CREATE FUNCTION public.trait_categorical_dataset(
+  target_program_id UUID,
+  target_trait_id UUID,
+  date_from DATE DEFAULT NULL,
+  date_to DATE DEFAULT NULL,
+  filter_family_ids UUID[] DEFAULT NULL,
+  filter_seed_lot_ids UUID[] DEFAULT NULL,
+  filter_blocks TEXT[] DEFAULT NULL,
+  filter_replicates INTEGER[] DEFAULT NULL,
+  filter_locations TEXT[] DEFAULT NULL,
+  include_archived BOOLEAN DEFAULT FALSE,
+  row_limit INTEGER DEFAULT 5001
+)
+RETURNS TABLE (
+  trait_value_id UUID,
+  text_value TEXT,
+  boolean_value BOOLEAN,
+  evaluation_id UUID,
+  evaluation_date DATE,
+  phenotype_id UUID,
+  phenotype_code TEXT
+)
+LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp AS $$
+  SELECT
+    tv.id, tv.text_value, tv.boolean_value,
+    e.id, e.evaluation_date,
+    p.id, p.phenotype_code
+  FROM phenotype_trait_values tv
+  JOIN phenotype_evaluations e ON e.id = tv.phenotype_evaluation_id
+  JOIN phenotypes p ON p.id = e.phenotype_id
+  WHERE tv.trait_id = target_trait_id
+    AND (tv.text_value IS NOT NULL OR tv.boolean_value IS NOT NULL)
+    AND p.program_id = target_program_id
+    AND can_access_program(target_program_id)
+    AND EXISTS (
+      SELECT 1 FROM phenotype_traits t
+      WHERE t.id = target_trait_id AND t.data_type IN ('categorical', 'boolean')
+    )
+    AND (include_archived OR (p.deleted_at IS NULL AND e.deleted_at IS NULL))
+    AND (date_from IS NULL OR e.evaluation_date >= date_from)
+    AND (date_to IS NULL OR e.evaluation_date <= date_to)
+    AND (filter_family_ids IS NULL OR p.family_id = ANY (filter_family_ids))
+    AND (filter_seed_lot_ids IS NULL OR p.seed_lot_id = ANY (filter_seed_lot_ids))
+    AND (filter_blocks IS NULL OR p.block = ANY (filter_blocks))
+    AND (filter_replicates IS NULL OR p.replicate = ANY (filter_replicates))
+    AND (filter_locations IS NULL OR p.location = ANY (filter_locations))
+  ORDER BY e.evaluation_date NULLS LAST, tv.id
+  LIMIT LEAST(COALESCE(row_limit, 5001), 5001);
+$$;
+REVOKE ALL ON FUNCTION public.trait_categorical_dataset(
+  UUID, UUID, DATE, DATE, UUID[], UUID[], TEXT[], INTEGER[], TEXT[], BOOLEAN, INTEGER
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.trait_categorical_dataset(
+  UUID, UUID, DATE, DATE, UUID[], UUID[], TEXT[], INTEGER[], TEXT[], BOOLEAN, INTEGER
+) TO authenticated;

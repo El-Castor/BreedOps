@@ -7,7 +7,7 @@
 -- boundary.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(21);
+SELECT plan(26);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-00000000a0b1','TraitAnalytics A','trait-analytics-a'),
@@ -202,13 +202,127 @@ SELECT is(
   0::bigint, 'trait_observation_dataset never feeds a categorical trait into the numeric analysis path'
 );
 
--- ───────── An absurd row_limit request never errors (LEAST(...,5000) always clamps it) ─────────
+-- ───────── trait_categorical_dataset surfaces categorical/boolean observations (task review finding #5) ─────────
+-- Reuses the color_a categorical trait created just above. A single
+-- observation is enough to prove the read path works end to end; the
+-- counting/proportion logic itself is unit-tested in TypeScript
+-- (tests/analytics-longitudinal.test.ts).
+RESET ROLE;
+INSERT INTO phenotypes(id,program_id,phenotype_code) VALUES
+ ('99994000-0000-0000-0000-000000000001','55555555-0000-0000-0000-00000000a0b1','CATEG-1');
+INSERT INTO phenotype_evaluations(id,phenotype_id,evaluation_date) VALUES
+ ('99994000-0000-0000-0000-000000000002','99994000-0000-0000-0000-000000000001','2026-03-01');
+INSERT INTO phenotype_trait_values(phenotype_evaluation_id,trait_id,text_value) VALUES
+ ('99994000-0000-0000-0000-000000000002','66666666-0000-0000-0000-00000000c0b1','rouge');
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a0b1',true);
+SELECT is(
+  (SELECT count(*) FROM trait_categorical_dataset(
+    '55555555-0000-0000-0000-00000000a0b1', '66666666-0000-0000-0000-00000000c0b1')),
+  1::bigint, 'trait_categorical_dataset surfaces the categorical observation for its own organization'
+);
+SELECT is(
+  (SELECT count(*) FROM trait_categorical_dataset(
+    '55555555-0000-0000-0000-00000000a0b1', '66666666-0000-0000-0000-00000000a0b1')),
+  0::bigint, 'trait_categorical_dataset never feeds a numeric trait into the categorical/boolean path'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a0b2',true);
+SELECT is(
+  (SELECT count(*) FROM trait_categorical_dataset(
+    '55555555-0000-0000-0000-00000000a0b1', '66666666-0000-0000-0000-00000000c0b1')),
+  0::bigint, 'trait_categorical_dataset returns zero rows for another organization''s program/trait'
+);
+RESET ROLE;
+
+-- ───────── Server-side filters apply before the row cap (task review finding #1) ─────────
+-- Regression for the bug an independent review found: an earlier revision
+-- of the TypeScript caller requested an UNFILTERED page (already capped at
+-- 5000 rows) and applied family/seed-lot/block/replicate/location filters
+-- client-side afterwards - so a filter value that only occurs past row
+-- 5000 of a larger unfiltered dataset could silently return zero rows.
+-- Build >5000 observations in block "BLOCK-A" dated earlier (so it sorts
+-- first and alone exceeds the cap) plus a small block "BLOCK-B" dated
+-- later (so every one of its rows would fall entirely past the cap in an
+-- unfiltered query), then prove a block filter still returns BLOCK-B's
+-- rows intact - i.e. filtering happens in SQL before LIMIT, not in
+-- TypeScript after it. (A plain text column, not family/seed_lot, to
+-- avoid the unrelated cross/parent-line lineage fixture those FKs would
+-- otherwise require - the filter-before-cap mechanism is identical for
+-- every one of the five filter parameters, since they are all applied in
+-- the same WHERE clause before the same LIMIT.)
+RESET ROLE;
+INSERT INTO phenotype_traits(id,organization_id,code,name,data_type) VALUES
+ ('66666666-0000-0000-0000-00000000d0b1','11111111-0000-0000-0000-00000000a0b1','bulk_a','Bulk A','numeric');
+
+-- 5100 phenotypes in block A, evaluated 2026-01-01, each with one numeric
+-- observation - alone already past the 5000-row supported size.
+INSERT INTO phenotypes(id,program_id,block,phenotype_code)
+SELECT ('99990000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       '55555555-0000-0000-0000-00000000a0b1',
+       'BLOCK-A',
+       'BULKA-' || gs
+FROM generate_series(1,5100) gs;
+INSERT INTO phenotype_evaluations(id,phenotype_id,evaluation_date)
+SELECT ('99991000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       ('99990000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       '2026-01-01'
+FROM generate_series(1,5100) gs;
+INSERT INTO phenotype_trait_values(phenotype_evaluation_id,trait_id,numeric_value)
+SELECT ('99991000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       '66666666-0000-0000-0000-00000000d0b1',
+       10.0
+FROM generate_series(1,5100) gs;
+
+-- 7 phenotypes in block B, evaluated 2026-06-01 - strictly after every
+-- block-A row in evaluation_date order, so an unfiltered query would never
+-- reach them within the cap.
+INSERT INTO phenotypes(id,program_id,block,phenotype_code)
+SELECT ('99992000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       '55555555-0000-0000-0000-00000000a0b1',
+       'BLOCK-B',
+       'BULKB-' || gs
+FROM generate_series(1,7) gs;
+INSERT INTO phenotype_evaluations(id,phenotype_id,evaluation_date)
+SELECT ('99993000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       ('99992000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       '2026-06-01'
+FROM generate_series(1,7) gs;
+INSERT INTO phenotype_trait_values(phenotype_evaluation_id,trait_id,numeric_value)
+SELECT ('99993000-0000-0000-0000-' || lpad(gs::text,12,'0'))::uuid,
+       '66666666-0000-0000-0000-00000000d0b1',
+       20.0
+FROM generate_series(1,7) gs;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a0b1',true);
+SELECT is(
+  (SELECT count(*) FROM trait_observation_dataset(
+    '55555555-0000-0000-0000-00000000a0b1', '66666666-0000-0000-0000-00000000d0b1')),
+  5001::bigint,
+  'an unfiltered query over 5107 observations is capped at 5001 (one past the supported 5000) - a deterministic too-large signal, never a silent truncation below it'
+);
+SELECT is(
+  (SELECT count(*) FROM trait_observation_dataset(
+    '55555555-0000-0000-0000-00000000a0b1', '66666666-0000-0000-0000-00000000d0b1',
+    NULL, NULL, NULL, NULL, ARRAY['BLOCK-B']::text[])),
+  7::bigint,
+  'filtering by block B - whose rows would fall entirely past the unfiltered 5001-row cap - still returns all 7 of its rows: filters are applied before the row limit, not after'
+);
+RESET ROLE;
+
+-- ───────── An absurd row_limit request never errors (LEAST(...,5001) always clamps it) ─────────
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000a0b1',true);
 SELECT lives_ok(
   $$SELECT count(*) FROM trait_observation_dataset(
     '55555555-0000-0000-0000-00000000a0b1', '66666666-0000-0000-0000-00000000a0b1',
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, FALSE, 999999999)$$,
-  'requesting far more than the 5000-row cap is accepted and simply clamped, never an error'
+  'requesting far more than the 5001-row cap is accepted and simply clamped, never an error'
 );
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -46,6 +46,19 @@ export async function GET(request: Request) {
   }
 
   const dataset = await buildObservationDataset(client, filters, trait);
+  // Exporting a truncated preview would hand the scientist an incomplete
+  // dataset while implying it is complete - refuse outright, same as the
+  // analysis page itself (task review finding #1), rather than silently
+  // exporting a prefix of a larger filtered dataset.
+  if (dataset.tooLarge) {
+    return NextResponse.json(
+      {
+        error:
+          "Le jeu de données filtré dépasse la taille d’export prise en charge. Restreignez les filtres (période, bloc, famille…) avant d’exporter.",
+      },
+      { status: 413 },
+    );
+  }
   const filenameBase = sanitizeFilenamePart(
     `breedops-analytics-${trait.code}-${new Date().toISOString().slice(0, 10)}`,
   );
@@ -59,7 +72,6 @@ export async function GET(request: Request) {
         direction: trait.direction,
       },
       specification: filters,
-      truncated: dataset.truncated,
       rows: dataset.rows,
     });
     return new NextResponse(body, {

@@ -69,10 +69,11 @@ describe("descriptive statistics - known reference values", () => {
     const cv = coefficientOfVariation([-10, -1, 1, 10, 0.5]);
     expect(cv.status).toBe("not_applicable");
   });
-  it("descriptiveStats bundles everything consistently, with nMissing from nTotal", () => {
+  it("descriptiveStats bundles everything consistently, with nEvaluationEventsWithoutTrait derived from nEvaluationEvents", () => {
     const stats = descriptiveStats(classic, 10);
     expect(stats.nObserved).toBe(8);
-    expect(stats.nMissing).toBe(2);
+    expect(stats.nEvaluationEventsWithoutTrait).toBe(2);
+    expect(stats.coverageRatio).toBeCloseTo(0.8, 10);
     expect(stats.q1).toBeCloseTo(4, 10);
     expect(stats.q3).toBeCloseTo(5.5, 10);
     expect(stats.iqr).toBeCloseTo(1.5, 10);

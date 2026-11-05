@@ -60,7 +60,12 @@ export type QualityControl = {
   histogram: { binStart: number; binEnd: number; count: number }[];
 };
 
-export type TrajectoryPoint = { date: string; value: number };
+/** `rawCount` is how many raw observations were averaged into this one
+ * canonical per-occasion point (task review finding #4): 1 when there was
+ * no duplicate, >1 when `phenotypeId`+`date` carried more than one
+ * observation and they were combined by arithmetic mean - never silently
+ * discarded, and exposed here for transparency. */
+export type TrajectoryPoint = { date: string; value: number; rawCount: number };
 export type EntityTrajectory = {
   phenotypeId: string;
   phenotypeCode: string;
@@ -92,7 +97,14 @@ export type DerivedLongitudinalFeature = {
     r2: number;
     n: number;
   }>;
+  /** Distinct measurement occasions (dates) used - the canonical series
+   * size, after same-phenotype/same-date duplicates are aggregated by
+   * mean (task review finding #4). */
   nMeasurements: number;
+  /** Raw observation rows that fed those `nMeasurements` occasions, before
+   * aggregation. Equal to nMeasurements unless at least one date carried
+   * more than one observation. */
+  rawObservationCount: number;
   spanDays: number;
 };
 
@@ -141,8 +153,19 @@ export type EarlyProxyEvidence = {
   medianDaysEarlier: number | null;
   pearsonR: number | null;
   spearmanRho: number | null;
+  /** Repeatability of the SOURCE trait within its own window, subject to
+   * the exact same longitudinal eligibility rule as the main Trait
+   * Intelligence panel (task review finding #3): a source window spanning
+   * more than one evaluation date is NOT_ESTIMABLE, never a one-way ICC
+   * silently confounding growth with measurement noise. */
   repeatability: EligibilityResult<IccResult> | null;
-  missingPct: number;
+  /** Entities present in the source window that were NOT found again in
+   * the target window, as a fraction of all source-window entities - a
+   * pairing/coverage-loss figure, never biological missingness (task
+   * review finding #2): an entity can be absent from the target window
+   * for many reasons (not yet measured, program attrition, the window
+   * itself too narrow), none of which this schema can distinguish. */
+  unpairedSourceEntitiesRatio: number;
 };
 
 export type TraitIntelligenceBundle = {
@@ -153,9 +176,6 @@ export type TraitIntelligenceBundle = {
   direction: string;
   targetValue: number | null;
   dataType: "numeric" | "integer" | "ordinal";
-
-  nTotalRows: number;
-  truncated: boolean;
 
   descriptive: import("./stats").DescriptiveStats;
   qc: QualityControl;
@@ -176,13 +196,42 @@ export type AnalysisWarning = {
   message: string;
 };
 
+export type CategoricalObservationRecord = {
+  traitValueId: string;
+  textValue: string | null;
+  booleanValue: boolean | null;
+  evaluationId: string;
+  evaluationDate: string | null;
+  phenotypeId: string;
+  phenotypeCode: string;
+};
+
+/** Frequency-only summary for a categorical/boolean trait (task §5): never
+ * mean/SD/ICC/Pearson/longitudinal models, which are only valid for
+ * numeric/integer/ordinal data. Uses the same "coverage" terminology as
+ * DescriptiveStats - see its field comments - rather than inventing a
+ * "missing" concept this schema cannot actually identify. */
 export type CategoricalSummary = {
   traitId: string;
   traitCode: string;
   traitName: string;
   dataType: "categorical" | "boolean";
-  nTotal: number;
+  nEvaluationEvents: number;
   nObserved: number;
-  nMissing: number;
+  nEvaluationEventsWithoutTrait: number;
+  coverageRatio: number | null;
   categories: { label: string; count: number; proportion: number }[];
 };
+
+export type EarlyProxyResult =
+  | { status: "ok"; evidence: EarlyProxyEvidence }
+  | { status: "dataset_too_large" };
+
+/** DATASET_TOO_LARGE is an explicit outcome, not a silent truncation (task
+ * review finding #1): the filtered dataset (or its evaluation-cohort
+ * denominator) exceeds MAX_OBSERVATION_ROWS, so no statistic is computed
+ * on a prefix of it - the caller must narrow its filters instead. */
+export type TraitIntelligenceResult =
+  | { status: "ok"; bundle: TraitIntelligenceBundle }
+  | { status: "dataset_too_large"; atLeast: number }
+  | { status: "trait_not_found" };

@@ -116,6 +116,28 @@ test.beforeAll(async () => {
   if (traitSparse.error) throw traitSparse.error;
   ids.traitSparse = traitSparse.data.id;
 
+  // A fourth trait, measured 3 times per entity but all on the SAME single
+  // occasion (task review finding #3) - the genuinely-eligible ICC
+  // demonstration. traitRich above spans 2 real calendar dates, so since
+  // the longitudinal-eligibility fix it is correctly NOT_ESTIMABLE for
+  // repeatability (see the "full scientific workflow" test below); this
+  // trait is what demonstrates the one-way ICC still working when it is
+  // actually valid to use.
+  const traitRepeat = await admin
+    .from("phenotype_traits")
+    .insert({
+      organization_id: ids.team,
+      code: "repet_e2e",
+      name: "Répétition (même occasion)",
+      category: "development",
+      data_type: "numeric",
+      direction: "higher_is_better",
+    })
+    .select("id")
+    .single();
+  if (traitRepeat.error) throw traitRepeat.error;
+  ids.traitRepeat = traitRepeat.data.id;
+
   const phenotypingModule = await admin
     .from("phenotyping_modules")
     .insert({ organization_id: ids.team, name: "Module e2e analytique" })
@@ -137,6 +159,11 @@ test.beforeAll(async () => {
       module_id: phenotypingModule.data.id,
       trait_id: ids.traitSparse,
       display_order: 3,
+    },
+    {
+      module_id: phenotypingModule.data.id,
+      trait_id: ids.traitRepeat,
+      display_order: 4,
     },
   ]);
   await admin.from("program_phenotyping_modules").insert({
@@ -215,6 +242,35 @@ test.beforeAll(async () => {
     }
   }
 
+  // Same-occasion repeated-measures trait: 5 phenotypes, each measured 3
+  // times on the exact same date (3 separate evaluations, not 3 dates) -
+  // the same closed-form-ICC fixture shape as tests/analytics-icc.test.ts.
+  const sameOccasionValues = [
+    [10, 11, 9],
+    [20, 21, 19],
+    [30, 31, 29],
+    [40, 41, 39],
+    [50, 51, 49],
+  ];
+  for (let i = 0; i < sameOccasionValues.length; i++) {
+    for (const value of sameOccasionValues[i]) {
+      const evaluation = await admin
+        .from("phenotype_evaluations")
+        .insert({
+          phenotype_id: phenotypeIds[i],
+          evaluation_date: "2026-03-01",
+        })
+        .select("id")
+        .single();
+      if (evaluation.error) throw evaluation.error;
+      await admin.from("phenotype_trait_values").insert({
+        phenotype_evaluation_id: evaluation.data.id,
+        trait_id: ids.traitRepeat,
+        numeric_value: value,
+      });
+    }
+  }
+
   // Sparse trait: only 2 phenotypes measured once each.
   for (let i = 0; i < 2; i++) {
     const evaluation = await admin
@@ -269,8 +325,16 @@ test("full scientific workflow: QC, trajectory, outliers, repeatability, early-p
     page.getByRole("heading", { name: "Trajectoire longitudinale" }),
   ).toBeVisible();
 
-  // Reliability: eligible for this well-populated trait.
-  await expect(page.locator(".eligibility-panel.eligible")).toBeVisible();
+  // Reliability: this trait's 2 observations per entity span 2 different
+  // calendar dates (a genuine longitudinal design), so a one-way ICC would
+  // confound biological change with measurement noise - task review
+  // finding #3 requires this to be refused, never silently reported as a
+  // repeatability estimate. See the dedicated same-occasion test below for
+  // the case where ICC remains valid.
+  await expect(
+    page.locator(".eligibility-panel.not-estimable").first(),
+  ).toBeVisible();
+  await expect(page.getByText(/dates de mesure distinctes/)).toBeVisible();
 
   // Heritability: always NOT_ESTIMABLE, regardless of trait.
   await expect(
@@ -304,6 +368,16 @@ test("full scientific workflow: QC, trajectory, outliers, repeatability, early-p
     page.getByRole("link", { name: "Exporter en CSV" }).click(),
   ]);
   expect(download.suggestedFilename()).toMatch(/\.csv$/);
+});
+
+test("reports repeatability as eligible for a genuinely same-occasion repeated-measures trait (task review finding #3)", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto(
+    `/app/analytics?program=${ids.program}&trait=${ids.traitRepeat}`,
+  );
+  await expect(page.locator(".eligibility-panel.eligible")).toBeVisible();
 });
 
 test("refuses repeatability for an intentionally insufficient dataset (NOT_ESTIMABLE, not a fabricated number)", async ({

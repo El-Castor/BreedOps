@@ -7,50 +7,92 @@ import {
 } from "@/lib/action-state";
 import { requireIdentity } from "@/lib/auth";
 import {
+  buildCategoricalDataset,
   buildObservationDataset,
   countCohortEvaluations,
+  deriveFilterOptions,
+  listCategoricalTraits,
   listNumericTraits,
   type NumericTraitOption,
 } from "@/lib/analytics/dataset";
 import { computeTraitIntelligence } from "@/lib/analytics/analysis";
+import { computeCategoricalSummary } from "@/lib/analytics/categorical";
 import { computeTraitAssociations } from "@/lib/analytics/associations";
 import { computeEarlyProxyEvidence } from "@/lib/analytics/proxy";
 import { datasetFingerprint } from "@/lib/analytics/fingerprint";
 import type {
   AnalyticsFilters,
-  EarlyProxyEvidence,
+  CategoricalSummary,
+  EarlyProxyResult,
   TraitIntelligenceBundle,
+  TraitIntelligenceResult,
 } from "@/lib/analytics/types";
 import { filtersFromFormData } from "./filters";
 
-export async function loadTraitIntelligence(
-  filters: AnalyticsFilters,
-): Promise<{
-  bundle: TraitIntelligenceBundle;
-  rowsForFingerprint: {
+type FingerprintRow = {
+  evaluationId: string;
+  traitValueId: string;
+  traitId: string;
+  phenotypeId: string;
+  evaluationDate: string | null;
+  numericValue: number;
+};
+
+function toFingerprintRows(
+  rows: {
     evaluationId: string;
     traitValueId: string;
     traitId: string;
     phenotypeId: string;
     evaluationDate: string | null;
     numericValue: number;
-  }[];
-} | null> {
+  }[],
+): FingerprintRow[] {
+  return rows.map((r) => ({
+    evaluationId: r.evaluationId,
+    traitValueId: r.traitValueId,
+    traitId: r.traitId,
+    phenotypeId: r.phenotypeId,
+    evaluationDate: r.evaluationDate,
+    numericValue: r.numericValue,
+  }));
+}
+
+/** Loads (or refuses to load) the full Trait Intelligence bundle for a
+ * trait/filter combination. Returns `dataset_too_large` rather than ever
+ * computing statistics on a truncated prefix of a larger dataset (task
+ * review finding #1) - the caller must check `status` before touching
+ * `bundle`. */
+export async function loadTraitIntelligence(filters: AnalyticsFilters): Promise<
+  | {
+      status: "ok";
+      bundle: TraitIntelligenceBundle;
+      rowsForFingerprint: FingerprintRow[];
+    }
+  | { status: "dataset_too_large" }
+  | { status: "trait_not_found" }
+> {
   const { client } = await requireIdentity();
   const traits = await listNumericTraits(client, filters.programId);
   const trait = traits.find((t) => t.traitId === filters.traitId);
-  if (!trait) return null;
+  if (!trait) return { status: "trait_not_found" };
 
-  const [dataset, nEvaluations] = await Promise.all([
+  const [dataset, evaluationCount] = await Promise.all([
     buildObservationDataset(client, filters, trait),
     countCohortEvaluations(client, filters),
   ]);
-  const nMissing = Math.max(0, nEvaluations - dataset.rows.length);
+  // Either the trait's own observations, or the cohort's evaluation-event
+  // denominator, exceeding the supported size means the true, complete
+  // filtered dataset cannot be represented - refuse outright rather than
+  // compute on whatever truncated preview came back.
+  if (dataset.tooLarge || evaluationCount.tooLarge) {
+    return { status: "dataset_too_large" };
+  }
+
   const bundle = computeTraitIntelligence(
     dataset.rows,
     trait,
-    nMissing,
-    dataset.truncated,
+    evaluationCount.count,
   );
   bundle.associations = await computeTraitAssociations(
     client,
@@ -60,15 +102,9 @@ export async function loadTraitIntelligence(
   );
 
   return {
+    status: "ok",
     bundle,
-    rowsForFingerprint: dataset.rows.map((r) => ({
-      evaluationId: r.evaluationId,
-      traitValueId: r.traitValueId,
-      traitId: r.traitId,
-      phenotypeId: r.phenotypeId,
-      evaluationDate: r.evaluationDate,
-      numericValue: r.numericValue,
-    })),
+    rowsForFingerprint: toFingerprintRows(dataset.rows),
   };
 }
 
@@ -90,7 +126,9 @@ export async function loadFilterOptions(
       replicates: [],
       locations: [],
     };
-  const { deriveFilterOptions } = await import("@/lib/analytics/dataset");
+  // Deriving dropdown choices from a best-effort preview is an acceptable
+  // UX degradation even when the unfiltered dataset is too large to
+  // analyze in full (dataset.ts) - this is never fed into a statistic.
   const dataset = await buildObservationDataset(
     client,
     {
@@ -117,6 +155,45 @@ export async function loadNumericTraitOptions(
   return listNumericTraits(client, programId);
 }
 
+/** Frequency-only summaries for every active categorical/boolean trait in
+ * the program (task §5 scope completion). Each trait is evaluated
+ * independently; one being DATASET_TOO_LARGE never blocks the others. */
+export async function loadCategoricalSummaries(
+  programId: string,
+  dateFrom: string | null,
+  dateTo: string | null,
+  includeArchived: boolean,
+): Promise<{ summaries: CategoricalSummary[]; tooLargeTraitNames: string[] }> {
+  const { client } = await requireIdentity();
+  const traits = await listCategoricalTraits(client, programId);
+  const filters: AnalyticsFilters = {
+    programId,
+    traitId: "",
+    dateFrom,
+    dateTo,
+    familyIds: null,
+    seedLotIds: null,
+    blocks: null,
+    replicates: null,
+    locations: null,
+    includeArchived,
+  };
+  const evaluationCount = await countCohortEvaluations(client, filters);
+  const summaries: CategoricalSummary[] = [];
+  const tooLargeTraitNames: string[] = [];
+  for (const trait of traits) {
+    const dataset = await buildCategoricalDataset(client, filters, trait);
+    if (dataset.tooLarge || evaluationCount.tooLarge) {
+      tooLargeTraitNames.push(trait.name);
+      continue;
+    }
+    summaries.push(
+      computeCategoricalSummary(dataset.rows, trait, evaluationCount.count),
+    );
+  }
+  return { summaries, tooLargeTraitNames };
+}
+
 export async function loadEarlyProxyEvidence(
   filters: AnalyticsFilters,
   sourceTraitId: string,
@@ -125,7 +202,7 @@ export async function loadEarlyProxyEvidence(
   targetTraitId: string,
   targetFrom: string,
   targetTo: string,
-): Promise<EarlyProxyEvidence | null> {
+): Promise<EarlyProxyResult | null> {
   const { client } = await requireIdentity();
   const traits = await listNumericTraits(client, filters.programId);
   const sourceTrait = traits.find((t) => t.traitId === sourceTraitId);
@@ -156,8 +233,6 @@ function summarizeForStorage(bundle: TraitIntelligenceBundle) {
     heritability: bundle.heritability,
     associations: bundle.associations.slice(0, 50),
     warnings: bundle.warnings,
-    nTotalRows: bundle.nTotalRows,
-    truncated: bundle.truncated,
   };
 }
 
@@ -169,15 +244,22 @@ export async function createAnalysisRun(
     const filters = filtersFromFormData(form);
     const { client, profile } = await requireIdentity();
     const loaded = await loadTraitIntelligence(filters);
-    if (!loaded) {
+    if (loaded.status === "trait_not_found") {
       return actionError(
         new Error("trait not found"),
         "Trait introuvable pour ce programme.",
       );
     }
+    if (loaded.status === "dataset_too_large") {
+      return actionError(
+        new Error("dataset too large"),
+        "Le jeu de données filtré dépasse la taille d’analyse prise en charge. Restreignez les filtres (période, bloc, famille…) avant d’enregistrer cette analyse.",
+      );
+    }
     const fingerprint = datasetFingerprint(loaded.rowsForFingerprint);
+    const nObserved = loaded.bundle.descriptive.nObserved;
     const status: "completed" | "not_estimable" =
-      loaded.bundle.nTotalRows > 0 ? "completed" : "not_estimable";
+      nObserved > 0 ? "completed" : "not_estimable";
     const { error } = await client.from("analytics_runs").insert({
       program_id: filters.programId,
       trait_id: filters.traitId,
@@ -187,7 +269,7 @@ export async function createAnalysisRun(
       dataset_fingerprint: fingerprint,
       status,
       result: summarizeForStorage(loaded.bundle),
-      n_observations: loaded.bundle.nTotalRows,
+      n_observations: nObserved,
       engine_name: "breedops-ts-stats",
       engine_version: "1.0.0",
       started_at: new Date().toISOString(),
@@ -242,7 +324,10 @@ export async function listAnalysisRuns(
 
 /** Recomputes the current dataset fingerprint for a saved run's own
  * specification and compares it to what was stored (task §10): a mismatch
- * means the underlying observations have changed since the run was saved. */
+ * means the underlying observations have changed since the run was saved.
+ * If the dataset has since grown too large to represent in full, the run
+ * is conservatively reported stale rather than silently asserting it is
+ * still fresh from an incomplete comparison. */
 export async function isAnalysisRunStale(
   run: SavedAnalysisRun,
 ): Promise<boolean> {
@@ -255,15 +340,9 @@ export async function isAnalysisRunStale(
     run.specification,
     trait,
   );
+  if (dataset.tooLarge) return true;
   const currentFingerprint = datasetFingerprint(
-    dataset.rows.map((r) => ({
-      evaluationId: r.evaluationId,
-      traitValueId: r.traitValueId,
-      traitId: r.traitId,
-      phenotypeId: r.phenotypeId,
-      evaluationDate: r.evaluationDate,
-      numericValue: r.numericValue,
-    })),
+    toFingerprintRows(dataset.rows),
   );
   return currentFingerprint !== run.datasetFingerprint;
 }

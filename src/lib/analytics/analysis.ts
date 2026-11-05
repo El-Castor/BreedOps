@@ -1,7 +1,11 @@
 // Orchestrates the single-trait "Trait Intelligence" bundle (task §30) from
 // an already-fetched ObservationRecord[] (task §7's canonical dataset).
 // Nothing here queries the database - see dataset.ts for that - and nothing
-// here ever writes back to scientific source data (task §8).
+// here ever writes back to scientific source data (task §8). The caller
+// (src/app/app/analytics/actions.ts) must have already checked the dataset
+// is not DATASET_TOO_LARGE before calling computeTraitIntelligence: this
+// module always treats whatever rows it receives as the complete, true
+// filtered dataset.
 
 import {
   descriptiveStats,
@@ -13,8 +17,9 @@ import {
   spearmanCorrelation,
   sampleSd,
   coefficientOfVariation,
+  mean,
 } from "./stats";
-import { estimateRepeatability } from "./icc";
+import { estimateTraitRepeatability } from "./icc";
 import {
   HERITABILITY_NOT_ESTIMABLE_REASONS,
   MAX_INDIVIDUAL_TRAJECTORIES,
@@ -32,6 +37,7 @@ import type {
   QualityControl,
   RankStabilityPair,
   TraitIntelligenceBundle,
+  TrajectoryPoint,
   WithinEntityStability,
 } from "./types";
 
@@ -49,6 +55,83 @@ function groupByPhenotype(
     const list = groups.get(row.phenotypeId) ?? [];
     list.push(row);
     groups.set(row.phenotypeId, list);
+  }
+  return groups;
+}
+
+/** Canonical per-occasion observation: every (phenotypeId, evaluationDate)
+ * pair collapses to exactly one entry, its value the arithmetic mean of
+ * however many raw rows shared that pair (task review finding #4 - "D10
+ * values 10 and 12" must average to one occasion, deterministically,
+ * regardless of which raw row the database happened to return first).
+ * Undated rows (evaluationDate === null) are never merged with anything -
+ * there is no date key to group them by - and are simply omitted here,
+ * exactly like the longitudinal functions below already excluded them
+ * before this helper existed. Used consistently for every longitudinal
+ * calculation: population trajectory, individual trajectories, AUC,
+ * first/last value, absolute/relative change, and rank stability. Raw
+ * observations remain untouched for QC and for repeatability (ICC
+ * measures within-entity variance INCLUDING true replicate measurements,
+ * so collapsing them first would defeat its purpose). */
+type CanonicalPoint = {
+  phenotypeId: string;
+  phenotypeCode: string;
+  date: string;
+  value: number;
+  rawCount: number;
+};
+
+function canonicalizeByOccasion(rows: ObservationRecord[]): CanonicalPoint[] {
+  const groups = new Map<
+    string,
+    {
+      phenotypeId: string;
+      phenotypeCode: string;
+      date: string;
+      values: number[];
+    }
+  >();
+  for (const row of rows) {
+    if (!row.evaluationDate) continue;
+    const key = `${row.phenotypeId}\u0000${row.evaluationDate}`;
+    const entry = groups.get(key) ?? {
+      phenotypeId: row.phenotypeId,
+      phenotypeCode: row.phenotypeCode,
+      date: row.evaluationDate,
+      values: [],
+    };
+    entry.values.push(row.numericValue);
+    groups.set(key, entry);
+  }
+  return [...groups.values()]
+    .map((g) => ({
+      phenotypeId: g.phenotypeId,
+      phenotypeCode: g.phenotypeCode,
+      date: g.date,
+      value: mean(g.values),
+      rawCount: g.values.length,
+    }))
+    .sort((a, b) =>
+      a.phenotypeId === b.phenotypeId
+        ? a.date < b.date
+          ? -1
+          : a.date > b.date
+            ? 1
+            : 0
+        : a.phenotypeId < b.phenotypeId
+          ? -1
+          : 1,
+    );
+}
+
+function groupCanonicalByPhenotype(
+  points: CanonicalPoint[],
+): Map<string, CanonicalPoint[]> {
+  const groups = new Map<string, CanonicalPoint[]>();
+  for (const point of points) {
+    const list = groups.get(point.phenotypeId) ?? [];
+    list.push(point);
+    groups.set(point.phenotypeId, list);
   }
   return groups;
 }
@@ -99,15 +182,19 @@ function buildQc(
   };
 }
 
+/** Population trajectory from the CANONICAL series: an entity with a
+ * duplicated same-date raw observation must count once per date, not
+ * twice, or it would silently carry double weight in that date's mean/
+ * median/quartiles (task review finding #4 applies here too, not only to
+ * individual entities). */
 function buildPopulationTrajectory(
-  rows: ObservationRecord[],
+  canonical: CanonicalPoint[],
 ): PopulationTrajectoryPoint[] {
   const byDate = new Map<string, number[]>();
-  for (const row of rows) {
-    if (!row.evaluationDate) continue;
-    const list = byDate.get(row.evaluationDate) ?? [];
-    list.push(row.numericValue);
-    byDate.set(row.evaluationDate, list);
+  for (const point of canonical) {
+    const list = byDate.get(point.date) ?? [];
+    list.push(point.value);
+    byDate.set(point.date, list);
   }
   return [...byDate.entries()]
     .sort(([a], [b]) => (a < b ? -1 : 1))
@@ -124,77 +211,77 @@ function buildPopulationTrajectory(
     });
 }
 
-function buildEntityTrajectories(groups: Map<string, ObservationRecord[]>): {
+function buildEntityTrajectories(
+  canonicalGroups: Map<string, CanonicalPoint[]>,
+): {
   trajectories: EntityTrajectory[];
   truncated: boolean;
 } {
-  const phenotypeIds = [...groups.keys()].sort((a, b) => {
-    const codeA = groups.get(a)![0].phenotypeCode;
-    const codeB = groups.get(b)![0].phenotypeCode;
+  const phenotypeIds = [...canonicalGroups.keys()].sort((a, b) => {
+    const codeA = canonicalGroups.get(a)![0].phenotypeCode;
+    const codeB = canonicalGroups.get(b)![0].phenotypeCode;
     return codeA < codeB ? -1 : codeA > codeB ? 1 : 0;
   });
   const truncated = phenotypeIds.length > MAX_INDIVIDUAL_TRAJECTORIES;
   const selected = phenotypeIds.slice(0, MAX_INDIVIDUAL_TRAJECTORIES);
   const trajectories = selected.map((phenotypeId) => {
-    const rows = groups.get(phenotypeId)!;
-    const dated = rows.filter((r) => r.evaluationDate);
-    dated.sort((a, b) => (a.evaluationDate! < b.evaluationDate! ? -1 : 1));
+    const points = [...canonicalGroups.get(phenotypeId)!].sort((a, b) =>
+      a.date < b.date ? -1 : 1,
+    );
     return {
       phenotypeId,
-      phenotypeCode: rows[0].phenotypeCode,
-      points: dated.map((r) => ({
-        date: r.evaluationDate!,
-        value: r.numericValue,
-      })),
+      phenotypeCode: points[0].phenotypeCode,
+      points: points.map(
+        (p): TrajectoryPoint => ({
+          date: p.date,
+          value: p.value,
+          rawCount: p.rawCount,
+        }),
+      ),
     };
   });
   return { trajectories, truncated };
 }
 
 function buildDerivedFeatures(
-  groups: Map<string, ObservationRecord[]>,
+  canonicalGroups: Map<string, CanonicalPoint[]>,
 ): DerivedLongitudinalFeature[] {
   const features: DerivedLongitudinalFeature[] = [];
-  for (const [phenotypeId, rows] of groups) {
-    const dated = rows.filter((r) => r.evaluationDate);
-    if (dated.length === 0) continue;
-    dated.sort((a, b) => (a.evaluationDate! < b.evaluationDate! ? -1 : 1));
-    const first = dated[0];
-    const last = dated[dated.length - 1];
-    const points = dated.map((r) => ({
-      t: daysSinceEpoch(r.evaluationDate!),
-      v: r.numericValue,
+  for (const [phenotypeId, points] of canonicalGroups) {
+    if (points.length === 0) continue;
+    const sorted = [...points].sort((a, b) => (a.date < b.date ? -1 : 1));
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const timePoints = sorted.map((p) => ({
+      t: daysSinceEpoch(p.date),
+      v: p.value,
     }));
-    const change = relativeChange(first.numericValue, last.numericValue);
+    const change = relativeChange(first.value, last.value);
     features.push({
       phenotypeId,
-      phenotypeCode: rows[0].phenotypeCode,
-      firstValue: first.numericValue,
-      lastValue: last.numericValue,
-      firstDate: first.evaluationDate!,
-      lastDate: last.evaluationDate!,
+      phenotypeCode: sorted[0].phenotypeCode,
+      firstValue: first.value,
+      lastValue: last.value,
+      firstDate: first.date,
+      lastDate: last.date,
       absoluteChange: change.absolute,
       relativeChange: change.relative,
-      auc: trapezoidalAuc(points),
-      slope: linearSlope(points),
-      nMeasurements: dated.length,
-      spanDays: points[points.length - 1].t - points[0].t,
+      auc: trapezoidalAuc(timePoints),
+      slope: linearSlope(timePoints),
+      nMeasurements: sorted.length,
+      rawObservationCount: sorted.reduce((sum, p) => sum + p.rawCount, 0),
+      spanDays: timePoints[timePoints.length - 1].t - timePoints[0].t,
     });
   }
   return features;
 }
 
-function buildRankStability(
-  groups: Map<string, ObservationRecord[]>,
-): RankStabilityPair[] {
+function buildRankStability(canonical: CanonicalPoint[]): RankStabilityPair[] {
   const byDate = new Map<string, Map<string, number>>();
-  for (const [phenotypeId, rows] of groups) {
-    for (const row of rows) {
-      if (!row.evaluationDate) continue;
-      const map = byDate.get(row.evaluationDate) ?? new Map<string, number>();
-      map.set(phenotypeId, row.numericValue);
-      byDate.set(row.evaluationDate, map);
-    }
+  for (const point of canonical) {
+    const map = byDate.get(point.date) ?? new Map<string, number>();
+    map.set(point.phenotypeId, point.value);
+    byDate.set(point.date, map);
   }
   const timepoints = [...byDate.entries()]
     .sort(([, a], [, b]) => b.size - a.size)
@@ -235,19 +322,28 @@ function buildRankStability(
   return pairs;
 }
 
+/** SD/CV/range are computed over RAW observations - like repeatability,
+ * they describe measurement-level variability, where a genuine duplicate
+ * measurement is real information about noise, not something to average
+ * away. The entity's own slope, by contrast, uses the CANONICAL series
+ * (consistent with every other trend/trajectory calculation in this file)
+ * so one entity never carries two different, contradictory slope values
+ * depending on which function computed it. */
 function buildWithinEntityStability(
-  groups: Map<string, ObservationRecord[]>,
+  rawGroups: Map<string, ObservationRecord[]>,
+  canonicalGroups: Map<string, CanonicalPoint[]>,
 ): WithinEntityStability[] {
   const result: WithinEntityStability[] = [];
-  for (const [phenotypeId, rows] of groups) {
+  for (const [phenotypeId, rows] of rawGroups) {
     if (rows.length < MIN_WITHIN_ENTITY_OBSERVATIONS) continue;
     const values = rows.map((r) => r.numericValue);
-    const dated = rows
-      .filter((r) => r.evaluationDate)
-      .map((r) => ({
-        t: daysSinceEpoch(r.evaluationDate!),
-        v: r.numericValue,
-      }));
+    const canonicalPoints = [...(canonicalGroups.get(phenotypeId) ?? [])].sort(
+      (a, b) => (a.date < b.date ? -1 : 1),
+    );
+    const dated = canonicalPoints.map((p) => ({
+      t: daysSinceEpoch(p.date),
+      v: p.value,
+    }));
     result.push({
       phenotypeId,
       phenotypeCode: rows[0].phenotypeCode,
@@ -263,15 +359,18 @@ function buildWithinEntityStability(
 
 function buildWarnings(
   rows: ObservationRecord[],
-  nMissing: number,
-  nTotal: number,
+  nEvaluationEventsWithoutTrait: number,
+  nEvaluationEvents: number,
 ): AnalysisWarning[] {
   const warnings: AnalysisWarning[] = [];
-  const missingRate = nTotal > 0 ? nMissing / nTotal : 0;
-  if (missingRate > 0.3) {
+  const uncoveredRate =
+    nEvaluationEvents > 0
+      ? nEvaluationEventsWithoutTrait / nEvaluationEvents
+      : 0;
+  if (uncoveredRate > 0.3) {
     warnings.push({
       level: "caution",
-      message: `Taux de données manquantes élevé (${(missingRate * 100).toFixed(1)} %) : interpréter les résultats avec prudence.`,
+      message: `Couverture d’observation limitée : ${((1 - uncoveredRate) * 100).toFixed(1)} % des événements d’évaluation de cette cohorte portent une valeur pour ce trait. L’absence de valeur ne prouve pas une mesure manquante - le trait peut simplement n’avoir pas été programmé pour les autres évaluations.`,
     });
   }
   if (rows.length > 0) {
@@ -305,15 +404,15 @@ export function computeTraitIntelligence(
     targetValue: number | null;
     dataType: "numeric" | "integer" | "ordinal";
   },
-  nMissing: number,
-  truncated: boolean,
+  nEvaluationEvents: number,
 ): TraitIntelligenceBundle {
   const values = rows.map((r) => r.numericValue);
-  const nTotal = rows.length + nMissing;
-  const descriptive = descriptiveStats(values, nTotal);
+  const descriptive = descriptiveStats(values, nEvaluationEvents);
   const bounds = outlierBounds(descriptive.q1, descriptive.q3);
   const qc = buildQc(rows, bounds);
-  const groups = groupByPhenotype(rows);
+  const rawGroups = groupByPhenotype(rows);
+  const canonical = canonicalizeByOccasion(rows);
+  const canonicalGroups = groupCanonicalByPhenotype(canonical);
 
   return {
     traitId: trait.traitId,
@@ -323,31 +422,40 @@ export function computeTraitIntelligence(
     direction: trait.direction,
     targetValue: trait.targetValue,
     dataType: trait.dataType,
-    nTotalRows: rows.length,
-    truncated,
     descriptive,
     qc,
-    populationTrajectory: buildPopulationTrajectory(rows),
-    ...buildEntityTrajectoriesField(groups),
-    derivedFeatures: buildDerivedFeatures(groups),
-    rankStability: buildRankStability(groups),
-    withinEntityStability: buildWithinEntityStability(groups),
-    repeatability: estimateRepeatability(
-      [...groups.values()].map((g) => g.map((r) => r.numericValue)),
+    populationTrajectory: buildPopulationTrajectory(canonical),
+    ...buildEntityTrajectoriesField(canonicalGroups),
+    derivedFeatures: buildDerivedFeatures(canonicalGroups),
+    rankStability: buildRankStability(canonical),
+    withinEntityStability: buildWithinEntityStability(
+      rawGroups,
+      canonicalGroups,
+    ),
+    repeatability: estimateTraitRepeatability(
+      rows.map((r) => ({
+        phenotypeId: r.phenotypeId,
+        evaluationDate: r.evaluationDate,
+        value: r.numericValue,
+      })),
     ),
     heritability: {
       status: "not_estimable",
       reasons: [...HERITABILITY_NOT_ESTIMABLE_REASONS],
     },
     associations: [],
-    warnings: buildWarnings(rows, nMissing, nTotal),
+    warnings: buildWarnings(
+      rows,
+      descriptive.nEvaluationEventsWithoutTrait,
+      nEvaluationEvents,
+    ),
   };
 }
 
 function buildEntityTrajectoriesField(
-  groups: Map<string, ObservationRecord[]>,
+  canonicalGroups: Map<string, CanonicalPoint[]>,
 ) {
-  const { trajectories, truncated } = buildEntityTrajectories(groups);
+  const { trajectories, truncated } = buildEntityTrajectories(canonicalGroups);
   return {
     entityTrajectories: trajectories,
     entityTrajectoriesTruncated: truncated,

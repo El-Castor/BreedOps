@@ -55,13 +55,31 @@ and the trait value's id/numeric value.
 Only `numeric`/`integer`/`ordinal` traits are eligible for this dataset (and
 for every numeric statistic below); `trait_observation_dataset` refuses a
 categorical/boolean/date/text trait at the SQL level, not just in the UI.
-Categorical/boolean traits get a separate frequency-only summary
-(`CategoricalSummary` in `types.ts`); the engine never computes a mean/SD for
-them.
+Categorical/boolean traits instead go through the sibling
+`trait_categorical_dataset` SQL function (same filter/cap discipline, same
+`SECURITY INVOKER`/`can_access_program` guard) into a separate
+frequency-only summary (`CategoricalSummary` in `types.ts`, §5 below); the
+engine never computes a mean/SD/ICC/correlation/longitudinal model for them.
 
 **Performance limits** (task §40): `MAX_OBSERVATION_ROWS = 5000` observations
-per analysis, enforced inside the SQL function itself
-(`LIMIT LEAST(row_limit, 5000)`) — a caller cannot override the cap upward.
+per analysis. **Every filter** (date range, family/seed-lot/block/replicate/
+location, archived-inclusion) is applied inside the SQL function's own
+`WHERE` clause — server-side, and *before* the row limit, never afterward in
+TypeScript. An earlier revision fetched an unfiltered, already-capped page
+and filtered client-side, which could silently return zero rows for a
+filter value that only occurred past row 5000 of a larger unfiltered
+dataset (scientific-hardening review finding #1). The SQL function requests
+`LIMIT LEAST(row_limit, 5001)` — **one more** than the supported size, never
+exactly 5000 — so the TypeScript caller (`buildObservationDataset`) can tell
+"exactly 5000 rows, and that is the complete filtered dataset" apart from
+"more than 5000 rows exist" purely from the returned row count
+(`rows.length > 5000`). When the dataset is too large, every consumer
+(`loadTraitIntelligence`, trait associations, the early-proxy explorer, CSV/
+JSON export, the dataset-fingerprint staleness check) returns a `status:
+"dataset_too_large"` refusal with an explicit "narrow your filters" message
+— **never** a silently truncated or sampled prefix of the real dataset.
+`program_evaluation_dataset` and `trait_categorical_dataset` (below) apply
+the exact same filter-before-cap/N+1-overflow-detection discipline.
 Individual trajectories are capped at `MAX_INDIVIDUAL_TRAJECTORIES = 25`
 (population summary and derived features are still computed over every
 fetched row; only the line-chart overlay is capped, to avoid an unreadable
@@ -95,22 +113,64 @@ in `tests/analytics-stats.test.ts`.
   (potential outlier), never "bad measurement", and no outlier is ever deleted
   or modified automatically. Each flagged row shows its phenotype code,
   value, date, block, replicate, and family/seed lot for inspection.
-- **Missing data**: `n_total` is the count of scoring *events* recorded for
-  the same cohort (program/date-range/filters), independent of trait — see
-  `program_evaluation_dataset` (migration 000027) — minus the observed count
-  for this trait. BreedOps does not require every evaluation to score every
-  active trait (`submit_trait_evaluation`, migration 000016, accepts a
-  partial submission), so this is the honest, schema-supported definition of
-  "expected but missing", not an invented denominator.
+- **Coverage, never "missing data"** (scientific-hardening review finding
+  #2): `nEvaluationEvents` is the count of scoring *events* recorded for the
+  same cohort (program/date-range/filters), independent of trait — see
+  `program_evaluation_dataset` (migration 000027). `nEvaluationEventsWithoutTrait
+  = nEvaluationEvents - nObserved`, and `coverageRatio = nObserved /
+  nEvaluationEvents`. This is deliberately **not** called "missing
+  observations" or a "missing rate": `submit_trait_evaluation` (migration
+  000016) explicitly accepts a partial submission, so a trait absent from an
+  evaluation event does not prove a missing measurement — it may simply
+  never have been scheduled for that event. There is no historical
+  measurement-plan snapshot in this schema that could distinguish "expected
+  but not recorded" from "never scheduled", so the UI and every type in
+  `stats.ts`/`types.ts` use "événements d'évaluation" / "couverture
+  d'observation" throughout, never "manquant"/"missingness".
 
-## 5. Longitudinal analysis (`src/lib/analytics/analysis.ts`)
+## 5. Categorical and boolean trait summaries (`src/lib/analytics/categorical.ts`)
+
+Categorical and boolean traits never feed the numeric engine above (no
+mean/SD/ICC/Pearson/longitudinal model — scientific-hardening review finding
+#5): their dataset (`trait_categorical_dataset`, §3) instead produces a
+`CategoricalSummary` with only counts and proportions —
+`nEvaluationEvents`/`nObserved`/`nEvaluationEventsWithoutTrait`/
+`coverageRatio` (the same coverage semantics as §4, never "missing"), and
+per-category `{ label, count, proportion }`. For a categorical trait, every
+value in the trait's declared `allowed_values` is shown — including at a
+count of 0 if it was never observed, so an unused category is visible, not
+silently absent. For a boolean trait, the two categories are the fixed
+labels "Oui"/"Non". This is intentionally the full extent of categorical
+inference in V2-04 — no chi-square, no entropy, no ordinal-aware test.
+
+## 6. Longitudinal analysis (`src/lib/analytics/analysis.ts`)
 
 The repeated-measure subject is `phenotype_id`; multiple evaluation dates for
 the same phenotype are **never** treated as independent biological
 replicates (task §14).
 
+**Canonical per-occasion aggregation** (scientific-hardening review finding
+#4): `(phenotype_id, evaluation_date)` is the natural key for one biological
+*measurement occasion*. Duplicate raw rows sharing this key (e.g. two values
+both recorded for the same phenotype on the same date) are combined via
+their arithmetic mean into one canonical point
+(`canonicalizeByOccasion`/`CanonicalPoint` in `analysis.ts`) before computing
+**any** trend/trajectory statistic below — population trajectory, individual
+trajectories, AUC, slope, first/last value, absolute/relative change, and
+rank stability. This makes every one of those results deterministic and
+independent of input row order (`tests/analytics-longitudinal.test.ts`).
+Raw, un-averaged rows remain the basis for QC (outlier detection),
+descriptive stats (§4), and repeatability/ICC (§7) — those need genuine
+replicate variance, not a value that has already been averaged away — and
+within-entity SD/CV/range use the same raw rows for the same reason, while
+within-entity slope uses the canonical series for consistency with every
+other trend calculation. Nothing is ever silently discarded: each derived
+feature also carries `rawObservationCount`, the number of raw rows folded
+into its (possibly fewer) canonical occasions, alongside `nMeasurements`
+(the canonical occasion count).
+
 - **Population trajectory**: per distinct evaluation date, n/mean/median/Q1/Q3
-  across all phenotypes observed that date.
+  across all phenotypes' canonical values observed that date.
 - **Individual trajectories**: per-phenotype value-over-date lines, capped at
   25 entities (selected deterministically by phenotype code) to stay
   readable; the population summary and every derived feature below are still
@@ -137,7 +197,7 @@ replicates (task §14).
   describe measurement/phenotypic stability — explicitly *not* genetic
   stability (task §19).
 
-## 6. Repeatability / ICC (`src/lib/analytics/icc.ts`)
+## 7. Repeatability / ICC (`src/lib/analytics/icc.ts`)
 
 **Why not a Python/REML engine.** The task brief's warning against hand-rolled
 REML/BLUP targets general-purpose mixed models, which require iterative
@@ -161,6 +221,30 @@ and within entities is `NOT_ESTIMABLE` (not a fabricated 0 or 1). Below the
 threshold, every reason is spelled out, e.g. "Au moins 5 entités mesurées à 2
 reprises ou plus sont nécessaires (trouvé : 3)."
 
+**Longitudinal eligibility** (`estimateTraitRepeatability`,
+scientific-hardening review finding #3): a one-way random-effects ANOVA ICC
+assumes repeated measurements are exchangeable samples of the *same*
+underlying quantity. That assumption breaks when the "repeats" actually span
+genuinely different developmental occasions — e.g. D10 → D20 → D30 growth
+measurements would then be misread as low repeatability, when they are
+simply real biological change the model has no time term to absorb.
+`estimateTraitRepeatability` is a thin wrapper in front of the unchanged
+closed-form `estimateRepeatability`: when the raw observations for a trait
+span more than one distinct `evaluation_date`, it refuses with
+`NOT_ESTIMABLE` and the explicit reason "Ces observations couvrent
+plusieurs dates de mesure distinctes…", **before** the closed-form ICC ever
+runs — it does not attempt a general time-adjusted mixed model (explicitly
+out of scope here, same `NEW_RUNTIME_REQUIRED = NO` reasoning as above).
+When every raw observation for the trait shares the same single occasion
+(or has no date at all), eligibility falls through unchanged to the
+ordinary entity/observation-count rule. This same wrapper is used for the
+early-selection proxy's own repeatability figure (§10). The
+pre-existing longitudinal evidence this milestone already computes
+elsewhere — trajectories, AUC, slope, rank stability, within-entity
+descriptive stability (§6) — remains valid and visible regardless: only the
+specific "repeatability/ICC" statistic is gated by this rule, because it is
+the one statistic whose formula assumes away the time dimension.
+
 **Confidence interval**: a cluster (entity-level) bootstrap percentile 95% CI
 — resampling whole entities with replacement and recomputing the same
 closed-form ICC each time (1000 replicates). This is a standard
@@ -169,7 +253,7 @@ requiring no special-function inverse CDF, unlike an F-distribution-based CI.
 The seed (`20260401`) is explicit, fixed and persisted in the result, so the
 interval is exactly reproducible (task §43).
 
-## 7. Heritability
+## 8. Heritability
 
 **Always `NOT_ESTIMABLE` in V2-04**, by design, with these stated reasons
 (`src/lib/analytics/eligibility.ts#HERITABILITY_NOT_ESTIMABLE_REASONS`):
@@ -191,7 +275,7 @@ heritability should be revisited with an explicit model formula, variance
 components, an estimation method, and documented eligibility checks — never
 retrofitted onto the current grouping columns.
 
-## 8. Associations (`src/lib/analytics/associations.ts`)
+## 9. Associations (`src/lib/analytics/associations.ts`)
 
 For the primary trait against every other active numeric trait in the same
 program: Pearson r and Spearman ρ, paired strictly by `evaluation_id` (the
@@ -203,7 +287,7 @@ page view, exposing both the raw p-value and the adjusted q-value — never an
 unqualified "significant" badge. Results are always labelled *phenotypic*
 association, never genetic correlation.
 
-## 9. Early-selection proxy explorer (`src/lib/analytics/proxy.ts`)
+## 10. Early-selection proxy explorer (`src/lib/analytics/proxy.ts`)
 
 BreedOps has no "days after planting"/relative-time concept — only an
 absolute `evaluation_date` per evaluation (audited: neither `phenotypes` nor
@@ -216,12 +300,22 @@ leaves open.
 
 The evidence panel reports: paired entity count, median days earlier
 (derived from the actual observation dates used, not assumed), Pearson r,
-Spearman ρ, the source trait's own repeatability (if estimable), and the
-fraction of source-window entities missing from the target window. The UI
-never states a causal claim; it always appends: "Nécessite une validation
-biologique indépendante avant toute utilisation comme critère de sélection."
+Spearman ρ, the source trait's own repeatability (via
+`estimateTraitRepeatability`, §7 — so it is refused with the same
+longitudinal reason whenever the source trait's own observations span
+multiple dates), and `unpairedSourceEntitiesRatio`: the fraction of
+source-window entities that have no matching observation in the target
+window. That figure was previously named `missingPct` — renamed
+(scientific-hardening review finding #2) because it describes *pairing*
+across two independently-chosen date windows, not a missing measurement; it
+is never presented as biological missingness. The whole evidence panel is
+refused (`status: "dataset_too_large"`) rather than computed on a partial
+preview whenever either window's underlying dataset exceeds
+`MAX_OBSERVATION_ROWS` (§3). The UI never states a causal claim; it always
+appends: "Nécessite une validation biologique indépendante avant toute
+utilisation comme critère de sélection."
 
-## 10. Model eligibility & warnings
+## 11. Model eligibility & warnings
 
 Every inferential result carries one of three states, never a silent
 disabled control: `ELIGIBLE` (with its own diagnostics: n entities,
@@ -231,7 +325,7 @@ small sample, zero variance, insufficient temporal spread, mean near zero).
 Warnings are rendered as plain visible text (`.analysis-warning`), not a
 colour-only traffic light.
 
-## 11. Analysis provenance & reproducibility
+## 12. Analysis provenance & reproducibility
 
 `analytics_runs` (migration 000027) is an explicit, user-triggered snapshot —
 never an automatic save of every page view (which would make the table grow
@@ -257,7 +351,7 @@ compares it; a mismatch means the underlying observations have changed since
 the run was saved, and the UI marks it `PÉRIMÉE` (stale) rather than silently
 presenting it as current.
 
-## 12. R/Python interoperability
+## 13. R/Python interoperability
 
 CSV and JSON export (`src/app/app/analytics/export/route.ts`) return the
 exact tidy dataset an analysis was built from: trait metadata, phenotype
@@ -266,14 +360,14 @@ values — enough for an independent re-analysis in R, Python, JMP or SAS
 without reverse-engineering BreedOps internals. No arbitrary executable
 code is ever generated; no secret or internal auth field is ever included.
 
-## 13. Security
+## 14. Security
 
 - Every dataset read goes through the RLS-scoped client (`requireIdentity()`
   — never the service-role client) and the `trait_observation_dataset` /
-  `program_evaluation_dataset` SQL functions, which are `SECURITY INVOKER`
-  (the caller's own RLS on `phenotype_trait_values`/`phenotype_evaluations`/
-  `phenotypes` still applies underneath, plus an explicit
-  `can_access_program()` check).
+  `program_evaluation_dataset` / `trait_categorical_dataset` SQL functions,
+  which are `SECURITY INVOKER` (the caller's own RLS on
+  `phenotype_trait_values`/`phenotype_evaluations`/`phenotypes` still
+  applies underneath, plus an explicit `can_access_program()` check).
 - `analytics_runs` RLS requires `can_write_team` **and** `can_write_program`
   on INSERT, and re-derives `organization_id` from `program_id` via trigger
   — a forged `organization_id`/cross-team `program_id` pair cannot attach a
@@ -283,6 +377,14 @@ code is ever generated; no secret or internal auth field is ever included.
   documented above — there is no code-evaluation path, no user-supplied
   formula string, no shell/process invocation at all.
 - Tested in `tests/trait-analytics.sql` (pgTap: RLS, cross-team denial,
-  scope validation, CHECK constraints, immutable provenance) and
-  `tests/trait-analytics.integration.test.ts` (real HTTP + a second
-  directly-authenticated client for the cross-team boundary).
+  scope validation, CHECK constraints, immutable provenance, the
+  filter-before-cap regression over >5000 observations, and
+  `trait_categorical_dataset`'s own RLS/type boundary), unit tests in
+  `tests/analytics-stats.test.ts`/`tests/analytics-icc.test.ts`/
+  `tests/analytics-longitudinal.test.ts` (closed-form references, the
+  longitudinal-ICC eligibility rule, canonical-aggregation order-invariance,
+  and categorical/boolean summaries), and
+  `tests/trait-analytics.integration.test.ts`/`e2e/trait-analytics.spec.ts`
+  (real HTTP + a second directly-authenticated client for the cross-team
+  boundary; the longitudinal-NOT_ESTIMABLE and same-occasion-eligible cases
+  side by side).

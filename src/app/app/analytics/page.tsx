@@ -21,12 +21,15 @@ import { requireIdentity } from "@/lib/auth";
 import { collectionState } from "@/lib/query-state";
 import type {
   AnalyticsFilters,
+  CategoricalSummary,
+  EarlyProxyResult,
   TraitIntelligenceBundle,
 } from "@/lib/analytics/types";
 import {
   createAnalysisRun,
   isAnalysisRunStale,
   listAnalysisRuns,
+  loadCategoricalSummaries,
   loadEarlyProxyEvidence,
   loadFilterOptions,
   loadNumericTraitOptions,
@@ -121,8 +124,6 @@ export default async function Analytics({
     traits[0]?.traitId;
 
   const basePath = "/app/analytics";
-  const traitHref = (nextTraitId: string) =>
-    `${basePath}?program=${programId}&trait=${nextTraitId}`;
 
   if (!traitId) {
     return (
@@ -157,7 +158,7 @@ export default async function Analytics({
     includeArchived,
   };
 
-  const [loaded, filterOptions, savedRunsAll] = await Promise.all([
+  const [loaded, filterOptions, savedRunsAll, categorical] = await Promise.all([
     loadTraitIntelligence(filters),
     loadFilterOptions(
       programId,
@@ -167,6 +168,12 @@ export default async function Analytics({
       includeArchived,
     ),
     listAnalysisRuns(programId),
+    loadCategoricalSummaries(
+      programId,
+      filters.dateFrom ?? null,
+      filters.dateTo ?? null,
+      includeArchived,
+    ),
   ]);
   const savedRuns = savedRunsAll
     .filter((r) => r.traitId === traitId)
@@ -191,7 +198,7 @@ export default async function Analytics({
       .join("&");
   };
 
-  let proxyEvidence = null;
+  let proxyEvidence: EarlyProxyResult | null = null;
   if (
     params.proxy_source &&
     params.proxy_source_from &&
@@ -313,12 +320,28 @@ export default async function Analytics({
         </form>
       </Card>
 
-      {!loaded ? (
+      {loaded.status === "trait_not_found" && (
         <EmptyState
           title="Trait introuvable"
           message="Ce trait n’est plus actif pour ce programme."
         />
-      ) : (
+      )}
+      {loaded.status === "dataset_too_large" && (
+        <Card>
+          <div className="eligibility-panel not-estimable">
+            <h4>DATASET_TOO_LARGE — NON ESTIMABLE</h4>
+            <p>
+              Le jeu de données filtré dépasse la taille d’analyse prise en
+              charge par BreedOps ({(5000).toLocaleString("fr-FR")} observations
+              maximum). Plutôt que de calculer des statistiques sur un
+              sous-ensemble arbitraire, l’analyse est refusée : restreignez la
+              période, le bloc, la localisation ou la répétition pour revenir
+              sous ce seuil.
+            </p>
+          </div>
+        </Card>
+      )}
+      {loaded.status === "ok" && (
         <TraitIntelligenceView
           bundle={loaded.bundle}
           traits={traits}
@@ -330,6 +353,11 @@ export default async function Analytics({
           currentParams={params}
         />
       )}
+
+      <CategoricalSummaries
+        summaries={categorical.summaries}
+        tooLargeTraitNames={categorical.tooLargeTraitNames}
+      />
     </div>
   );
 }
@@ -402,19 +430,22 @@ function TraitIntelligenceView({
             </dd>
           </div>
           <div>
-            <dt>Manquant</dt>
-            <dd>{d.nTotal > 0 ? formatPercent(d.nMissing / d.nTotal) : "—"}</dd>
+            <dt>Couverture d’observation</dt>
+            <dd>
+              {d.coverageRatio != null ? formatPercent(d.coverageRatio) : "—"}
+            </dd>
           </div>
           <div>
             <dt>Valeurs potentiellement aberrantes</dt>
             <dd>{bundle.qc.outliers.length}</dd>
           </div>
         </dl>
-        {bundle.truncated && (
-          <p className="analysis-warning caution">
-            Jeu de données tronqué au maximum autorisé pour cette analyse.
-          </p>
-        )}
+        <p className="chart-description">
+          Couverture = observations de ce trait ÷ événements d’évaluation de
+          cette cohorte ({d.nEvaluationEvents}). L’absence d’une valeur ne
+          prouve pas une mesure manquante : ce trait peut simplement n’avoir pas
+          été programmé pour les autres évaluations.
+        </p>
       </Card>
 
       <section className="analytics-grid">
@@ -902,7 +933,7 @@ function ProxyExplorer({
   traits: { traitId: string; code: string; name: string }[];
   filters: AnalyticsFilters;
   currentParams: Params;
-  evidence: Awaited<ReturnType<typeof loadEarlyProxyEvidence>>;
+  evidence: EarlyProxyResult | null;
 }) {
   return (
     <Card>
@@ -980,50 +1011,69 @@ function ProxyExplorer({
           Analyser
         </button>
       </form>
-      {evidence && (
+      {evidence?.status === "dataset_too_large" && (
+        <div className="eligibility-panel not-estimable">
+          <h4>DATASET_TOO_LARGE — NON ESTIMABLE</h4>
+          <p>
+            L’une des deux fenêtres dépasse la taille d’analyse prise en charge.
+            Restreignez la période ou les filtres avant de relancer
+            l’exploration.
+          </p>
+        </div>
+      )}
+      {evidence?.status === "ok" && (
         <div className="proxy-evidence">
           <h4>
-            {evidence.sourceTraitName} → {evidence.targetTraitName}
+            {evidence.evidence.sourceTraitName} →{" "}
+            {evidence.evidence.targetTraitName}
           </h4>
           <dl className="stat-grid">
             <div>
               <dt>Entités appariées</dt>
-              <dd>{evidence.pairedN}</dd>
+              <dd>{evidence.evidence.pairedN}</dd>
             </div>
             <div>
               <dt>Mesuré plus tôt</dt>
               <dd>
-                {evidence.medianDaysEarlier == null
+                {evidence.evidence.medianDaysEarlier == null
                   ? "—"
-                  : `${Math.round(evidence.medianDaysEarlier)} jours`}
+                  : `${Math.round(evidence.evidence.medianDaysEarlier)} jours`}
               </dd>
             </div>
             <div>
               <dt>Pearson r</dt>
-              <dd>{formatNumber(evidence.pearsonR, 2)}</dd>
+              <dd>{formatNumber(evidence.evidence.pearsonR, 2)}</dd>
             </div>
             <div>
               <dt>Spearman rho</dt>
-              <dd>{formatNumber(evidence.spearmanRho, 2)}</dd>
+              <dd>{formatNumber(evidence.evidence.spearmanRho, 2)}</dd>
             </div>
             <div>
               <dt>Répétabilité (précoce)</dt>
               <dd>
-                {evidence.repeatability?.status === "eligible"
-                  ? formatNumber(evidence.repeatability.icc, 2)
+                {evidence.evidence.repeatability?.status === "eligible"
+                  ? formatNumber(evidence.evidence.repeatability.icc, 2)
                   : "NE"}
               </dd>
             </div>
             <div>
-              <dt>Observations manquantes</dt>
-              <dd>{formatPercent(evidence.missingPct)}</dd>
+              <dt>Entités non appariées (source)</dt>
+              <dd>
+                {formatPercent(evidence.evidence.unpairedSourceEntitiesRatio)}
+              </dd>
             </div>
           </dl>
+          {evidence.evidence.repeatability?.status === "not_estimable" && (
+            <p className="chart-description">
+              Répétabilité précoce : NON ESTIMABLE —{" "}
+              {evidence.evidence.repeatability.reasons.join(" ")}
+            </p>
+          )}
           <p className="proxy-interpretation">
             Interprétation :{" "}
-            {Math.abs(evidence.pearsonR ?? 0) >= 0.6
+            {Math.abs(evidence.evidence.pearsonR ?? 0) >= 0.6
               ? "association phénotypique forte"
-              : Math.abs(evidence.pearsonR ?? 0) >= 0.3
+              : Math.abs(evidence.evidence.pearsonR ?? 0) >= 0.3
                 ? "association phénotypique modérée"
                 : "association phénotypique faible"}
             . Nécessite une validation biologique indépendante avant toute
@@ -1032,6 +1082,71 @@ function ProxyExplorer({
           </p>
         </div>
       )}
+    </Card>
+  );
+}
+
+function CategoricalSummaries({
+  summaries,
+  tooLargeTraitNames,
+}: {
+  summaries: CategoricalSummary[];
+  tooLargeTraitNames: string[];
+}) {
+  if (summaries.length === 0 && tooLargeTraitNames.length === 0) return null;
+  return (
+    <Card>
+      <h3 className="chart-title">Traits catégoriels et booléens</h3>
+      <p className="chart-description">
+        Comptages et proportions uniquement - jamais de moyenne, d’écart-type,
+        d’ICC ou de corrélation sur ces traits, qui ne sont valides que pour des
+        données numériques.
+      </p>
+      {tooLargeTraitNames.length > 0 && (
+        <p className="analysis-warning not_estimable">
+          DATASET_TOO_LARGE pour : {tooLargeTraitNames.join(", ")}. Restreignez
+          les filtres pour inclure ces traits.
+        </p>
+      )}
+      {summaries.map((summary) => (
+        <div key={summary.traitId} className="eligibility-panel eligible">
+          <h4>{summary.traitName}</h4>
+          <dl className="stat-grid">
+            <div>
+              <dt>Observations</dt>
+              <dd>{summary.nObserved}</dd>
+            </div>
+            <div>
+              <dt>Couverture d’observation</dt>
+              <dd>
+                {summary.coverageRatio != null
+                  ? formatPercent(summary.coverageRatio)
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+          <DataTable label={`Répartition - ${summary.traitName}`}>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Catégorie</th>
+                  <th scope="col">n</th>
+                  <th scope="col">Proportion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.categories.map((c) => (
+                  <tr key={c.label}>
+                    <td>{c.label}</td>
+                    <td>{c.count}</td>
+                    <td>{formatPercent(c.proportion)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </DataTable>
+        </div>
+      ))}
     </Card>
   );
 }

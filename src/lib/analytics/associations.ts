@@ -51,12 +51,18 @@ export async function computeTraitAssociations(
   const candidates = otherTraits.filter((t) => t.traitId !== filters.traitId);
   const results: (TraitAssociation & { pearsonPRaw: number | null })[] = [];
   for (const trait of candidates) {
-    const { rows } = await buildObservationDataset(
+    const { rows, tooLarge } = await buildObservationDataset(
       client,
       { ...filters, traitId: trait.traitId },
       trait,
     );
-    const { xs, ys } = pairByEvaluation(primaryRows, rows);
+    // A too-large secondary dataset is a truncated preview (dataset.ts) -
+    // pairing against it would silently understate or misrepresent this
+    // association, so it is skipped (reported as an insufficient pair)
+    // rather than computed on a partial set (task review finding #1).
+    const { xs, ys } = tooLarge
+      ? { xs: [], ys: [] }
+      : pairByEvaluation(primaryRows, rows);
     if (xs.length < MIN_ASSOCIATION_PAIRED_N) {
       results.push({
         traitId: trait.traitId,

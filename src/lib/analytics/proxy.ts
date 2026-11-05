@@ -1,11 +1,11 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { pearsonCorrelation, spearmanCorrelation, mean, median } from "./stats";
-import { estimateRepeatability } from "./icc";
+import { estimateTraitRepeatability } from "./icc";
 import { buildObservationDataset, type NumericTraitOption } from "./dataset";
 import type {
   AnalyticsFilters,
-  EarlyProxyEvidence,
+  EarlyProxyResult,
   ObservationRecord,
 } from "./types";
 
@@ -50,7 +50,7 @@ export async function computeEarlyProxyEvidence(
   filters: AnalyticsFilters,
   source: { trait: NumericTraitOption; from: string; to: string },
   target: { trait: NumericTraitOption; from: string; to: string },
-): Promise<EarlyProxyEvidence> {
+): Promise<EarlyProxyResult> {
   const sourceDataset = await buildObservationDataset(
     client,
     {
@@ -71,6 +71,12 @@ export async function computeEarlyProxyEvidence(
     },
     target.trait,
   );
+  // Either window's dataset being a truncated preview (dataset.ts) would
+  // silently understate pairing/correlation/repeatability - refuse rather
+  // than compute on a partial set (task review finding #1).
+  if (sourceDataset.tooLarge || targetDataset.tooLarge) {
+    return { status: "dataset_too_large" };
+  }
 
   const sourceSummary = summarizeByPhenotype(sourceDataset.rows);
   const targetSummary = summarizeByPhenotype(targetDataset.rows);
@@ -91,33 +97,48 @@ export async function computeEarlyProxyEvidence(
   const pearson = pearsonCorrelation(xs, ys);
   const spearman = spearmanCorrelation(xs, ys);
 
-  const sourceGroups = new Map<string, number[]>();
-  for (const row of sourceDataset.rows) {
-    const list = sourceGroups.get(row.phenotypeId) ?? [];
-    list.push(row.numericValue);
-    sourceGroups.set(row.phenotypeId, list);
-  }
+  // Subject to the exact same longitudinal eligibility rule as the main
+  // Trait Intelligence panel (task review finding #3): a source window
+  // spanning more than one evaluation date is NOT_ESTIMABLE here too -
+  // never a one-way ICC silently confounding growth within the window
+  // with measurement noise. Uses the RAW source rows (never the
+  // per-phenotype mean computed above for pairing), since ICC needs true
+  // repeated measurements, not an already-averaged value.
   const repeatability =
-    sourceGroups.size > 0
-      ? estimateRepeatability([...sourceGroups.values()])
+    sourceDataset.rows.length > 0
+      ? estimateTraitRepeatability(
+          sourceDataset.rows.map((r) => ({
+            phenotypeId: r.phenotypeId,
+            evaluationDate: r.evaluationDate,
+            value: r.numericValue,
+          })),
+        )
       : null;
 
+  // Entities present in the source window but not found again in the
+  // target window, as a fraction of all source-window entities - a
+  // pairing/coverage-loss figure, never biological missingness (task
+  // review finding #2): BreedOps cannot tell "not yet measured" from
+  // "program attrition" from "window too narrow".
   const sourceEntityCount = sourceSummary.size;
-  const missingPct =
+  const unpairedSourceEntitiesRatio =
     sourceEntityCount > 0 ? 1 - xs.length / sourceEntityCount : 0;
 
   return {
-    sourceTraitId: source.trait.traitId,
-    sourceTraitName: source.trait.name,
-    sourceWindow: { from: source.from, to: source.to },
-    targetTraitId: target.trait.traitId,
-    targetTraitName: target.trait.name,
-    targetWindow: { from: target.from, to: target.to },
-    pairedN: xs.length,
-    medianDaysEarlier: dayGaps.length ? median(dayGaps) : null,
-    pearsonR: pearson?.r ?? null,
-    spearmanRho: spearman?.r ?? null,
-    repeatability,
-    missingPct,
+    status: "ok",
+    evidence: {
+      sourceTraitId: source.trait.traitId,
+      sourceTraitName: source.trait.name,
+      sourceWindow: { from: source.from, to: source.to },
+      targetTraitId: target.trait.traitId,
+      targetTraitName: target.trait.name,
+      targetWindow: { from: target.from, to: target.to },
+      pairedN: xs.length,
+      medianDaysEarlier: dayGaps.length ? median(dayGaps) : null,
+      pearsonR: pearson?.r ?? null,
+      spearmanRho: spearman?.r ?? null,
+      repeatability,
+      unpairedSourceEntitiesRatio,
+    },
   };
 }

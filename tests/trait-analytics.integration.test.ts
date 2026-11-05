@@ -198,6 +198,26 @@ describe.sequential("trait analytics", () => {
     if (traitSparse.error) throw traitSparse.error;
     ids.traitSparse = traitSparse.data.id;
 
+    // A third numeric trait measured 3 times per entity but all on the SAME
+    // single occasion (task review finding #3): the genuinely-eligible ICC
+    // demonstration, as distinct from traitRich below, whose 3 observations
+    // per entity span 3 different developmental dates and must instead be
+    // refused (one-way ICC would otherwise confound growth with noise).
+    const traitRepeat = await admin
+      .from("phenotype_traits")
+      .insert({
+        organization_id: ids.team,
+        code: "repeat_same_occasion",
+        name: "Répétition (même occasion)",
+        category: "development",
+        data_type: "numeric",
+        direction: "higher_is_better",
+      })
+      .select("id")
+      .single();
+    if (traitRepeat.error) throw traitRepeat.error;
+    ids.traitRepeat = traitRepeat.data.id;
+
     const phenotypingModule = await admin
       .from("phenotyping_modules")
       .insert({ organization_id: ids.team, name: "Module analytique" })
@@ -215,14 +235,17 @@ describe.sequential("trait analytics", () => {
         trait_id: ids.traitSparse,
         display_order: 2,
       },
-    ]);
-    await admin
-      .from("program_phenotyping_modules")
-      .insert({
-        program_id: ids.program,
+      {
         module_id: phenotypingModule.data.id,
-        is_active: true,
-      });
+        trait_id: ids.traitRepeat,
+        display_order: 3,
+      },
+    ]);
+    await admin.from("program_phenotyping_modules").insert({
+      program_id: ids.program,
+      module_id: phenotypingModule.data.id,
+      is_active: true,
+    });
 
     const parent = await admin
       .from("parent_lines")
@@ -284,13 +307,43 @@ describe.sequential("trait analytics", () => {
           10 +
           phenotypeIds.indexOf(phenotypeId) +
           RICH_TRAIT_DATES.indexOf(date) * 5;
-        const insertValue = await admin
-          .from("phenotype_trait_values")
+        const insertValue = await admin.from("phenotype_trait_values").insert({
+          phenotype_evaluation_id: evaluation.data.id,
+          trait_id: ids.traitRich,
+          numeric_value: value,
+        });
+        if (insertValue.error) throw insertValue.error;
+      }
+    }
+
+    // Same-occasion repeated-measures trait: 5 of the phenotypes above, each
+    // measured 3 times on the exact same date (3 separate evaluations, not
+    // 3 dates) - entity means spaced well apart with small within-entity
+    // noise, the same closed-form-ICC fixture shape as
+    // tests/analytics-icc.test.ts.
+    const sameOccasionValues = [
+      [10, 11, 9],
+      [20, 21, 19],
+      [30, 31, 29],
+      [40, 41, 39],
+      [50, 51, 49],
+    ];
+    for (let i = 0; i < sameOccasionValues.length; i++) {
+      for (const value of sameOccasionValues[i]) {
+        const evaluation = await admin
+          .from("phenotype_evaluations")
           .insert({
-            phenotype_evaluation_id: evaluation.data.id,
-            trait_id: ids.traitRich,
-            numeric_value: value,
-          });
+            phenotype_id: phenotypeIds[i],
+            evaluation_date: "2026-05-01",
+          })
+          .select("id")
+          .single();
+        if (evaluation.error) throw evaluation.error;
+        const insertValue = await admin.from("phenotype_trait_values").insert({
+          phenotype_evaluation_id: evaluation.data.id,
+          trait_id: ids.traitRepeat,
+          numeric_value: value,
+        });
         if (insertValue.error) throw insertValue.error;
       }
     }
@@ -307,13 +360,11 @@ describe.sequential("trait analytics", () => {
         .select("id")
         .single();
       if (evaluation1.error) throw evaluation1.error;
-      await admin
-        .from("phenotype_trait_values")
-        .insert({
-          phenotype_evaluation_id: evaluation1.data.id,
-          trait_id: ids.traitSparse,
-          numeric_value: 5 + i,
-        });
+      await admin.from("phenotype_trait_values").insert({
+        phenotype_evaluation_id: evaluation1.data.id,
+        trait_id: ids.traitSparse,
+        numeric_value: 5 + i,
+      });
     }
   }, 30000);
 
@@ -341,14 +392,26 @@ describe.sequential("trait analytics", () => {
     expect(filtered).toMatch(/Observations<\/dt>\s*<dd>10<\/dd>/);
   });
 
-  it("reports repeatability as eligible for the rich trait and NOT_ESTIMABLE for the sparse trait", async () => {
+  it("reports repeatability as eligible for the same-occasion trait, NOT_ESTIMABLE for the longitudinal (multi-date) trait, and NOT_ESTIMABLE for the sparse trait (task review finding #3)", async () => {
     await signIn(emailOwner, password);
+    const repeatPage = await (
+      await request(
+        `/app/analytics?program=${ids.program}&trait=${ids.traitRepeat}`,
+      )
+    ).text();
+    expect(repeatPage).toContain("eligibility-panel eligible");
+
+    // traitRich's 3 observations per entity span 3 different evaluation
+    // dates (a genuine developmental design) - a one-way ICC here would
+    // confound biological change with measurement noise, so this must be
+    // refused, never reported as a repeatability estimate.
     const richPage = await (
       await request(
         `/app/analytics?program=${ids.program}&trait=${ids.traitRich}`,
       )
     ).text();
-    expect(richPage).toContain("eligibility-panel eligible");
+    expect(richPage).not.toContain("eligibility-panel eligible");
+    expect(richPage).toMatch(/dates de mesure distinctes/);
 
     const sparsePage = await (
       await request(
@@ -425,13 +488,11 @@ describe.sequential("trait analytics", () => {
       .select("id")
       .single();
     if (newEvaluation.error) throw newEvaluation.error;
-    await admin
-      .from("phenotype_trait_values")
-      .insert({
-        phenotype_evaluation_id: newEvaluation.data.id,
-        trait_id: ids.traitRich,
-        numeric_value: 99,
-      });
+    await admin.from("phenotype_trait_values").insert({
+      phenotype_evaluation_id: newEvaluation.data.id,
+      trait_id: ids.traitRich,
+      numeric_value: 99,
+    });
 
     const afterHtml = await (
       await request(

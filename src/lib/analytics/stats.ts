@@ -105,9 +105,27 @@ export function coefficientOfVariation(xs: number[]): CvResult {
 }
 
 export type DescriptiveStats = {
-  nTotal: number;
+  /** Scoring events recorded for this cohort (program/date-range/filters),
+   * independent of trait - see program_evaluation_dataset (migration
+   * 000027). NOT a "total possible observations" count: it is simply how
+   * many evaluation events exist for this cohort, whatever trait(s) they
+   * scored. */
+  nEvaluationEvents: number;
+  /** Trait observations actually recorded - the only count here that is a
+   * directly observed fact. */
   nObserved: number;
-  nMissing: number;
+  /** Evaluation events in this cohort that do not carry a value for this
+   * trait. Deliberately NOT called "missing": submit_trait_evaluation
+   * (migration 000016) accepts a partial submission, so a trait's absence
+   * from an evaluation does not prove it was expected and omitted - it may
+   * simply never have been scheduled for that evaluation. There is no
+   * historical measurement-plan snapshot in this schema that could tell
+   * the two apart. See docs/ANALYTICS.md §4. */
+  nEvaluationEventsWithoutTrait: number;
+  /** nObserved / nEvaluationEvents, as a fraction - "how much of this
+   * cohort's scoring activity actually recorded this trait", not a
+   * biological missingness rate. Null when nEvaluationEvents is 0. */
+  coverageRatio: number | null;
   mean: number;
   median: number;
   sd: number;
@@ -122,18 +140,21 @@ export type DescriptiveStats = {
   cv: CvResult;
 };
 
-/** `nTotal` is the count of eligible rows (observed + missing) the caller
- * already knows about; `xs` holds only the non-missing numeric values. */
+/** `nEvaluationEvents` is the count of scoring events for this cohort the
+ * caller already fetched (program_evaluation_dataset); `xs` holds only
+ * this trait's observed numeric values. See the field comments above for
+ * why this is "coverage", never "missing data". */
 export function descriptiveStats(
   xs: number[],
-  nTotal: number,
+  nEvaluationEvents: number,
 ): DescriptiveStats {
   const q1 = quantile(xs, 0.25);
   const q3 = quantile(xs, 0.75);
   return {
-    nTotal,
+    nEvaluationEvents,
     nObserved: xs.length,
-    nMissing: nTotal - xs.length,
+    nEvaluationEventsWithoutTrait: nEvaluationEvents - xs.length,
+    coverageRatio: nEvaluationEvents > 0 ? xs.length / nEvaluationEvents : null,
     mean: mean(xs),
     median: median(xs),
     sd: sampleSd(xs),
