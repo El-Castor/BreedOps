@@ -170,6 +170,69 @@ result5 <- run_script(list(model_type = "met_base_v1", rows = list(
 check("no shared entries: NOT_ESTIMABLE", identical(result5$status, "not_estimable"))
 check("no shared entries: reason names Entry x Environment", grepl("Entr.e x Environnement", result5$message))
 
+# ---- within-cell replication identifiability (B-review blocker #2) ----
+# Confirmed empirically against lme4::lmer()'s own hard identifiability
+# check ("number of levels of each grouping factor must be < number of
+# observations") before this rule was added: with exactly one observation
+# per Entry x Environment cell, lme4 refuses outright and sommer silently
+# "converges" with an arbitrary residual/interaction split - neither is a
+# scientifically valid NOT_ESTIMABLE-vs-fabricated distinction without this
+# explicit guard.
+
+# One observation per cell (3 entries x 2 environments, no replicate at
+# all): must be refused, never fabricated.
+rows_no_replication <- list(
+  list(entry_id = "E1", environment_id = "V1", value = 10),
+  list(entry_id = "E1", environment_id = "V2", value = 14),
+  list(entry_id = "E2", environment_id = "V1", value = 11),
+  list(entry_id = "E2", environment_id = "V2", value = 12),
+  list(entry_id = "E3", environment_id = "V1", value = 9),
+  list(entry_id = "E3", environment_id = "V2", value = 13)
+)
+result_no_rep <- run_script(list(model_type = "met_base_v1", rows = rows_no_replication))
+check(
+  "no within-cell replication (1 obs/cell): NOT_ESTIMABLE, never a fabricated residual/interaction split",
+  identical(result_no_rep$status, "not_estimable")
+)
+check(
+  "no within-cell replication: reason names the identifiability problem",
+  grepl("identifiables séparément", result_no_rep$message)
+)
+
+# Fully replicated balanced design (every cell has 2+ observations, as the
+# "balanced" fixture at the top of this file already is): ELIGIBLE, and
+# every cell is reported as replicated.
+check(
+  "fully replicated balanced design: every populated cell is replicated",
+  identical(result$replication$replicated_cells, result$replication$populated_cells)
+)
+check(
+  "fully replicated balanced design: replication diagnostics expose populated cells, total observations, and replicated cells",
+  is.numeric(result$replication$populated_cells) && is.numeric(result$replication$total_observations) &&
+    is.numeric(result$replication$replicated_cells)
+)
+
+# Partially replicated design: most cells have one observation, exactly one
+# cell has two. Scientifically justified result: ELIGIBLE (lme4 accepts
+# this exact shape too - levels < observations), but the diagnostics must
+# visibly report that replication is incomplete rather than implying every
+# cell is equally well-supported.
+rows_partial <- list(
+  list(entry_id = "E1", environment_id = "V1", value = 10.0),
+  list(entry_id = "E1", environment_id = "V1", value = 10.3),
+  list(entry_id = "E1", environment_id = "V2", value = 14.0),
+  list(entry_id = "E2", environment_id = "V1", value = 11.0),
+  list(entry_id = "E2", environment_id = "V2", value = 12.0),
+  list(entry_id = "E3", environment_id = "V1", value = 9.0),
+  list(entry_id = "E3", environment_id = "V2", value = 13.0)
+)
+result_partial <- run_script(list(model_type = "met_base_v1", rows = rows_partial))
+check("partially replicated design: status ok (scientifically justified - lme4 accepts this shape too)", identical(result_partial$status, "ok"))
+check(
+  "partially replicated design: diagnostics report exactly 1 of 6 cells replicated",
+  identical(result_partial$replication$replicated_cells, 1L) && identical(result_partial$replication$populated_cells, 6L)
+)
+
 cat("\n", checks_run, "checks run,", length(failures), "failed.\n")
 if (length(failures) > 0) {
   cat("FAILED:\n")

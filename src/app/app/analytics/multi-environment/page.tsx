@@ -16,7 +16,7 @@ import { MetRunResult } from "@/components/met-run-result";
 import { requireIdentity } from "@/lib/auth";
 import { collectionState } from "@/lib/query-state";
 import { buildMetObservationDataset, listTrialTraits } from "@/lib/met/dataset";
-import { evaluateMetEligibility } from "@/lib/met/eligibility";
+import { evaluateMetModelEligibility } from "@/lib/met/eligibility";
 import { computeEnvironmentRankStability } from "@/lib/met/rank-stability";
 import { computeEntryEnvironmentCellMeans } from "@/lib/met/design-summary";
 import { listTrials } from "../../trials/actions";
@@ -240,7 +240,14 @@ export default async function MultiEnvironmentAnalytics({
     );
   }
 
-  const eligibility = evaluateMetEligibility(dataset.rows);
+  // The diagnostics card below reflects met_base_v1 (the model picker's
+  // own default) - a different model's own stricter requirements (WAASB/
+  // AMMI's >2/>2, Finlay-Wilkinson's per-entry coverage) are re-checked
+  // server-side against the actually-selected model when "Lancer et
+  // enregistrer" is submitted (src/app/app/analytics/met-actions.ts), and
+  // any resulting NOT_ESTIMABLE is shown in "Résultat le plus récent"
+  // below with its own precise reason.
+  const eligibility = evaluateMetModelEligibility("met_base_v1", dataset.rows);
   const rankPairs = computeEnvironmentRankStability(dataset.rows);
   const cellMeans = computeEntryEnvironmentCellMeans(dataset.rows);
 

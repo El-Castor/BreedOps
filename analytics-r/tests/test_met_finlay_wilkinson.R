@@ -74,6 +74,25 @@ sparse_rows <- list(
 fw_sparse <- run_script(list(model_type = "met_finlay_wilkinson_v1", rows = sparse_rows), "met_finlay_wilkinson_v1")
 check("Finlay-Wilkinson on an insufficient design: NOT_ESTIMABLE, never a fabricated model", identical(fw_sparse$status, "not_estimable"))
 
+# ---- Per-entry environment coverage (B-review blocker #6): the general
+# eligibility gate only requires 2+ SHARED entries overall, which does not
+# guarantee EVERY entry qualifies for its own regression. G1 observed in
+# only 1 of the 5 environments must block the whole analysis, never
+# silently produce a degenerate single-point "fit" for G1 alongside valid
+# fits for the other 5 entries (verified empirically before this guard:
+# metan::ge_reg returned a confident-looking, tiny-p-value slope for such
+# an entry rather than failing). ----
+rows_one_entry_insufficient <- Filter(function(r) !(r$entry_id == "G1" && r$environment_id != "E1"), rows)
+fw_insufficient_entry <- run_script(list(model_type = "met_finlay_wilkinson_v1", rows = rows_one_entry_insufficient), "met_finlay_wilkinson_v1")
+check(
+  "Finlay-Wilkinson: one entry (G1) observed in only 1 of 5 environments blocks the whole analysis, never a degenerate per-entry fit",
+  identical(fw_insufficient_entry$status, "not_estimable")
+)
+check(
+  "Finlay-Wilkinson: the NOT_ESTIMABLE reason names the insufficient entry",
+  grepl("G1", fw_insufficient_entry$message)
+)
+
 cat("\n", checks_run, "checks run,", length(failures), "failed.\n")
 if (length(failures) > 0) {
   cat("FAILED:\n")

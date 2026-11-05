@@ -68,8 +68,24 @@ export function MetRunResult({ result }: { result: Record<string, unknown> }) {
   if (modelType === "met_base_v1") {
     const variance = asRecord(result.variance_components) ?? {};
     const entryPredictions = asArray(result.entry_predictions);
+    const replication = asRecord(result.replication);
+    const incompleteReplication =
+      replication &&
+      typeof replication.replicated_cells === "number" &&
+      typeof replication.populated_cells === "number" &&
+      replication.replicated_cells < replication.populated_cells;
     return (
       <div>
+        {incompleteReplication && (
+          <p className="chart-description">
+            <StatusBadge tone="warning">Attention</StatusBadge>{" "}
+            {String(replication!.replicated_cells)} cellule(s) Entrée ×
+            Environnement sur {String(replication!.populated_cells)} comportent
+            une répétition - la séparation entre la variance Entrée ×
+            Environnement et la variance résiduelle repose sur un nombre réduit
+            de cellules.
+          </p>
+        )}
         <h4>Composantes de variance</h4>
         <DataTable label="Composantes de variance">
           <table>
@@ -132,8 +148,18 @@ export function MetRunResult({ result }: { result: Record<string, unknown> }) {
     const pcs = asArray(result.principal_components);
     const genotypes = asArray(result.genotype_scores);
     const envs = asArray(result.environment_scores);
+    const missingCellsImputed = model.missing_cells_imputed;
     return (
       <div>
+        {typeof missingCellsImputed === "number" && missingCellsImputed > 0 && (
+          <p className="chart-description">
+            <StatusBadge tone="warning">Attention</StatusBadge>{" "}
+            {missingCellsImputed} cellule(s) Entrée × Environnement manquante(s)
+            ont été comblées par le moteur statistique (méthode EM-SVD) avant ce
+            calcul - jamais silencieusement : interprétez les scores concernés
+            avec prudence.
+          </p>
+        )}
         <h4>Composantes principales</h4>
         <DataTable label="Composantes principales">
           <table>

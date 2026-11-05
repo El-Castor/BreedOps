@@ -12,8 +12,14 @@
 // re-checks independently and is what actually decides NOT_ESTIMABLE for
 // any real analysis request, this module is a fast pre-flight mirror of
 // it, not a replacement for it.
-import { summarizeMetDesign, type MetDesignSummary } from "./design-summary";
+import {
+  summarizeMetDesign,
+  computeCellReplicationDiagnostics,
+  type MetDesignSummary,
+  type MetCellReplicationDiagnostics,
+} from "./design-summary";
 import type { MetObservationRecord } from "./types";
+import type { MetModelType } from "./r-model-types";
 
 /** MUST match MIN_ENTRIES in analytics-r/scripts/met_models.R. */
 export const MIN_ENTRIES = 2;
@@ -130,4 +136,119 @@ export function evaluateMetEligibility(
   }
 
   return { eligible: reasons.length === 0, reasons, warnings, design, balance };
+}
+
+export type MetModelEligibilityReport = MetEligibilityReport & {
+  modelType: MetModelType;
+  /** Only populated for met_base_v1 - the within-cell replication
+   * identifiability check (B-review blocker #2). */
+  replication?: MetCellReplicationDiagnostics;
+};
+
+function entryEnvironmentCounts(
+  rows: MetObservationRecord[],
+): Map<string, number> {
+  const entryEnvironments = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const envs = entryEnvironments.get(row.entryId) ?? new Set<string>();
+    envs.add(row.environmentId);
+    entryEnvironments.set(row.entryId, envs);
+  }
+  const counts = new Map<string, number>();
+  for (const [entryId, envs] of entryEnvironments)
+    counts.set(entryId, envs.size);
+  return counts;
+}
+
+/** Layers model-specific requirements on top of the generic gate above -
+ * mirroring, for UI diagnostics, the per-model checks
+ * analytics-r/scripts/met_models.R itself enforces (B-review blocker #6).
+ * The R engine remains the final authority: this is a fast preflight, not
+ * a replacement for it, and every reason string here is worded to match
+ * met_models.R's own wording for the same check. */
+export function evaluateMetModelEligibility(
+  modelType: MetModelType,
+  rows: MetObservationRecord[],
+): MetModelEligibilityReport {
+  const base = evaluateMetEligibility(rows);
+  if (!base.eligible) {
+    return { ...base, modelType };
+  }
+
+  const reasons = [...base.reasons];
+  const warnings = [...base.warnings];
+  let replication: MetCellReplicationDiagnostics | undefined;
+
+  if (modelType === "met_base_v1") {
+    // Entry×Environment variance and residual variance are not separately
+    // identifiable with exactly one observation per cell - confirmed
+    // empirically against lme4::lmer()'s own hard check ("number of
+    // levels of each grouping factor must be < number of observations"),
+    // not an arbitrary threshold. See analytics-r/scripts/met_models.R's
+    // identical check for the full rationale.
+    replication = computeCellReplicationDiagnostics(rows);
+    if (replication.replicatedCells === 0) {
+      reasons.push(
+        `La variance Entrée x Environnement et la variance résiduelle ne sont pas identifiables séparément : chacune des ${replication.populatedCells} cellules Entrée x Environnement ne compte qu'une seule observation (${replication.totalObservations} observations au total). Au moins une cellule doit comporter une répétition.`,
+      );
+    } else if (replication.replicatedCells < replication.populatedCells) {
+      warnings.push(
+        `Seules ${replication.replicatedCells} cellule(s) sur ${replication.populatedCells} comportent une répétition : la séparation entre la variance Entrée x Environnement et la variance résiduelle repose sur un nombre réduit de cellules.`,
+      );
+    }
+  }
+
+  if (modelType === "met_waasb_v1" || modelType === "met_ammi_v1") {
+    // Both metan::waasb() and metan::performs_ammi() require STRICTLY more
+    // than 2 entries AND more than 2 environments - confirmed empirically
+    // (see analytics-r/scripts/met_models.R's identical checks).
+    if (base.design.entryCount <= 2 || base.design.environmentCount <= 2) {
+      const label = modelType === "met_waasb_v1" ? "WAASB" : "AMMI";
+      reasons.push(
+        `Le modèle ${label} nécessite plus de 2 entrées et plus de 2 environnements (contrairement au modèle de base, qui n'en nécessite que 2).`,
+      );
+    }
+  }
+
+  if (modelType === "met_ammi_v1" || modelType === "met_gge_v1") {
+    // Neither metan::performs_ammi() nor metan::gge() excludes a missing
+    // Entry×Environment cell - both impute it (EM-SVD) before fitting,
+    // confirmed by reading metan's own source. Never silent (B40): this
+    // warning is shown even before the R engine runs.
+    if (base.balance.missingCells > 0) {
+      warnings.push(
+        `${base.balance.missingCells} cellule(s) Entrée x Environnement manquante(s) seront comblées par le moteur statistique (méthode EM-SVD) avant ce calcul, plutôt qu'exclues.`,
+      );
+    }
+  }
+
+  if (modelType === "met_finlay_wilkinson_v1") {
+    // Every entry included in a Finlay-Wilkinson regression must itself be
+    // observed in at least 2 environments - the regression is fit PER
+    // ENTRY against the environmental index, and the generic shared-
+    // entries gate above only guarantees 2+ entries overall qualify, not
+    // every individual entry. See analytics-r/scripts/met_models.R's
+    // identical check for the full rationale (an entry with only 1
+    // environment was found, empirically, to still produce a confident-
+    // looking but degenerate fit rather than failing).
+    const counts = entryEnvironmentCounts(rows);
+    const insufficientEntries = [...counts.entries()]
+      .filter(([, count]) => count < 2)
+      .map(([entryId]) => entryId);
+    if (insufficientEntries.length > 0) {
+      reasons.push(
+        `Le modèle de régression conjointe (Finlay-Wilkinson) nécessite que chaque entrée soit observée dans au moins 2 environnements. Entrée(s) insuffisante(s) : ${insufficientEntries.join(", ")}.`,
+      );
+    }
+  }
+
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    warnings,
+    design: base.design,
+    balance: base.balance,
+    modelType,
+    replication,
+  };
 }

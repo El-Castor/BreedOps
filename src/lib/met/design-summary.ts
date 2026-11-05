@@ -60,3 +60,42 @@ export function computeEntryEnvironmentCellMeans(
   for (const [key, { total, count }] of sums) means.set(key, total / count);
   return means;
 }
+
+export type MetCellReplicationDiagnostics = {
+  populatedCells: number;
+  totalObservations: number;
+  /** Cells with 2+ observations. The met_base_v1 identifiability
+   * requirement (B-review blocker #2, see src/lib/met/eligibility.ts) is
+   * `replicatedCells >= 1` - equivalently `populatedCells <
+   * totalObservations` - confirmed empirically against lme4::lmer()'s own
+   * hard check ("number of levels of each grouping factor must be <
+   * number of observations"): with every cell holding exactly one
+   * observation, the Entry×Environment variance and the residual
+   * variance are not separately identifiable. This is not an arbitrary
+   * threshold; it is the standard mixed-model identifiability
+   * requirement. */
+  replicatedCells: number;
+};
+
+/** Per entry×environment cell, how many observations it actually has -
+ * the raw input to the met_base_v1-specific replication-identifiability
+ * check. Pure/non-statistical, same convention as the rest of this
+ * module. */
+export function computeCellReplicationDiagnostics(
+  rows: MetObservationRecord[],
+): MetCellReplicationDiagnostics {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${row.entryId}||${row.environmentId}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let replicatedCells = 0;
+  for (const count of counts.values()) {
+    if (count >= 2) replicatedCells += 1;
+  }
+  return {
+    populatedCells: counts.size,
+    totalObservations: rows.length,
+    replicatedCells,
+  };
+}

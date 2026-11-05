@@ -104,6 +104,38 @@ check(
   identical(waasb_two_envs$status, "not_estimable")
 )
 
+# ---- AMMI's own strict minimum (B-review blocker #6): >2 entries AND >2
+# environments, same shape as WAASB's already-established minimum ----
+ammi_two_envs <- run_script(list(model_type = "met_ammi_v1", rows = waasb_two_envs_rows), "met_ammi_v1")
+check(
+  "AMMI with exactly 2 environments (5 entries): NOT_ESTIMABLE with a precise reason",
+  identical(ammi_two_envs$status, "not_estimable")
+)
+
+# ---- missing-cell imputation disclosure (B-review blocker #6 / B40): never
+# silent. A complete design reports missing_cells_imputed == 0; an
+# incomplete one reports the exact count metan's EM-SVD imputation fills
+# in - confirmed by reading metan's own source (impute_missing_val()) ----
+check(
+  "AMMI on the complete balanced fixture: missing_cells_imputed == 0",
+  identical(ammi$model$missing_cells_imputed, 0L)
+)
+
+incomplete_rows <- Filter(function(r) !(r$entry_id == "G1" && r$environment_id == "E1"), rows)
+ammi_incomplete <- run_script(list(model_type = "met_ammi_v1", rows = incomplete_rows), "met_ammi_v1")
+check("AMMI on an incomplete design: status still ok (metan imputes rather than refusing)", identical(ammi_incomplete$status, "ok"))
+check(
+  "AMMI on an incomplete design: missing_cells_imputed reports exactly the 1 missing cell, never silently",
+  identical(ammi_incomplete$model$missing_cells_imputed, 1L)
+)
+
+gge_incomplete <- run_script(list(model_type = "met_gge_v1", rows = incomplete_rows), "met_gge_v1")
+check("GGE on an incomplete design: status still ok (metan imputes rather than refusing)", identical(gge_incomplete$status, "ok"))
+check(
+  "GGE on an incomplete design: missing_cells_imputed reports exactly the 1 missing cell, never silently",
+  identical(gge_incomplete$model$missing_cells_imputed, 1L)
+)
+
 cat("\n", checks_run, "checks run,", length(failures), "failed.\n")
 if (length(failures) > 0) {
   cat("FAILED:\n")

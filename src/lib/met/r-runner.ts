@@ -2,20 +2,9 @@ import "server-only";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
+import { MET_MODEL_TYPES, type MetModelType } from "./r-model-types";
 
-/** MUST match `ALLOWED_MODEL_TYPES` in `analytics-r/scripts/met_models.R`
- * exactly - this is the one allowlist of model specifications the R script
- * accepts; the client never supplies a formula or anything else that
- * controls what statistical model actually runs (B19: hand-rolled REML is
- * forbidden, and so is a client-controlled formula). */
-export const MET_MODEL_TYPES = [
-  "met_base_v1",
-  "met_finlay_wilkinson_v1",
-  "met_ammi_v1",
-  "met_waasb_v1",
-  "met_gge_v1",
-] as const;
-export type MetModelType = (typeof MET_MODEL_TYPES)[number];
+export { MET_MODEL_TYPES, type MetModelType };
 
 const ANALYTICS_R_DIR = path.join(process.cwd(), "analytics-r");
 const R_SCRIPT_RELATIVE_PATH = "scripts/met_models.R";
@@ -82,6 +71,18 @@ const metBaseOkSchema = z.object({
     bic: z.number(),
     log_lik: z.number(),
   }),
+  /** Entry×Environment variance and residual variance are not separately
+   * identifiable with exactly one observation per cell (B-review blocker
+   * #2) - met_models.R refuses to even fit the model when
+   * replicated_cells === 0, so by the time this schema matches, at least
+   * one cell has 2+ observations. replicated_cells < populated_cells
+   * still means the split relies on fewer cells than the full design;
+   * callers show this, never hide it. */
+  replication: z.object({
+    populated_cells: z.number(),
+    total_observations: z.number(),
+    replicated_cells: z.number(),
+  }),
   variance_components: z.object({
     entry: varianceComponentSchema,
     entry_x_environment: varianceComponentSchema,
@@ -113,6 +114,10 @@ const metAmmiOkSchema = z.object({
     n_observations: z.number(),
     n_entries: z.number(),
     n_environments: z.number(),
+    /** metan::performs_ammi() does not exclude a missing Entry×Environment
+     * cell - it imputes it (EM-SVD) before fitting. Always reported (0
+     * when complete) so this is never silent (B40). */
+    missing_cells_imputed: z.number(),
   }),
   principal_components: z.array(
     z.object({
@@ -210,6 +215,10 @@ const metGgeOkSchema = z.object({
     centering: z.string(),
     scaling: z.string(),
     svp: z.string(),
+    /** metan::gge() does not exclude a missing Entry×Environment cell -
+     * it imputes it (EM-SVD) before the SVD biplot. Always reported (0
+     * when complete) so this is never silent (B40). */
+    missing_cells_imputed: z.number(),
   }),
   grand_mean: z.number(),
   principal_components: z.array(

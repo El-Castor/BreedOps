@@ -8,7 +8,7 @@ import {
 } from "@/lib/action-state";
 import { requireIdentity } from "@/lib/auth";
 import { buildMetObservationDataset } from "@/lib/met/dataset";
-import { evaluateMetEligibility } from "@/lib/met/eligibility";
+import { evaluateMetModelEligibility } from "@/lib/met/eligibility";
 import {
   runMetAmmiModel,
   runMetBaseModel,
@@ -69,6 +69,7 @@ function summarizeMetResultForStorage(
       model_type: modelType,
       engine: result.data.engine,
       model: result.data.model,
+      replication: result.data.replication,
       variance_components: result.data.variance_components,
       fixed_effects_environment: result.data.fixed_effects_environment.slice(
         0,
@@ -156,7 +157,10 @@ export async function createMetAnalysisRun(
       performanceWeight: input.performanceWeight,
     };
 
-    const eligibility = evaluateMetEligibility(dataset.rows);
+    const eligibility = evaluateMetModelEligibility(
+      input.modelType,
+      dataset.rows,
+    );
     if (!eligibility.eligible) {
       const { error } = await client.from("analytics_runs").insert({
         program_id: input.programId,

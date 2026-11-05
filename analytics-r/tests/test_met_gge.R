@@ -51,6 +51,7 @@ check("GGE: every entry's coordinates vector has one value per axis", length(gge
 check("GGE: every environment has an environment score with coordinates", length(gge$environment_scores) == n_envs)
 check("GGE: grand_mean is reported and numeric", is.numeric(gge$grand_mean))
 check("GGE: model echoes its centering/scaling/svp configuration", identical(gge$model$centering, "environment"))
+check("GGE on the complete balanced fixture: missing_cells_imputed == 0", identical(gge$model$missing_cells_imputed, 0L))
 
 # ---- Eligibility: GGE refuses rather than fabricates when there is no
 # real structure (same insufficient-design fixture as AMMI/WAASB) ----

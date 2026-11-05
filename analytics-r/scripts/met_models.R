@@ -112,8 +112,42 @@ engine_info <- list(
   sommer_version = as.character(utils::packageVersion("sommer"))
 )
 
+replication_diagnostics <- function(dat) {
+  cell_key <- paste(dat$entry_id, dat$environment_id, sep = "||")
+  cell_counts <- table(cell_key)
+  list(
+    populated_cells = length(cell_counts),
+    total_observations = nrow(dat),
+    replicated_cells = sum(cell_counts >= 2)
+  )
+}
+
 run_met_base <- function(dat, has_block) {
   suppressMessages(suppressWarnings(library(sommer)))
+  # Entry x Environment variance and residual variance are not separately
+  # identifiable with exactly one observation per Entry x Environment cell:
+  # confirmed empirically against both lme4::lmer() (which hard-refuses with
+  # "number of levels of each grouping factor must be < number of
+  # observations" for the entry:env term in that case) and sommer::mmer()
+  # (which does NOT refuse - it silently "converges" and arbitrarily splits
+  # the single residual degree of freedom per cell between entry:env and
+  # units, with no real identifying information behind the split). This is
+  # not an arbitrary threshold: it is the standard mixed-model
+  # identifiability requirement (a random effect needs strictly fewer
+  # levels than the total sample size to have an estimable variance
+  # distinct from residual) - equivalently, at least one Entry x
+  # Environment cell must have 2+ observations. See
+  # analytics-r/tests/test_met_base_v1.R for the reference cases (no
+  # replication -> NOT_ESTIMABLE, full replication -> ELIGIBLE, partial
+  # replication -> ELIGIBLE with a visible caution).
+  replication <- replication_diagnostics(dat)
+  if (replication$replicated_cells == 0) {
+    fail(paste0(
+      "La variance Entrée x Environnement et la variance résiduelle ne sont pas identifiables séparément : ",
+      "chacune des ", replication$populated_cells, " cellules Entrée x Environnement ne compte qu'une seule observation ",
+      "(", replication$total_observations, " observations au total). Au moins une cellule doit comporter une répétition."
+    ), status = "not_estimable")
+  }
   random_formula <- if (has_block) {
     ~ entry + entry:env + block_env
   } else {
@@ -196,6 +230,7 @@ run_met_base <- function(dat, has_block) {
       bic = as.numeric(model$BIC),
       log_lik = log_lik
     ),
+    replication = replication,
     variance_components = variance_components,
     fixed_effects_environment = fixed_effects_environment,
     entry_predictions = entry_predictions,
@@ -203,8 +238,24 @@ run_met_base <- function(dat, has_block) {
   )
 }
 
+missing_cells_count <- function(dat) {
+  n_entries * n_environments - length(unique(paste(dat$entry_id, dat$environment_id, sep = "||")))
+}
+
 run_met_ammi <- function(dat) {
   suppressMessages(suppressWarnings(library(metan)))
+  # metan::performs_ammi() already raises a normal R condition (caught by
+  # tryCatch below) when entries/environments <= 2, with its own message
+  # ("Both genotypes and environments must have more than two levels.") -
+  # verified empirically. This explicit pre-check is not required for
+  # correctness the way run_met_waasb()'s is (performs_ammi's failure never
+  # corrupts stdout), but gives the same clear, French, consistently-worded
+  # NOT_ESTIMABLE reason as every other model here, rather than depending
+  # on metan's own English wording.
+  if (n_entries <= 2 || n_environments <= 2) {
+    fail("Le modèle AMMI nécessite plus de 2 entrées et plus de 2 environnements.", status = "not_estimable")
+  }
+  missing_cells <- missing_cells_count(dat)
   dat$GEN <- dat$entry
   dat$ENV <- dat$env
   dat$REP <- factor(if (has_block) dat$block else seq_len(nrow(dat)))
@@ -253,7 +304,14 @@ run_met_ammi <- function(dat) {
     engine = modifyList(engine_info, list(metan_version = as.character(utils::packageVersion("metan")))),
     model = list(
       model_type = "met_ammi_v1",
-      n_observations = n_obs, n_entries = n_entries, n_environments = n_environments
+      n_observations = n_obs, n_entries = n_entries, n_environments = n_environments,
+      # metan::performs_ammi() does NOT exclude a missing Entry x Environment
+      # cell - it fills it in via impute_missing_val()'s EM-SVD algorithm
+      # before fitting (confirmed by reading metan's own source). This is a
+      # real, literature-established technique for incomplete MET trials,
+      # but B40 requires it to be visible, never silent: missing_cells_
+      # imputed is always reported, 0 when the design is complete.
+      missing_cells_imputed = missing_cells
     ),
     principal_components = principal_components,
     genotype_scores = genotype_scores,
@@ -319,6 +377,25 @@ run_met_waasb <- function(dat, performance_weight) {
 
 run_met_finlay_wilkinson <- function(dat) {
   suppressMessages(suppressWarnings(library(metan)))
+  # Every entry included in a Finlay-Wilkinson regression must itself be
+  # observed in at least 2 environments: the regression is fit PER ENTRY
+  # against the environmental index, so an entry present in only 1
+  # environment gives metan::ge_reg() exactly one point to regress against
+  # its own index value - verified empirically to still return a
+  # confident-looking fit (a tiny p-value) rather than failing or flagging
+  # the degeneracy, which would otherwise silently fabricate a slope/
+  # stability result for that entry. The generic eligibility gate above
+  # only requires 2+ SHARED entries overall (B13-B14), which does not
+  # guarantee every individual entry qualifies - this is a stricter,
+  # model-specific requirement.
+  entry_env_counts <- table(unique(dat[c("entry_id", "environment_id")])$entry_id)
+  insufficient_entries <- names(entry_env_counts)[entry_env_counts < 2]
+  if (length(insufficient_entries) > 0) {
+    fail(paste0(
+      "Le modèle de régression conjointe (Finlay-Wilkinson) nécessite que chaque entrée soit observée dans au moins 2 environnements. ",
+      "Entrée(s) insuffisante(s) : ", paste(insufficient_entries, collapse = ", "), "."
+    ), status = "not_estimable")
+  }
   dat$GEN <- dat$entry
   dat$ENV <- dat$env
   dat$REP <- factor(if (has_block) dat$block else seq_len(nrow(dat)))
@@ -372,6 +449,7 @@ run_met_finlay_wilkinson <- function(dat) {
 
 run_met_gge <- function(dat) {
   suppressMessages(suppressWarnings(library(metan)))
+  missing_cells <- missing_cells_count(dat)
   dat$GEN <- dat$entry
   dat$ENV <- dat$env
   # gge() takes no `rep` argument - unlike performs_ammi/waasb/ge_reg, it
@@ -411,7 +489,14 @@ run_met_gge <- function(dat) {
     model = list(
       model_type = "met_gge_v1",
       n_observations = n_obs, n_entries = n_entries, n_environments = n_environments,
-      centering = gge_result$centering, scaling = gge_result$scaling, svp = gge_result$svp
+      centering = gge_result$centering, scaling = gge_result$scaling, svp = gge_result$svp,
+      # metan::gge() does NOT exclude a missing Entry x Environment cell -
+      # it fills it in via impute_missing_val()'s EM-SVD algorithm before
+      # the SVD biplot decomposition (confirmed by reading metan's own
+      # source: `if (has_na(ge_mat)) ge_mat <- impute_missing_val(ge_mat,
+      # ...)`). Same B40 disclosure rule as met_ammi_v1: always reported,
+      # 0 when the design is complete, never silent.
+      missing_cells_imputed = missing_cells
     ),
     grand_mean = as.numeric(gge_result$grand_mean),
     principal_components = principal_components,
