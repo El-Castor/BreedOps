@@ -279,3 +279,124 @@ export async function listTrialEntries(
     scientificRole: row.scientific_role as string,
   }));
 }
+
+// ───────────────────────── Legacy mapping workflow (B41) ─────────────────────────
+// phenotypes.location (free text) and family_id/seed_lot_id are never
+// auto-migrated into the normalized sites/environments/trial_entries
+// model - a human explicitly maps each distinct legacy value, once,
+// through this workflow. Every mapping call below goes through the
+// migration 000029 SQL functions, which run SECURITY INVOKER: the
+// caller's own phenotypes_update RLS policy and the
+// validate_phenotype_met_links trigger both still apply.
+
+export type UnmappedLocation = { location: string; phenotypeCount: number };
+
+export async function listUnmappedLocations(
+  programId: string,
+): Promise<UnmappedLocation[]> {
+  const { client } = await requireIdentity();
+  const { data, error } = await client.rpc(
+    "legacy_phenotype_location_summary",
+    { target_program_id: programId },
+  );
+  if (error || !data) return [];
+  return (data as Record<string, unknown>[]).map((row) => ({
+    location: row.location as string,
+    phenotypeCount: Number(row.phenotype_count),
+  }));
+}
+
+export type UnmappedMaterial = {
+  familyId: string | null;
+  familyCode: string | null;
+  seedLotId: string | null;
+  seedLotCode: string | null;
+  phenotypeCount: number;
+};
+
+export async function listUnmappedMaterial(
+  programId: string,
+): Promise<UnmappedMaterial[]> {
+  const { client } = await requireIdentity();
+  const { data, error } = await client.rpc(
+    "legacy_phenotype_material_summary",
+    { target_program_id: programId },
+  );
+  if (error || !data) return [];
+  return (data as Record<string, unknown>[]).map((row) => ({
+    familyId: row.family_id as string | null,
+    familyCode: row.family_code as string | null,
+    seedLotId: row.seed_lot_id as string | null,
+    seedLotCode: row.seed_lot_code as string | null,
+    phenotypeCount: Number(row.phenotype_count),
+  }));
+}
+
+export async function mapLegacyLocation(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        program_id: id,
+        location: z.string().trim().min(1),
+        environment_id: id,
+      })
+      .parse(Object.fromEntries(form));
+    const { client } = await requireIdentity();
+    const { data, error } = await client.rpc(
+      "map_legacy_location_to_environment",
+      {
+        target_program_id: values.program_id,
+        target_location: values.location,
+        target_environment_id: values.environment_id,
+      },
+    );
+    if (error) throw new Error("Correspondance d’emplacement refusée.");
+    return actionSuccess(`${data} phénotype(s) lié(s) à cet environnement.`);
+  } catch (error) {
+    return actionError(
+      error,
+      "Impossible d’appliquer cette correspondance d’emplacement.",
+    );
+  }
+}
+
+export async function mapLegacyMaterial(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const values = z
+      .object({
+        program_id: id,
+        family_id: id.nullable(),
+        seed_lot_id: id.nullable(),
+        trial_entry_id: id,
+      })
+      .parse({
+        program_id: form.get("program_id"),
+        family_id: form.get("family_id") || null,
+        seed_lot_id: form.get("seed_lot_id") || null,
+        trial_entry_id: form.get("trial_entry_id"),
+      });
+    const { client } = await requireIdentity();
+    const { data, error } = await client.rpc(
+      "map_legacy_material_to_trial_entry",
+      {
+        target_program_id: values.program_id,
+        target_family_id: values.family_id,
+        target_seed_lot_id: values.seed_lot_id,
+        target_trial_entry_id: values.trial_entry_id,
+      },
+    );
+    if (error) throw new Error("Correspondance de matériel refusée.");
+    return actionSuccess(`${data} phénotype(s) lié(s) à cette entrée.`);
+  } catch (error) {
+    return actionError(
+      error,
+      "Impossible d’appliquer cette correspondance de matériel.",
+    );
+  }
+}

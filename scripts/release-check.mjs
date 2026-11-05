@@ -118,6 +118,10 @@ try {
       ["test:advanced-media", "advanced media metadata/annotations"],
       ["test:trait-analytics", "trait analytics provenance/RLS"],
       ["test:multi-environment", "multi-environment MET schema RLS/integrity"],
+      [
+        "test:legacy-met-mapping",
+        "legacy location/material mapping workflow RLS/integrity",
+      ],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
       [

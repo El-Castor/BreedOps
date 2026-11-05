@@ -24,6 +24,10 @@ import {
   listTrialEntries,
   listTrialEnvironments,
   listTrials,
+  listUnmappedLocations,
+  listUnmappedMaterial,
+  mapLegacyLocation,
+  mapLegacyMaterial,
   removeTrialEnvironment,
 } from "./actions";
 
@@ -108,6 +112,13 @@ export default async function Trials({
   const availableEnvironments = environments.filter(
     (e) => !trialEnvironments.some((te) => te.id === e.id),
   );
+
+  const [unmappedLocations, unmappedMaterial] = trial
+    ? await Promise.all([
+        listUnmappedLocations(programId),
+        listUnmappedMaterial(programId),
+      ])
+    : [[], []];
 
   const basePath = "/app/trials";
 
@@ -445,6 +456,145 @@ export default async function Trials({
                               {scientificRoleLabels[entry.scientificRole] ??
                                 entry.scientificRole}
                             </StatusBadge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </DataTable>
+              )}
+            </div>
+          </div>
+
+          <div className="section-grid">
+            <div>
+              <h4>Correspondance des emplacements existants</h4>
+              <p className="chart-description">
+                Ces emplacements en texte libre (
+                <code>phenotypes.location</code>) ne sont jamais interprétés
+                automatiquement comme un environnement - choisissez
+                explicitement, pour chacun, l’environnement normalisé
+                correspondant.
+              </p>
+              {unmappedLocations.length === 0 ? (
+                <EmptyState
+                  title="Aucun emplacement à mapper"
+                  message="Tous les emplacements existants sont déjà liés à un environnement, ou ce programme n’en a aucun."
+                />
+              ) : (
+                <DataTable label="Emplacements à mapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Emplacement</th>
+                        <th scope="col">Phénotypes</th>
+                        <th scope="col">Environnement cible</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unmappedLocations.map((loc) => (
+                        <tr key={loc.location}>
+                          <td>{loc.location}</td>
+                          <td>{loc.phenotypeCount}</td>
+                          <td>
+                            <ActionForm
+                              action={mapLegacyLocation}
+                              actionName="trials-map-location"
+                              submitLabel="Appliquer"
+                              className="inline-form"
+                            >
+                              <input
+                                type="hidden"
+                                name="program_id"
+                                value={programId}
+                              />
+                              <input
+                                type="hidden"
+                                name="location"
+                                value={loc.location}
+                              />
+                              <select name="environment_id" required>
+                                {environments.map((env) => (
+                                  <option key={env.id} value={env.id}>
+                                    {env.code}
+                                  </option>
+                                ))}
+                              </select>
+                            </ActionForm>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </DataTable>
+              )}
+            </div>
+
+            <div>
+              <h4>Correspondance du matériel existant</h4>
+              <p className="chart-description">
+                Ces familles/lots de graines existants ne sont jamais
+                interprétés automatiquement comme une entrée - choisissez
+                explicitement, pour chacun, l’entrée de l’essai sélectionné
+                correspondante.
+              </p>
+              {trialEntries.length === 0 ? (
+                <EmptyState
+                  title="Aucune entrée dans cet essai"
+                  message="Créez d’abord au moins une entrée dans l’essai sélectionné ci-dessus."
+                />
+              ) : unmappedMaterial.length === 0 ? (
+                <EmptyState
+                  title="Aucun matériel à mapper"
+                  message="Tout le matériel existant est déjà lié à une entrée, ou ce programme n’en a aucun."
+                />
+              ) : (
+                <DataTable label="Matériel à mapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Famille</th>
+                        <th scope="col">Lot de graines</th>
+                        <th scope="col">Phénotypes</th>
+                        <th scope="col">Entrée cible</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unmappedMaterial.map((mat, i) => (
+                        <tr key={i}>
+                          <td>{mat.familyCode ?? "—"}</td>
+                          <td>{mat.seedLotCode ?? "—"}</td>
+                          <td>{mat.phenotypeCount}</td>
+                          <td>
+                            <ActionForm
+                              action={mapLegacyMaterial}
+                              actionName="trials-map-material"
+                              submitLabel="Appliquer"
+                              className="inline-form"
+                            >
+                              <input
+                                type="hidden"
+                                name="program_id"
+                                value={programId}
+                              />
+                              <input
+                                type="hidden"
+                                name="family_id"
+                                value={mat.familyId ?? ""}
+                              />
+                              <input
+                                type="hidden"
+                                name="seed_lot_id"
+                                value={mat.seedLotId ?? ""}
+                              />
+                              <select name="trial_entry_id" required>
+                                {trialEntries.map((entry) => (
+                                  <option key={entry.id} value={entry.id}>
+                                    {entry.code}
+                                  </option>
+                                ))}
+                              </select>
+                            </ActionForm>
                           </td>
                         </tr>
                       ))}
