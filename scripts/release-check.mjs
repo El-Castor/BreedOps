@@ -200,6 +200,10 @@ try {
             "advanced media metadata/annotations integration",
           ],
           ["test:trait-analytics-integration", "trait analytics integration"],
+          [
+            "test:multi-environment-integration",
+            "multi-environment analytics integration",
+          ],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;
