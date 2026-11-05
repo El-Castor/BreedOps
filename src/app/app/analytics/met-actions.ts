@@ -12,6 +12,7 @@ import {
   runMetAmmiModel,
   runMetBaseModel,
   runMetFinlayWilkinsonModel,
+  runMetGgeModel,
   runMetWaasbModel,
   type MetModelRow,
 } from "@/lib/met/r-runner";
@@ -50,7 +51,8 @@ function summarizeMetResultForStorage(
     | Awaited<ReturnType<typeof runMetBaseModel>>
     | Awaited<ReturnType<typeof runMetAmmiModel>>
     | Awaited<ReturnType<typeof runMetWaasbModel>>
-    | Awaited<ReturnType<typeof runMetFinlayWilkinsonModel>>,
+    | Awaited<ReturnType<typeof runMetFinlayWilkinsonModel>>
+    | Awaited<ReturnType<typeof runMetGgeModel>>,
 ): Record<string, unknown> {
   if (result.status !== "ok") {
     return {
@@ -79,6 +81,17 @@ function summarizeMetResultForStorage(
       model_type: modelType,
       engine: result.data.engine,
       model: result.data.model,
+      principal_components: result.data.principal_components.slice(0, 50),
+      genotype_scores: result.data.genotype_scores.slice(0, 500),
+      environment_scores: result.data.environment_scores.slice(0, 200),
+    };
+  }
+  if (modelType === "met_gge_v1" && "grand_mean" in result.data) {
+    return {
+      model_type: modelType,
+      engine: result.data.engine,
+      model: result.data.model,
+      grand_mean: result.data.grand_mean,
       principal_components: result.data.principal_components.slice(0, 50),
       genotype_scores: result.data.genotype_scores.slice(0, 500),
       environment_scores: result.data.environment_scores.slice(0, 200),
@@ -173,7 +186,12 @@ export async function createMetAnalysisRun(
           ? await runMetAmmiModel(modelRows)
           : input.modelType === "met_finlay_wilkinson_v1"
             ? await runMetFinlayWilkinsonModel(modelRows)
-            : await runMetWaasbModel(modelRows, input.performanceWeight ?? 0.5);
+            : input.modelType === "met_gge_v1"
+              ? await runMetGgeModel(modelRows)
+              : await runMetWaasbModel(
+                  modelRows,
+                  input.performanceWeight ?? 0.5,
+                );
 
     const status: "completed" | "not_estimable" | "error" =
       modelResult.status === "ok"

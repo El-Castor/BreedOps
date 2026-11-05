@@ -13,6 +13,7 @@ export const MET_MODEL_TYPES = [
   "met_finlay_wilkinson_v1",
   "met_ammi_v1",
   "met_waasb_v1",
+  "met_gge_v1",
 ] as const;
 export type MetModelType = (typeof MET_MODEL_TYPES)[number];
 
@@ -198,6 +199,43 @@ export type MetFinlayWilkinsonModelResult = z.infer<
   typeof metFinlayWilkinsonOkSchema
 >;
 
+const metGgeOkSchema = z.object({
+  status: z.literal("ok"),
+  engine: engineSchema,
+  model: z.object({
+    model_type: z.literal("met_gge_v1"),
+    n_observations: z.number(),
+    n_entries: z.number(),
+    n_environments: z.number(),
+    centering: z.string(),
+    scaling: z.string(),
+    svp: z.string(),
+  }),
+  grand_mean: z.number(),
+  principal_components: z.array(
+    z.object({
+      component: z.string(),
+      eigenvalue: z.number(),
+      variance_explained_pct: z.number(),
+    }),
+  ),
+  genotype_scores: z.array(
+    z.object({
+      entry_id: z.string(),
+      mean: z.number(),
+      coordinates: z.array(z.number()),
+    }),
+  ),
+  environment_scores: z.array(
+    z.object({
+      environment_id: z.string(),
+      mean: z.number(),
+      coordinates: z.array(z.number()),
+    }),
+  ),
+});
+export type MetGgeModelResult = z.infer<typeof metGgeOkSchema>;
+
 /** Spawns `Rscript analytics-r/scripts/met_models.R <model_type>`, feeds it
  * one JSON request body on stdin, and returns the raw parsed JSON response
  * (not yet validated against a specific model's success schema - callers
@@ -372,4 +410,12 @@ export async function runMetFinlayWilkinsonModel(
     timeoutMs,
   );
   return toModelResult(raw, metFinlayWilkinsonOkSchema);
+}
+
+export async function runMetGgeModel(
+  rows: MetModelRow[],
+  timeoutMs?: number,
+): Promise<MetModelResult<MetGgeModelResult>> {
+  const raw = await invokeMetScript("met_gge_v1", { rows }, timeoutMs);
+  return toModelResult(raw, metGgeOkSchema);
 }

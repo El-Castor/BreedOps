@@ -27,7 +27,7 @@ suppressMessages(suppressWarnings({
   library(jsonlite)
 }))
 
-ALLOWED_MODEL_TYPES <- c("met_base_v1", "met_finlay_wilkinson_v1", "met_ammi_v1", "met_waasb_v1")
+ALLOWED_MODEL_TYPES <- c("met_base_v1", "met_finlay_wilkinson_v1", "met_ammi_v1", "met_waasb_v1", "met_gge_v1")
 
 fail <- function(message, status = "error") {
   write(toJSON(list(status = status, message = message), auto_unbox = TRUE), stdout())
@@ -355,6 +355,56 @@ run_met_finlay_wilkinson <- function(dat) {
   )
 }
 
+run_met_gge <- function(dat) {
+  suppressMessages(suppressWarnings(library(metan)))
+  dat$GEN <- dat$entry
+  dat$ENV <- dat$env
+  # gge() takes no `rep` argument - unlike performs_ammi/waasb/ge_reg, it
+  # aggregates replicated rows to genotype x environment means internally
+  # (verified empirically: identical result whether raw replicated rows or
+  # pre-aggregated means are supplied). Renaming the response to Y is
+  # unnecessary here too (verified, no analogous bug), kept for the same
+  # defensive-consistency reason as run_met_finlay_wilkinson().
+  dat$Y <- dat$value
+  model <- tryCatch(
+    suppressMessages(suppressWarnings(metan::gge(dat, env = ENV, gen = GEN, resp = Y))),
+    error = function(e) e
+  )
+  if (inherits(model, "error")) {
+    fail(paste0("Le modèle GGE n'a pas pu être estimé : ", conditionMessage(model)), status = "not_estimable")
+  }
+  gge_result <- model$Y
+  n_axes <- length(gge_result$labelaxes)
+  principal_components <- lapply(seq_len(n_axes), function(i) list(
+    component = gge_result$labelaxes[i],
+    eigenvalue = as.numeric(gge_result$eigenvalues[i]),
+    variance_explained_pct = as.numeric(gge_result$varexpl[i])
+  ))
+  genotype_scores <- lapply(seq_along(gge_result$labelgen), function(i) list(
+    entry_id = as.character(gge_result$labelgen[i]),
+    mean = as.numeric(gge_result$mean_gen[i]),
+    coordinates = as.numeric(gge_result$coordgen[i, ])
+  ))
+  environment_scores <- lapply(seq_along(gge_result$labelenv), function(i) list(
+    environment_id = as.character(gge_result$labelenv[i]),
+    mean = as.numeric(gge_result$mean_env[i]),
+    coordinates = as.numeric(gge_result$coordenv[i, ])
+  ))
+  list(
+    status = "ok",
+    engine = modifyList(engine_info, list(metan_version = as.character(utils::packageVersion("metan")))),
+    model = list(
+      model_type = "met_gge_v1",
+      n_observations = n_obs, n_entries = n_entries, n_environments = n_environments,
+      centering = gge_result$centering, scaling = gge_result$scaling, svp = gge_result$svp
+    ),
+    grand_mean = as.numeric(gge_result$grand_mean),
+    principal_components = principal_components,
+    genotype_scores = genotype_scores,
+    environment_scores = environment_scores
+  )
+}
+
 performance_weight <- if (!is.null(spec$options) && !is.null(spec$options$performance_weight)) {
   as.numeric(spec$options$performance_weight)
 } else {
@@ -369,6 +419,7 @@ result <- switch(requested_model_type,
   met_ammi_v1 = run_met_ammi(dat),
   met_waasb_v1 = run_met_waasb(dat, performance_weight),
   met_finlay_wilkinson_v1 = run_met_finlay_wilkinson(dat),
+  met_gge_v1 = run_met_gge(dat),
   fail(paste0("Model type '", requested_model_type, "' is not yet implemented by this script."))
 )
 

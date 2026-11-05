@@ -11,6 +11,7 @@ const metModelTypeSchema = z.enum([
   "met_ammi_v1",
   "met_waasb_v1",
   "met_finlay_wilkinson_v1",
+  "met_gge_v1",
 ]);
 export type MetRunModelType = z.infer<typeof metModelTypeSchema>;
 
