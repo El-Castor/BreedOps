@@ -379,7 +379,9 @@ export async function importMetObservations(
         `Colonnes manquantes dans le fichier : ${missing.join(", ")}.`,
       );
     }
-    const dataRows = allRows.slice(1).filter((r) => r.some((cell) => cell.trim() !== ""));
+    const dataRows = allRows
+      .slice(1)
+      .filter((r) => r.some((cell) => cell.trim() !== ""));
     if (dataRows.length > IMPORT_LIMITS.maxRows) {
       return actionError(
         new Error("too many rows"),
