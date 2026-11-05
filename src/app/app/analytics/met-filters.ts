@@ -5,15 +5,12 @@ import { z } from "zod";
 
 const uuid = z.string().uuid();
 
-/** Only the model types met-actions.ts actually knows how to run today
- * (met_base_v1/met_ammi_v1/met_waasb_v1). met_finlay_wilkinson_v1 is in
- * src/lib/met/r-runner.ts's MET_MODEL_TYPES allowlist (matching the R
- * script) but has no result schema or storage mapping yet - adding it
- * here is part of implementing it, not before. */
+/** Only the model types met-actions.ts actually knows how to run today. */
 const metModelTypeSchema = z.enum([
   "met_base_v1",
   "met_ammi_v1",
   "met_waasb_v1",
+  "met_finlay_wilkinson_v1",
 ]);
 export type MetRunModelType = z.infer<typeof metModelTypeSchema>;
 

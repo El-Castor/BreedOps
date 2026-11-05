@@ -163,6 +163,41 @@ const metWaasbOkSchema = z.object({
 });
 export type MetWaasbModelResult = z.infer<typeof metWaasbOkSchema>;
 
+const metFinlayWilkinsonOkSchema = z.object({
+  status: z.literal("ok"),
+  engine: engineSchema,
+  model: z.object({
+    model_type: z.literal("met_finlay_wilkinson_v1"),
+    n_observations: z.number(),
+    n_entries: z.number(),
+    n_environments: z.number(),
+  }),
+  entries: z.array(
+    z.object({
+      entry_id: z.string(),
+      intercept: z.number(),
+      /** Responsiveness to the environmental index. 1 is average
+       * responsiveness (Eberhart & Russell's own reference value) - this
+       * is deliberately not centered on 0 the way an ordinary regression
+       * slope would be. */
+      slope: z.number(),
+      slope_t_stat: z.number(),
+      /** p-value for H0: slope == 1 (not slope == 0). */
+      slope_p_value: z.number(),
+      /** Eberhart & Russell's deviation-from-regression variance (s2di) -
+       * the stability measure proper, independent of the slope. */
+      deviation_variance: z.number(),
+      deviation_f_stat: z.number(),
+      deviation_p_value: z.number(),
+      rmse: z.number(),
+      r_squared: z.number(),
+    }),
+  ),
+});
+export type MetFinlayWilkinsonModelResult = z.infer<
+  typeof metFinlayWilkinsonOkSchema
+>;
+
 /** Spawns `Rscript analytics-r/scripts/met_models.R <model_type>`, feeds it
  * one JSON request body on stdin, and returns the raw parsed JSON response
  * (not yet validated against a specific model's success schema - callers
@@ -325,4 +360,16 @@ export async function runMetWaasbModel(
     timeoutMs,
   );
   return toModelResult(raw, metWaasbOkSchema);
+}
+
+export async function runMetFinlayWilkinsonModel(
+  rows: MetModelRow[],
+  timeoutMs?: number,
+): Promise<MetModelResult<MetFinlayWilkinsonModelResult>> {
+  const raw = await invokeMetScript(
+    "met_finlay_wilkinson_v1",
+    { rows },
+    timeoutMs,
+  );
+  return toModelResult(raw, metFinlayWilkinsonOkSchema);
 }

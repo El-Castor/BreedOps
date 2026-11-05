@@ -302,6 +302,59 @@ run_met_waasb <- function(dat, performance_weight) {
   )
 }
 
+run_met_finlay_wilkinson <- function(dat) {
+  suppressMessages(suppressWarnings(library(metan)))
+  dat$GEN <- dat$entry
+  dat$ENV <- dat$env
+  dat$REP <- factor(if (has_block) dat$block else seq_len(nrow(dat)))
+  # Unlike performs_ammi/waasb, metan::ge_reg does not have the Y-only
+  # naming bug (verified empirically with a non-"Y" response column), but
+  # the response is still renamed here for consistency with the rest of
+  # this file and as a defensive guard against a future metan regression.
+  dat$Y <- dat$value
+  model <- tryCatch(
+    suppressWarnings(metan::ge_reg(dat, env = ENV, gen = GEN, rep = REP, resp = Y, verbose = FALSE)),
+    error = function(e) e
+  )
+  if (inherits(model, "error")) {
+    fail(paste0("Le modèle de régression conjointe (Finlay-Wilkinson) n'a pas pu être estimé : ", conditionMessage(model)), status = "not_estimable")
+  }
+  reg <- model$Y$regression
+  if (is.null(reg) || nrow(reg) == 0) {
+    fail("Le modèle de régression conjointe n'a produit aucun résultat pour ce jeu de données.", status = "not_estimable")
+  }
+  entries <- lapply(seq_len(nrow(reg)), function(i) list(
+    entry_id = as.character(reg$GEN[i]),
+    # b1 (slope): responsiveness to the environmental index. 1 is average
+    # responsiveness, matching the field's own reference value, not 0 -
+    # this is deliberately NOT centered the way an ordinary regression
+    # slope would be interpreted.
+    intercept = as.numeric(reg$b0[i]),
+    slope = as.numeric(reg$b1[i]),
+    # t-test / p-value for H0: slope == 1 (not the usual H0: slope == 0) -
+    # Eberhart & Russell's own convention, since 1 is the reference value.
+    slope_t_stat = as.numeric(reg[["t(b1=1)"]])[i],
+    slope_p_value = as.numeric(reg$pval_t)[i],
+    # s2di: Eberhart & Russell's deviation-from-regression variance - the
+    # stability measure proper (lower = more predictable response pattern
+    # across environments, independent of the slope/responsiveness).
+    deviation_variance = as.numeric(reg$s2di[i]),
+    deviation_f_stat = as.numeric(reg[["F(s2di=0)"]])[i],
+    deviation_p_value = as.numeric(reg$pval_f[i]),
+    rmse = as.numeric(reg$RMSE[i]),
+    r_squared = as.numeric(reg$R2[i])
+  ))
+  list(
+    status = "ok",
+    engine = modifyList(engine_info, list(metan_version = as.character(utils::packageVersion("metan")))),
+    model = list(
+      model_type = "met_finlay_wilkinson_v1",
+      n_observations = n_obs, n_entries = n_entries, n_environments = n_environments
+    ),
+    entries = entries
+  )
+}
+
 performance_weight <- if (!is.null(spec$options) && !is.null(spec$options$performance_weight)) {
   as.numeric(spec$options$performance_weight)
 } else {
@@ -315,6 +368,7 @@ result <- switch(requested_model_type,
   met_base_v1 = run_met_base(dat, has_block),
   met_ammi_v1 = run_met_ammi(dat),
   met_waasb_v1 = run_met_waasb(dat, performance_weight),
+  met_finlay_wilkinson_v1 = run_met_finlay_wilkinson(dat),
   fail(paste0("Model type '", requested_model_type, "' is not yet implemented by this script."))
 )
 

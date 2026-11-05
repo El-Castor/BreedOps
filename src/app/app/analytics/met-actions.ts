@@ -11,6 +11,7 @@ import { evaluateMetEligibility } from "@/lib/met/eligibility";
 import {
   runMetAmmiModel,
   runMetBaseModel,
+  runMetFinlayWilkinsonModel,
   runMetWaasbModel,
   type MetModelRow,
 } from "@/lib/met/r-runner";
@@ -48,7 +49,8 @@ function summarizeMetResultForStorage(
   result:
     | Awaited<ReturnType<typeof runMetBaseModel>>
     | Awaited<ReturnType<typeof runMetAmmiModel>>
-    | Awaited<ReturnType<typeof runMetWaasbModel>>,
+    | Awaited<ReturnType<typeof runMetWaasbModel>>
+    | Awaited<ReturnType<typeof runMetFinlayWilkinsonModel>>,
 ): Record<string, unknown> {
   if (result.status !== "ok") {
     return {
@@ -82,7 +84,10 @@ function summarizeMetResultForStorage(
       environment_scores: result.data.environment_scores.slice(0, 200),
     };
   }
-  if (modelType === "met_waasb_v1" && "entries" in result.data) {
+  if (
+    (modelType === "met_waasb_v1" || modelType === "met_finlay_wilkinson_v1") &&
+    "entries" in result.data
+  ) {
     return {
       model_type: modelType,
       engine: result.data.engine,
@@ -166,7 +171,9 @@ export async function createMetAnalysisRun(
         ? await runMetBaseModel(modelRows)
         : input.modelType === "met_ammi_v1"
           ? await runMetAmmiModel(modelRows)
-          : await runMetWaasbModel(modelRows, input.performanceWeight ?? 0.5);
+          : input.modelType === "met_finlay_wilkinson_v1"
+            ? await runMetFinlayWilkinsonModel(modelRows)
+            : await runMetWaasbModel(modelRows, input.performanceWeight ?? 0.5);
 
     const status: "completed" | "not_estimable" | "error" =
       modelResult.status === "ok"
