@@ -84,6 +84,26 @@ sparse_rows <- list(
 ammi_sparse <- run_script(list(model_type = "met_ammi_v1", rows = sparse_rows), "met_ammi_v1")
 check("AMMI on an insufficient design: NOT_ESTIMABLE, never a fabricated model", identical(ammi_sparse$status, "not_estimable"))
 
+# ---- WAASB-specific minimum (found via manual UI verification, not by any
+# prior reference test here - metan::waasb() requires MORE than 2 entries
+# AND MORE than 2 environments, stricter than met_base_v1's MIN_ENTRIES=2/
+# MIN_ENVIRONMENTS=2, and unlike performs_ammi()'s equivalent failure
+# (caught above as a normal R condition), waasb() writes its complaint
+# directly to stdout rather than raising one - the regression this test
+# guards against is exactly that: a corrupted, non-JSON stdout, not merely
+# a wrong status) ----
+exactly_two_envs <- expand.grid(env = factor(paste0("E", 1:2)), entry = factor(paste0("G", 1:5)), rep = factor(1:3))
+exactly_two_envs$value <- 50 + rnorm(nrow(exactly_two_envs), 0, 3)
+waasb_two_envs_rows <- lapply(seq_len(nrow(exactly_two_envs)), function(i) list(
+  entry_id = as.character(exactly_two_envs$entry[i]), environment_id = as.character(exactly_two_envs$env[i]),
+  block = as.character(exactly_two_envs$rep[i]), value = exactly_two_envs$value[i]
+))
+waasb_two_envs <- run_script(list(model_type = "met_waasb_v1", rows = waasb_two_envs_rows), "met_waasb_v1")
+check(
+  "WAASB with exactly 2 environments (5 entries): NOT_ESTIMABLE with a precise reason, never a corrupted stdout",
+  identical(waasb_two_envs$status, "not_estimable")
+)
+
 cat("\n", checks_run, "checks run,", length(failures), "failed.\n")
 if (length(failures) > 0) {
   cat("FAILED:\n")

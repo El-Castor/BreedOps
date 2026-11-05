@@ -64,6 +64,7 @@ import {
   QrCode,
   Printer,
   LineChart,
+  MapPin,
   type LucideProps,
 } from "lucide-react";
 
@@ -139,6 +140,7 @@ const icons = {
   qr: QrCode,
   print: Printer,
   analytics: LineChart,
+  trial: MapPin,
 } as const;
 
 export type IconName = keyof typeof icons;

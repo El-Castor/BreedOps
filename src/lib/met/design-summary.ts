@@ -38,3 +38,25 @@ export function summarizeMetDesign(
     sharedEntryCount,
   };
 }
+
+/** Mean observed value per entry x environment cell, keyed
+ * `${entryId}||${environmentId}` - the UI heatmap's direct input (B34).
+ * Averages over replicates/blocks within the same cell, same granularity
+ * every MET model is itself fit at. A missing key means no observation
+ * for that cell; callers render that as an explicit empty cell, never a
+ * fabricated 0. */
+export function computeEntryEnvironmentCellMeans(
+  rows: MetObservationRecord[],
+): Map<string, number> {
+  const sums = new Map<string, { total: number; count: number }>();
+  for (const row of rows) {
+    const key = `${row.entryId}||${row.environmentId}`;
+    const cell = sums.get(key) ?? { total: 0, count: 0 };
+    cell.total += row.numericValue;
+    cell.count += 1;
+    sums.set(key, cell);
+  }
+  const means = new Map<string, number>();
+  for (const [key, { total, count }] of sums) means.set(key, total / count);
+  return means;
+}

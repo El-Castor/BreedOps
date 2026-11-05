@@ -263,6 +263,21 @@ run_met_ammi <- function(dat) {
 
 run_met_waasb <- function(dat, performance_weight) {
   suppressMessages(suppressWarnings(library(metan)))
+  # metan::waasb() requires MORE than 2 entries AND MORE than 2 environments
+  # (verified empirically: 2 of either triggers this, 3+ of both does not).
+  # Unlike performs_ammi()'s equivalent failure, which raises a normal R
+  # condition caught by tryCatch() below, waasb() writes this warning
+  # straight to stdout with a bare cat()-style call - bypassing R's
+  # condition system entirely, so suppressWarnings()/tryCatch() cannot
+  # intercept it, and it would otherwise corrupt the "exactly one JSON
+  # object on stdout" contract (found via manual UI verification, not by
+  # the reference tests, which never exercised exactly 2 environments for
+  # this model). This explicit pre-check is the only fix: catching the
+  # resulting malformed-JSON failure after the fact would already be too
+  # late to protect the stdout contract.
+  if (n_entries <= 2 || n_environments <= 2) {
+    fail("Le modèle WAASB nécessite plus de 2 entrées et plus de 2 environnements (contrairement au modèle de base, qui n'en nécessite que 2).", status = "not_estimable")
+  }
   dat$GEN <- dat$entry
   dat$ENV <- dat$env
   dat$REP <- factor(if (has_block) dat$block else seq_len(nrow(dat)))

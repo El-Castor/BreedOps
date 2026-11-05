@@ -1583,6 +1583,16 @@ td strong.code {
   align-items: center;
   gap: 0.35rem;
 }
+.met-heatmap th,
+.met-heatmap td {
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+.met-heatmap th[scope="row"] {
+  text-align: left;
+  white-space: nowrap;
+}
 .chart-legend-swatch {
   display: inline-block;
   width: 0.6rem;
@@ -2823,6 +2833,15 @@ a.kpi:hover {
 .module-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+/* Generic responsive card grid, reused wherever a page shows several
+ * independent cards side by side on desktop and stacked on narrow
+ * viewports (e.g. the sites/environments/trials cards on /app/trials). */
+.section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-4);
   align-items: start;
 }

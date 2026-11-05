@@ -290,3 +290,44 @@ export async function listMetAnalysisRuns(
       null,
   }));
 }
+
+export type MetAnalysisRunWithResult = SavedMetAnalysisRun & {
+  result: Record<string, unknown> | null;
+};
+
+/** Fetches only the single most recent run's full `result` payload - never
+ * the whole history at once (each result can be up to the migration's own
+ * 200000-byte CHECK, so listMetAnalysisRuns above deliberately omits it). */
+export async function getLatestMetAnalysisRun(
+  programId: string,
+  trialId: string,
+): Promise<MetAnalysisRunWithResult | null> {
+  const { client } = await requireIdentity();
+  const { data, error } = await client
+    .from("analytics_runs")
+    .select(
+      "id,trial_id,trait_id,specification,dataset_fingerprint,status,n_observations,created_at,created_by,result,profiles(display_name)",
+    )
+    .eq("program_id", programId)
+    .eq("trial_id", trialId)
+    .eq("analysis_type", "multi_environment")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as Record<string, unknown>;
+  return {
+    id: row.id as string,
+    trialId: row.trial_id as string,
+    traitId: row.trait_id as string,
+    specification: row.specification as MetRunInput,
+    datasetFingerprint: row.dataset_fingerprint as string,
+    status: row.status as string,
+    nObservations: row.n_observations as number | null,
+    createdAt: row.created_at as string,
+    createdByName:
+      (row.profiles as { display_name: string | null } | null)?.display_name ??
+      null,
+    result: row.result as Record<string, unknown> | null,
+  };
+}
