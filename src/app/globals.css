@@ -954,9 +954,18 @@ td strong.code {
   background: var(--surface-overlay);
   backdrop-filter: saturate(140%) blur(8px);
 }
+.app-header > .notification-center,
+.app-header > .icon-button,
+.app-header > .user-menu {
+  flex-shrink: 0;
+}
 .header-team {
+  overflow: hidden;
+  min-width: 0;
   color: var(--text-secondary);
   font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .icon-button {
   display: inline-grid;
@@ -980,9 +989,12 @@ td strong.code {
 }
 .program-selector {
   position: relative;
+  min-width: 0;
 }
 .program-selector-trigger {
   gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
   min-height: 2.1rem;
   padding: 0 var(--space-3);
   border: 1px solid var(--border);
@@ -1043,6 +1055,21 @@ td strong.code {
 }
 .header-spacer {
   flex: 1;
+}
+/* `.notification-popover`/`.user-popover` each set their own unconditional
+ * `display` below (needed for their internal grid layout once visible),
+ * which - being an author rule - takes precedence over the `<details>`
+ * element's native closed-state hiding in at least one Chromium build this
+ * project is validated against (content inside a closed <details> still
+ * measured a real, non-zero layout box, wide enough to push
+ * document.body.scrollWidth past the viewport on narrow screens, even
+ * though nothing was actually painted - see e2e/responsive-smoke.spec.ts).
+ * Stating the closed state explicitly, rather than relying solely on the
+ * element's native behavior, is correct regardless of that browser
+ * difference. */
+.notification-center:not([open]) .notification-popover,
+.user-menu:not([open]) .user-popover {
+  display: none;
 }
 .user-menu {
   position: relative;
@@ -1518,7 +1545,15 @@ td strong.code {
 /* ───────────────────────── Charts ───────────────────────── */
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  /* `min(320px, 100%)` rather than a bare `320px`: at the 320px-viewport
+   * floor this app supports, the 320px desktop-oriented track minimum
+   * itself exceeds the available width once page padding is subtracted,
+   * forcing every chart card to the full un-padded viewport width and
+   * overflowing document.body (task review: found while extending
+   * e2e/responsive-smoke.spec.ts to 320px - unrelated to the AppShell
+   * header bug this change otherwise fixes, but the same "min-width that
+   * ignores how little room is actually available" shape). */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: var(--space-4);
 }
 .chart-title {
@@ -3084,8 +3119,32 @@ a.kpi:hover {
   .user-menu-label {
     display: none;
   }
+  /* The desktop anchoring (`right: 0`/`left: 0` relative to each trigger,
+   * with a fixed rem width) assumes the trigger sits near the edge of a
+   * wide header. Below this breakpoint the notification/user triggers are
+   * squeezed together at the header's right edge and the program selector
+   * trigger can sit anywhere along a truncated name, so anchoring to the
+   * trigger instead of the viewport let these popovers extend tens of
+   * pixels past the left (notification/user) or right (program selector)
+   * edge of the screen. Anchoring to the viewport with `position: fixed`
+   * and both `left`/`right` set (width auto-computed from the gap between
+   * them) guarantees they fit regardless of where their trigger lands. */
+  .notification-popover,
+  .user-popover,
+  .program-selector-menu {
+    position: fixed;
+    top: calc(var(--header-height) + 6px);
+    left: var(--space-4);
+    right: var(--space-4);
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
 }
 @media (max-width: 640px) {
+  .program-selector-trigger .code {
+    display: none;
+  }
   .pipeline {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
