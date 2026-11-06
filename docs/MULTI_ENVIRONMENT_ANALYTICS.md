@@ -72,8 +72,59 @@ dataset never gets a different verdict from the UI and the R engine:
 
 Non-blocking warnings (missing entry×environment cells, single-observation cells)
 are reported separately and never upgrade into a blocking reason on their own.
-Some models have a *stricter* minimum than this generic gate — see §5's WAASB
-note.
+
+### 4.1 Measurement occasion (never pool dated repeats as replicates)
+
+`met_observation_dataset()` can return several dated evaluations of the exact
+same phenotype (one physical Entry×Environment unit) if it was measured more
+than once for the same trait — e.g. a trait recorded on several dates.
+Feeding all of them into one G×E model at once would silently turn a
+longitudinal/repeated measurement into a fake independent replicate,
+corrupting the Entry×Environment and residual variance estimates.
+
+Before building the dataset actually used for diagnostics or modelling, an
+unfiltered ("discovery") fetch is run through
+`detectMetLongitudinalAmbiguity()` (`src/lib/met/design-summary.ts`): if the
+SAME phenotype has 2+ distinct `evaluation_date` values, and the caller has
+not explicitly selected one, `evaluateMetOccasionEligibility()`
+(`src/lib/met/eligibility.ts`) returns `NOT_ESTIMABLE` instead of pooling
+them. Different phenotypes simply having been measured on different
+calendar dates (the normal case — each environment is its own campaign)
+never triggers this.
+
+Once an occasion is selected (or there was never any ambiguity), the actual
+dataset is re-fetched with `met_observation_dataset()`'s
+`target_evaluation_date` parameter (migration 000031) — filtered server-side
+in SQL, not by post-fetch filtering in TypeScript, so the N+1 row-cap
+overflow-detection stays scoped to the occasion actually analyzed. The
+selected occasion is stored in `analytics_runs.specification.evaluationDate`,
+changes the dataset fingerprint (each row's `evaluation_date` is already
+part of it), is shown in the UI (design-diagnostics card, latest-run card,
+run history), and is carried through to the raw-observations CSV/JSON
+export via an `occasion` query parameter.
+
+### 4.2 Model-specific eligibility
+
+Some models have requirements beyond the generic gate above —
+`evaluateMetModelEligibility(modelType, rows)` layers them on top (the R
+engine remains the final authority; this is a fast preflight for UI
+diagnostics):
+
+- **`met_base_v1`**: at least one Entry×Environment cell must have 2+
+  observations (within-cell replication) — otherwise the Entry×Environment
+  and residual variances are not separately identifiable (validated against
+  `lme4::lmer()`'s own grouping-factor check, not an arbitrary threshold).
+  Diagnostics expose populated/total/replicated cell counts; partial
+  replication is allowed but surfaced as a warning.
+- **`met_waasb_v1`/`met_ammi_v1`**: strictly more than 2 entries AND more
+  than 2 environments (`metan::waasb()`/`metan::performs_ammi()`'s own
+  minimum — stricter than the base model's 2/2).
+- **`met_ammi_v1`/`met_gge_v1`**: `metan::performs_ammi()`/`metan::gge()`
+  both silently impute a missing Entry×Environment cell (EM-SVD) rather than
+  excluding it — disclosed as a warning, never silent.
+- **`met_finlay_wilkinson_v1`**: every entry needs 2+ environments of its
+  own (`metan::ge_reg()` otherwise returns a confident-looking but
+  degenerate single-point fit for an under-observed entry).
 
 ## 5. The R statistical engine
 

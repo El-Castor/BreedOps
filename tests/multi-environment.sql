@@ -7,7 +7,7 @@
 -- authorization/integrity boundary.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(27);
+SELECT plan(31);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('11111111-0000-0000-0000-00000000b0a1','MultiEnv A','multi-env-a'),
@@ -211,6 +211,37 @@ SELECT is(
 SELECT is(
   (SELECT numeric_value FROM met_observation_dataset('99999999-0000-0000-0000-00000000b0a1','66666666-0000-0000-0000-00000000b0a1')),
   42.0, 'met_observation_dataset returns the correct numeric value'
+);
+
+-- ───────── met_observation_dataset target_evaluation_date filter (B-review
+-- blocker #3, migration 000031): a second dated evaluation of the SAME
+-- phenotype, so the function must never silently pool both dates into one
+-- undifferentiated result - only the TypeScript occasion-ambiguity layer
+-- (src/lib/met/design-summary.ts) decides whether that is allowed; this
+-- SQL function itself stays a faithful raw reader, filtered exactly on
+-- whatever target_evaluation_date it is asked for. ─────────
+INSERT INTO phenotype_evaluations(id,phenotype_id,evaluation_date) VALUES
+ ('dddddddd-0000-0000-0000-00000000b0a2','cccccccc-0000-0000-0000-00000000b0a1','2026-01-15');
+RESET ROLE;
+INSERT INTO phenotype_trait_values(phenotype_evaluation_id,trait_id,numeric_value) VALUES
+ ('dddddddd-0000-0000-0000-00000000b0a2','66666666-0000-0000-0000-00000000b0a1',50.0);
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-0000-0000-00000000b0a1',true);
+SELECT is(
+  (SELECT count(*) FROM met_observation_dataset('99999999-0000-0000-0000-00000000b0a1','66666666-0000-0000-0000-00000000b0a1')),
+  2::bigint, 'met_observation_dataset returns both dated evaluations of the same phenotype when no occasion filter is given'
+);
+SELECT is(
+  (SELECT numeric_value FROM met_observation_dataset('99999999-0000-0000-0000-00000000b0a1','66666666-0000-0000-0000-00000000b0a1','FALSE'::boolean,5001,'2026-01-01'::date)),
+  42.0, 'met_observation_dataset filtered to 2026-01-01 returns only that occasion''s value'
+);
+SELECT is(
+  (SELECT numeric_value FROM met_observation_dataset('99999999-0000-0000-0000-00000000b0a1','66666666-0000-0000-0000-00000000b0a1','FALSE'::boolean,5001,'2026-01-15'::date)),
+  50.0, 'met_observation_dataset filtered to 2026-01-15 returns only that occasion''s value'
+);
+SELECT is(
+  (SELECT count(*) FROM met_observation_dataset('99999999-0000-0000-0000-00000000b0a1','66666666-0000-0000-0000-00000000b0a1','FALSE'::boolean,5001,'2026-02-01'::date)),
+  0::bigint, 'met_observation_dataset filtered to a date with no evaluation returns zero rows, never a fallback to another date'
 );
 
 RESET ROLE;

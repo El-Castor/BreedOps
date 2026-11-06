@@ -23,6 +23,7 @@ export async function GET(request: Request) {
   const format = url.searchParams.get("format") === "json" ? "json" : "csv";
   const trialId = url.searchParams.get("trial");
   const traitId = url.searchParams.get("trait");
+  const evaluationDate = url.searchParams.get("occasion");
   if (!trialId || !traitId) {
     return NextResponse.json(
       { error: "Paramètres d’export invalides (essai/trait manquant)." },
@@ -34,6 +35,7 @@ export async function GET(request: Request) {
     trialId,
     traitId,
     includeArchived: url.searchParams.get("archived") === "1",
+    evaluationDate,
   });
   // Same rule as the V2-04 export: exporting a truncated preview would hand
   // the scientist an incomplete dataset while implying it is complete.
@@ -61,6 +63,7 @@ export async function GET(request: Request) {
     const body = JSON.stringify({
       trialId,
       traitId,
+      evaluationDate,
       rows: dataset.rows,
     });
     return new NextResponse(body, {

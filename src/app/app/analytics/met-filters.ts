@@ -21,11 +21,17 @@ const metRunInputSchema = z.object({
   traitId: uuid,
   modelType: metModelTypeSchema,
   performanceWeight: z.number().min(0).max(1).nullable(),
+  /** One explicit measurement occasion (B-review blocker #3) - see
+   * src/lib/met/eligibility.ts's evaluateMetOccasionEligibility. Null
+   * unless the dataset actually has 2+ dated evaluations for the same
+   * phenotype and the user picked one. */
+  evaluationDate: z.string().date().nullable(),
 });
 export type MetRunInput = z.infer<typeof metRunInputSchema>;
 
 export function metRunInputFromFormData(form: FormData): MetRunInput {
   const performanceWeightRaw = form.get("performance_weight");
+  const evaluationDateRaw = form.get("evaluation_date");
   return metRunInputSchema.parse({
     programId: form.get("program_id"),
     trialId: form.get("trial_id"),
@@ -34,6 +40,10 @@ export function metRunInputFromFormData(form: FormData): MetRunInput {
     performanceWeight:
       performanceWeightRaw && typeof performanceWeightRaw === "string"
         ? Number(performanceWeightRaw)
+        : null,
+    evaluationDate:
+      evaluationDateRaw && typeof evaluationDateRaw === "string"
+        ? evaluationDateRaw
         : null,
   });
 }

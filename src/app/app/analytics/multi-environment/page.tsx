@@ -16,7 +16,10 @@ import { MetRunResult } from "@/components/met-run-result";
 import { requireIdentity } from "@/lib/auth";
 import { collectionState } from "@/lib/query-state";
 import { buildMetObservationDataset, listTrialTraits } from "@/lib/met/dataset";
-import { evaluateMetModelEligibility } from "@/lib/met/eligibility";
+import {
+  evaluateMetModelEligibility,
+  evaluateMetOccasionEligibility,
+} from "@/lib/met/eligibility";
 import { computeEnvironmentRankStability } from "@/lib/met/rank-stability";
 import { computeEntryEnvironmentCellMeans } from "@/lib/met/design-summary";
 import { listTrials } from "../../trials/actions";
@@ -84,7 +87,12 @@ function MetImportCard({
 export default async function MultiEnvironmentAnalytics({
   searchParams,
 }: {
-  searchParams: Promise<{ program?: string; trial?: string; trait?: string }>;
+  searchParams: Promise<{
+    program?: string;
+    trial?: string;
+    trait?: string;
+    occasion?: string;
+  }>;
 }) {
   const { client, team } = await requireIdentity();
   const params = await searchParams;
@@ -200,13 +208,18 @@ export default async function MultiEnvironmentAnalytics({
       .join("&");
   };
 
-  const dataset = await buildMetObservationDataset(client, {
+  // Stage A ("discovery"): every dated evaluation for this trial/trait,
+  // unfiltered - the only way to detect whether the same phenotype has
+  // 2+ distinct evaluation dates (B-review blocker #3). Never fed to a
+  // chart/model directly: see the occasion check right below.
+  const discovery = await buildMetObservationDataset(client, {
     trialId: trial.id,
     traitId,
     includeArchived: false,
+    evaluationDate: null,
   });
 
-  if (dataset.tooLarge) {
+  if (discovery.tooLarge) {
     return (
       <div className="page">
         {breadcrumbs}
@@ -217,7 +230,7 @@ export default async function MultiEnvironmentAnalytics({
     );
   }
 
-  if (dataset.rows.length === 0) {
+  if (discovery.rows.length === 0) {
     return (
       <div className="page">
         {breadcrumbs}
@@ -236,6 +249,81 @@ export default async function MultiEnvironmentAnalytics({
           trialId={trial.id}
           traitId={traitId}
         />
+      </div>
+    );
+  }
+
+  const occasionParam = params.occasion ?? null;
+  const occasion = evaluateMetOccasionEligibility(
+    discovery.rows,
+    occasionParam,
+  );
+
+  if (!occasion.eligible) {
+    return (
+      <div className="page">
+        {breadcrumbs}
+        {header}
+        <ProgramContext team={team.name} program={program} />
+        <ProgramSwitch
+          programs={programs}
+          activeId={programId}
+          basePath={basePath}
+        />
+        <Card>
+          <h3 className="chart-title">Occasion de mesure requise</h3>
+          <StatusBadge tone="danger">NOT_ESTIMABLE</StatusBadge>
+          <ul>
+            {occasion.reasons.map((reason, i) => (
+              <li key={i}>{reason}</li>
+            ))}
+          </ul>
+          <p className="chart-description">
+            Choisissez la date d’évaluation à analyser :
+          </p>
+          <div className="chip-nav" aria-label="Choisir une occasion de mesure">
+            {occasion.availableDates.map((date) => (
+              <Link
+                key={date}
+                href={`${basePath}?${trialQuery({ occasion: date })}`}
+              >
+                {date}
+              </Link>
+            ))}
+          </div>
+        </Card>
+        <MetImportCard
+          programId={programId}
+          trialId={trial.id}
+          traitId={traitId}
+        />
+      </div>
+    );
+  }
+
+  // Stage B: either there is only one coherent occasion already (no
+  // refetch needed - `discovery` already is that one dataset), or the
+  // user explicitly selected one via the `occasion` URL param, in which
+  // case it must be re-fetched with the date filter applied server-side
+  // in SQL (migration 000031) rather than filtering `discovery.rows` in
+  // TypeScript - that would reuse a row cap computed over every date
+  // pooled together, not over the occasion actually analyzed.
+  const dataset = occasionParam
+    ? await buildMetObservationDataset(client, {
+        trialId: trial.id,
+        traitId,
+        includeArchived: false,
+        evaluationDate: occasionParam,
+      })
+    : discovery;
+
+  if (dataset.tooLarge) {
+    return (
+      <div className="page">
+        {breadcrumbs}
+        {header}
+        <ProgramContext team={team.name} program={program} />
+        <ErrorState message="Le jeu de données de cet essai dépasse la taille d’analyse prise en charge." />
       </div>
     );
   }
@@ -304,8 +392,27 @@ export default async function MultiEnvironmentAnalytics({
         ))}
       </div>
 
+      {occasion.availableDates.length > 1 && (
+        <div className="chip-nav" aria-label="Changer d’occasion de mesure">
+          {occasion.availableDates.map((date) => (
+            <Link
+              key={date}
+              className={date === occasionParam ? "active" : ""}
+              href={`${basePath}?${trialQuery({ occasion: date })}`}
+            >
+              {date}
+            </Link>
+          ))}
+        </div>
+      )}
+
       <Card>
         <h3 className="chart-title">Diagnostic de conception</h3>
+        {occasionParam && (
+          <p className="chart-description">
+            Occasion de mesure sélectionnée : <code>{occasionParam}</code>
+          </p>
+        )}
         <dl className="stat-grid">
           <div>
             <dt>Entrées</dt>
@@ -436,6 +543,9 @@ export default async function MultiEnvironmentAnalytics({
           <input type="hidden" name="program_id" value={programId} />
           <input type="hidden" name="trial_id" value={trial.id} />
           <input type="hidden" name="trait_id" value={traitId} />
+          {occasionParam && (
+            <input type="hidden" name="evaluation_date" value={occasionParam} />
+          )}
           <label>
             Modèle
             <select name="model_type" defaultValue="met_base_v1">
@@ -471,6 +581,12 @@ export default async function MultiEnvironmentAnalytics({
             {new Date(latestRun.createdAt).toLocaleString("fr-FR")} · n ={" "}
             {latestRun.nObservations ?? "—"} · signature{" "}
             <code>{latestRun.datasetFingerprint.slice(0, 12)}…</code>
+            {latestRun.specification.evaluationDate && (
+              <>
+                {" "}
+                · occasion <code>{latestRun.specification.evaluationDate}</code>
+              </>
+            )}
           </p>
           {latestRun.result ? (
             <MetRunResult result={latestRun.result} />
@@ -494,6 +610,7 @@ export default async function MultiEnvironmentAnalytics({
                 <tr>
                   <th scope="col">Date</th>
                   <th scope="col">Modèle</th>
+                  <th scope="col">Occasion</th>
                   <th scope="col">n</th>
                   <th scope="col">Statut</th>
                   <th scope="col">Signature</th>
@@ -508,6 +625,7 @@ export default async function MultiEnvironmentAnalytics({
                       {modelTypeLabels[run.specification.modelType] ??
                         run.specification.modelType}
                     </td>
+                    <td>{run.specification.evaluationDate ?? "—"}</td>
                     <td>{run.nObservations ?? "—"}</td>
                     <td>
                       <StatusBadge
@@ -539,13 +657,13 @@ export default async function MultiEnvironmentAnalytics({
         <div className="page-actions">
           <Link
             className="button-link secondary"
-            href={`${basePath}/export?${trialQuery({})}&format=csv`}
+            href={`${basePath}/export?${trialQuery(occasionParam ? { occasion: occasionParam } : {})}&format=csv`}
           >
             Exporter en CSV
           </Link>
           <Link
             className="button-link secondary"
-            href={`${basePath}/export?${trialQuery({})}&format=json`}
+            href={`${basePath}/export?${trialQuery(occasionParam ? { occasion: occasionParam } : {})}&format=json`}
           >
             Exporter en JSON
           </Link>

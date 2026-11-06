@@ -44,4 +44,13 @@ export type MetFilters = {
   trialId: string;
   traitId: string;
   includeArchived: boolean;
+  /** One explicit measurement occasion (evaluation_date), or null to fetch
+   * every date unfiltered. Required by the caller once
+   * detectMetLongitudinalAmbiguity (src/lib/met/design-summary.ts) finds
+   * the same phenotype measured on 2+ distinct dates for this trait -
+   * never left null to "just pool everything" in that case (B-review
+   * blocker #3). Filtered server-side in SQL (migration 000031), not by
+   * post-fetch filtering in TypeScript, so the N+1 row-cap
+   * overflow-detection stays scoped to the occasion actually analyzed. */
+  evaluationDate: string | null;
 };

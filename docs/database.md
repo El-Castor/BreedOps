@@ -521,11 +521,17 @@ completed `met_base_v1` run, `metan`'s for AMMI/WAASB/GGE/Finlay-Wilkinson.
 
 New `SECURITY INVOKER` SQL functions:
 
-- **`met_observation_dataset(target_trial_id, target_trait_id, include_archived, row_limit)`**
-  — the one server-side reader every V2-05 analysis is built from, mirroring
-  `trait_observation_dataset`'s filter-before-cap pattern exactly (`LIMIT LEAST(row_limit,
-  5001)`, a caller can never raise it; a result of exactly `row_limit` rows is the
-  deterministic `dataset_too_large` signal, never a silently truncated dataset).
+- **`met_observation_dataset(target_trial_id, target_trait_id, include_archived, row_limit,
+  target_evaluation_date)`** — the one server-side reader every V2-05 analysis is built
+  from, mirroring `trait_observation_dataset`'s filter-before-cap pattern exactly (`LIMIT
+  LEAST(row_limit, 5001)`, a caller can never raise it; a result of exactly `row_limit`
+  rows is the deterministic `dataset_too_large` signal, never a silently truncated
+  dataset). `target_evaluation_date` (migration 000031, independent review hardening)
+  restricts to one explicit measurement occasion; required whenever the same phenotype
+  has more than one dated evaluation for this trait
+  (`src/lib/met/design-summary.ts`'s `detectMetLongitudinalAmbiguity`), so repeated
+  longitudinal measurements of the same Entry×Environment unit are never silently pooled
+  as if they were independent replicates.
 - **`legacy_phenotype_location_summary(target_program_id)` /
   `legacy_phenotype_material_summary(target_program_id)`** (migration 000029) — read-only
   summaries of which free-text `location` values and `(family_id, seed_lot_id)`

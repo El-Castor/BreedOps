@@ -15,6 +15,7 @@
 import {
   summarizeMetDesign,
   computeCellReplicationDiagnostics,
+  detectMetLongitudinalAmbiguity,
   type MetDesignSummary,
   type MetCellReplicationDiagnostics,
 } from "./design-summary";
@@ -251,4 +252,49 @@ export function evaluateMetModelEligibility(
     modelType,
     replication,
   };
+}
+
+export type MetOccasionEligibility = {
+  eligible: boolean;
+  reasons: string[];
+  /** Every distinct non-null evaluation_date found in the UNFILTERED
+   * dataset - offered to the user as candidate occasions regardless of
+   * `eligible`, so a UI can let the user switch occasions even when the
+   * current one was already fine. */
+  availableDates: string[];
+};
+
+/** B-review blocker #3: the generic gate upstream (evaluateMetEligibility)
+ * and the model-specific layer (evaluateMetModelEligibility) both assume
+ * their `rows` input already represents ONE coherent measurement
+ * occasion. This function is what establishes that - it MUST be called
+ * against an unfiltered fetch (every evaluation_date for this trial/
+ * trait, not a single occasion) before any scoped fetch is made, because
+ * detecting the ambiguity requires seeing every date at once.
+ *
+ * Blocks only when the SAME phenotype (the same Entry×Environment
+ * physical unit) has 2+ distinct dated evaluations for this trait AND no
+ * occasion has been explicitly selected - never when different
+ * phenotypes simply happen to have been measured on different calendar
+ * dates (normal: each environment is its own campaign). Never silently
+ * averages dates or treats them as independent replicates; the caller
+ * must re-fetch with that exact evaluationDate (migration 000031's
+ * target_evaluation_date, server-side filtered) before building the
+ * dataset actually used for modelling. */
+export function evaluateMetOccasionEligibility(
+  discoveryRows: MetObservationRecord[],
+  selectedEvaluationDate: string | null,
+): MetOccasionEligibility {
+  const { ambiguous, availableDates } =
+    detectMetLongitudinalAmbiguity(discoveryRows);
+  if (ambiguous && !selectedEvaluationDate) {
+    return {
+      eligible: false,
+      reasons: [
+        "Des mesures longitudinales répétées ont été détectées pour la même unité biologique (le même phénotype porte plusieurs dates d'évaluation pour ce trait). Sélectionnez une occasion de mesure (date) avant de lancer une analyse multi-environnement : ces mesures ne sont jamais regroupées silencieusement comme s'il s'agissait de répétitions indépendantes.",
+      ],
+      availableDates,
+    };
+  }
+  return { eligible: true, reasons: [], availableDates };
 }

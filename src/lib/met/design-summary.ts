@@ -99,3 +99,47 @@ export function computeCellReplicationDiagnostics(
     replicatedCells,
   };
 }
+
+export type MetOccasionDiagnostics = {
+  /** True only when the SAME phenotype (the same Entry×Environment
+   * physical unit) has 2+ distinct evaluation_date values contributing a
+   * value for this trait - i.e. repeated/longitudinal measurements of one
+   * unit, which must never be pooled as if they were independent
+   * replicates (B-review blocker #3). Different phenotypes merely having
+   * been evaluated on different calendar dates - the normal case for a
+   * multi-environment trial, where each environment is its own campaign -
+   * never triggers this: only the SAME phenotype appearing under 2+
+   * distinct dates does. */
+  ambiguous: boolean;
+  /** Every distinct non-null evaluation_date present in the dataset,
+   * sorted ascending - the candidate occasions offered to the user to
+   * choose from when `ambiguous` is true. */
+  availableDates: string[];
+};
+
+/** Raw input to the occasion-ambiguity gate
+ * (src/lib/met/eligibility.ts's evaluateMetOccasionEligibility) - must be
+ * run against an UNFILTERED fetch (every date, not just one occasion) to
+ * mean anything. Pure/non-statistical, same convention as the rest of
+ * this module. */
+export function detectMetLongitudinalAmbiguity(
+  rows: MetObservationRecord[],
+): MetOccasionDiagnostics {
+  const datesByPhenotype = new Map<string, Set<string>>();
+  const allDates = new Set<string>();
+  for (const row of rows) {
+    if (!row.evaluationDate) continue;
+    allDates.add(row.evaluationDate);
+    const dates = datesByPhenotype.get(row.phenotypeId) ?? new Set<string>();
+    dates.add(row.evaluationDate);
+    datesByPhenotype.set(row.phenotypeId, dates);
+  }
+  let ambiguous = false;
+  for (const dates of datesByPhenotype.values()) {
+    if (dates.size >= 2) {
+      ambiguous = true;
+      break;
+    }
+  }
+  return { ambiguous, availableDates: [...allDates].sort() };
+}

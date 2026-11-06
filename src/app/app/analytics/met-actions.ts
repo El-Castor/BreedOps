@@ -8,7 +8,10 @@ import {
 } from "@/lib/action-state";
 import { requireIdentity } from "@/lib/auth";
 import { buildMetObservationDataset } from "@/lib/met/dataset";
-import { evaluateMetModelEligibility } from "@/lib/met/eligibility";
+import {
+  evaluateMetModelEligibility,
+  evaluateMetOccasionEligibility,
+} from "@/lib/met/eligibility";
 import {
   runMetAmmiModel,
   runMetBaseModel,
@@ -134,11 +137,82 @@ export async function createMetAnalysisRun(
     const input = metRunInputFromFormData(form);
     const { client, profile } = await requireIdentity();
 
-    const dataset = await buildMetObservationDataset(client, {
+    // Stage A ("discovery"): every dated evaluation for this trial/trait,
+    // unfiltered - the only way to detect whether the same phenotype has
+    // 2+ distinct evaluation dates (B-review blocker #3). Never fed to a
+    // model directly: see the occasion check right below.
+    const discovery = await buildMetObservationDataset(client, {
       trialId: input.trialId,
       traitId: input.traitId,
       includeArchived: false,
+      evaluationDate: null,
     });
+    if (discovery.tooLarge) {
+      return actionError(
+        new Error("met dataset too large"),
+        "Le jeu de données de cet essai dépasse la taille d’analyse prise en charge.",
+      );
+    }
+
+    const startedAt = new Date().toISOString();
+    const specification = {
+      trialId: input.trialId,
+      traitId: input.traitId,
+      modelType: input.modelType,
+      performanceWeight: input.performanceWeight,
+      evaluationDate: input.evaluationDate,
+    };
+
+    const occasion = evaluateMetOccasionEligibility(
+      discovery.rows,
+      input.evaluationDate,
+    );
+    if (!occasion.eligible) {
+      const fingerprint = datasetFingerprint(
+        toFingerprintRows(discovery.rows, input.traitId),
+      );
+      const { error } = await client.from("analytics_runs").insert({
+        program_id: input.programId,
+        trait_id: input.traitId,
+        trial_id: input.trialId,
+        analysis_type: "multi_environment",
+        spec_version: "1",
+        specification,
+        dataset_fingerprint: fingerprint,
+        status: "not_estimable",
+        result: {
+          model_type: input.modelType,
+          eligibility: { eligible: false, reasons: occasion.reasons },
+          available_evaluation_dates: occasion.availableDates,
+        },
+        n_observations: discovery.rows.length,
+        engine_name: "breedops-met-eligibility",
+        engine_version: "1.0.0",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        created_by: profile.id,
+      });
+      if (error) throw error;
+      return actionSuccess(
+        "Analyse enregistrée : NOT_ESTIMABLE. Sélectionnez une occasion de mesure (date) - les raisons détaillées sont disponibles dans l’historique.",
+      );
+    }
+
+    // Stage B: either there is only one coherent occasion already (no
+    // refetch needed - `discovery` already is that one dataset), or the
+    // user explicitly selected one, in which case it must be re-fetched
+    // with the date filter applied server-side in SQL (migration 000031),
+    // never by filtering `discovery.rows` in TypeScript after the fact -
+    // that would reuse a row cap computed over every date pooled
+    // together, not over the occasion actually analyzed.
+    const dataset = input.evaluationDate
+      ? await buildMetObservationDataset(client, {
+          trialId: input.trialId,
+          traitId: input.traitId,
+          includeArchived: false,
+          evaluationDate: input.evaluationDate,
+        })
+      : discovery;
     if (dataset.tooLarge) {
       return actionError(
         new Error("met dataset too large"),
@@ -149,13 +223,6 @@ export async function createMetAnalysisRun(
     const fingerprint = datasetFingerprint(
       toFingerprintRows(dataset.rows, input.traitId),
     );
-    const startedAt = new Date().toISOString();
-    const specification = {
-      trialId: input.trialId,
-      traitId: input.traitId,
-      modelType: input.modelType,
-      performanceWeight: input.performanceWeight,
-    };
 
     const eligibility = evaluateMetModelEligibility(
       input.modelType,

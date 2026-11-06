@@ -76,6 +76,7 @@ export async function buildMetObservationDataset(
     target_trait_id: filters.traitId,
     include_archived: filters.includeArchived,
     row_limit: REQUEST_ROW_LIMIT,
+    target_evaluation_date: filters.evaluationDate,
   });
   if (error || !data) return { rows: [], tooLarge: false };
   const rpcRows = data as RpcRow[];
@@ -104,7 +105,13 @@ export async function buildMetObservationDataset(
   return { rows, tooLarge };
 }
 
-// summarizeMetDesign lives in ./design-summary.ts, without a "server-only"
-// guard, so it stays directly unit-testable; re-exported here so callers of
-// the dataset builder have it at the same import path.
-export { summarizeMetDesign, type MetDesignSummary } from "./design-summary";
+// summarizeMetDesign/detectMetLongitudinalAmbiguity live in
+// ./design-summary.ts, without a "server-only" guard, so they stay
+// directly unit-testable; re-exported here so callers of the dataset
+// builder have them at the same import path.
+export {
+  summarizeMetDesign,
+  type MetDesignSummary,
+  detectMetLongitudinalAmbiguity,
+  type MetOccasionDiagnostics,
+} from "./design-summary";
