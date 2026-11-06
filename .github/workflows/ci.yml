@@ -72,11 +72,19 @@ jobs:
     # startup banner, which would otherwise corrupt the "one JSON object on
     # stdout" contract the reference tests exercise end to end (they spawn
     # the real met_models.R subprocess via system2(), exactly like
-    # src/lib/met/r-runner.ts does).
+    # src/lib/met/r-runner.ts does). CMAKE_POLICY_VERSION_MINIMUM works
+    # around a toolchain mismatch, not a project bug: nloptr (an lme4
+    # dependency) bundles its own NLopt C library with a CMakeLists.txt
+    # whose cmake_minimum_required() predates 3.5, which the runner's
+    # modern CMake refuses to configure at all ("Compatibility with CMake
+    # < 3.5 has been removed") - this is CMake's own documented, official
+    # environment-variable escape hatch for exactly this situation, not a
+    # change to any package's source.
     env:
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
       RENV_CONFIG_STARTUP_QUIET: "TRUE"
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v4
       - uses: r-lib/actions/setup-r@v2
@@ -152,6 +160,10 @@ jobs:
     env:
       # Same disposable release-check identity as the database job above.
       BREEDOPS_STACK_PROFILE: release-check
+      # See the met-r-engine job's own comment: this works around a CMake
+      # toolchain mismatch while compiling nloptr (an lme4 dependency)
+      # during renv::restore() below, not a project bug.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v4
       # The running app spawns the real R engine for the multi-environment
