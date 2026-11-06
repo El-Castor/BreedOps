@@ -409,7 +409,32 @@ export default async function BreedingDecisionAnalytics({
             </ActionForm>
           </Card>
 
-          {latestRun && <BreedingDecisionResultCard run={latestRun} />}
+          {latestRun && (
+            <>
+              <BreedingDecisionResultCard run={latestRun} />
+              <Card>
+                <h3 className="chart-title">Exporter la dernière analyse</h3>
+                <p className="chart-description">
+                  Configuration du scénario, classement candidats × traits,
+                  différentiels de sélection et panneau de validité génétique.
+                </p>
+                <div className="page-actions">
+                  <Link
+                    className="button-link secondary"
+                    href={`${basePath}/export?${trialQuery({})}&format=csv`}
+                  >
+                    Exporter en CSV
+                  </Link>
+                  <Link
+                    className="button-link secondary"
+                    href={`${basePath}/export?${trialQuery({})}&format=json`}
+                  >
+                    Exporter en JSON
+                  </Link>
+                </div>
+              </Card>
+            </>
+          )}
 
           <Card>
             <h3 className="chart-title">Historique des analyses</h3>
