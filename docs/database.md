@@ -576,6 +576,74 @@ reason as V2-04 (no validated genotype-identity/replication model); the factor-a
 MET model is formally **deferred** (not implemented) — see `agend.md`'s decision log for
 the full justification.
 
+### Breeding decision & genetic gain (V2-06, migration 000033)
+
+A separate, additive analytical decision-support layer alongside the existing
+operational scoring workflow (`selection_models`/`selection_criteria`/
+`phenotype_evaluations.weighted_score`/`automatic_decision`, untouched by this
+migration) — never a replacement for it. Full scientific rationale in
+`docs/BREEDING_DECISION_ANALYTICS.md`.
+
+New tables:
+
+- **`breeding_decision_scenarios`** — a reusable scenario configuration:
+  program/trial-scoped, `candidate_type` fixed to `'trial_entry'` (a column,
+  not a hard assumption, for future extension), `candidate_eligibility`
+  (`all` | `exclude_operationally_eliminated`), `selection_proportion`
+  (`0 < x ≤ 100`), soft delete. `validate_breeding_decision_scenario_scope()`
+  re-derives `organization_id` from `program_id` and rejects a `trial_id`
+  belonging to a different program, even a sibling program in the same
+  organization.
+- **`breeding_decision_scenario_traits`** — one selected trait per row:
+  `direction` reuses `phenotype_traits.direction`'s own vocabulary exactly
+  (no `'neutral'` option here — every selected trait needs an explicit
+  direction), `target_value` (required iff `direction = 'target_value'`,
+  `CHECK`-enforced), optional `weight`/`economic_weight`, and explicit
+  provenance: `source_type` (`RAW_PHENOTYPIC` | `PHENOTYPIC_MEAN` |
+  `ADJUSTED_ENTRY_PREDICTION` | `MET_ENTRY_PREDICTION` |
+  `WAASBY_STABILITY_PERFORMANCE`), `source_run_id` (an `analytics_runs` FK,
+  required by `CHECK` for every source type except the two phenotypic ones),
+  `evaluation_date`. `validate_breeding_decision_scenario_trait_scope()`
+  independently rejects a cross-organization `trait_id` and a
+  `source_run_id` whose own `program_id` does not match the scenario's —
+  belt-and-suspenders with RLS, not a substitute for it.
+
+`analytics_runs.analysis_type` gains `'breeding_decision'` (sibling of
+`'trait_intelligence'`/`'multi_environment'`, never a replacement);
+`trait_id` is made nullable (a breeding-decision run is inherently
+multi-trait — its traits live in `breeding_decision_scenario_traits` via the
+new `scenario_id` column, required exactly when
+`analysis_type = 'breeding_decision'` and cross-checked that `trial_id`
+equals the scenario's own `trial_id`). `validate_analytics_run_scope()` was
+rewritten (`CREATE OR REPLACE`) to add this third branch without loosening
+the existing `trait_intelligence`/`multi_environment` guarantees — verified
+directly against the disposable stack, both the new case and non-regression
+of the two existing ones (`tests/breeding-decision.sql`).
+
+New `SECURITY INVOKER` SQL function:
+
+- **`breeding_candidate_pool(target_trial_id)`** — every `trial_entry`
+  candidate for a trial, with an `operationally_eliminated` diagnostic flag
+  read from the existing scoring workflow's `phenotype_evaluations.
+  is_eliminated` on each candidate's most recent evaluation. Always returns
+  every candidate — exclusion by a scenario's `candidate_eligibility` is a
+  disclosed, application-layer decision, never silent inside this function.
+  `can_access_program()` is checked explicitly in its own `WHERE` clause, so
+  a cross-organization call returns zero rows, exactly like
+  `met_observation_dataset()` (V2-05).
+
+The statistical engine extends V2-05's existing safe R infrastructure
+unchanged (`src/lib/met/r-env.ts`'s subprocess environment allowlist, stdin
+JSON, output caps). `analytics-r/scripts/selection_models.R` implements
+`selection_mgidi_v1`/`selection_mtsi_v1` (via pinned `metan::mgidi()`/
+`metan::waasb()`+`metan::mtsi()`); `selection_smith_hazel_v1`/
+`selection_multitrait_covariance_v1` are allowlisted model-type names with no
+implementation — formally **deferred**, see `docs/BREEDING_DECISION_
+ANALYTICS.md` §7.3 and `agend.md`'s decision log. Additive breeding
+value/expected additive gain/genetic correlation remain out of scope for
+V2-06 — no pedigree/genomic relationship model or multi-trait genetic
+covariance model exists in BreedOps.
+
 ## Relationships
 
 ```mermaid

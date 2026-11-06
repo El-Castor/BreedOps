@@ -153,12 +153,16 @@ sudo systemctl start breedops.service
 
 (Toujours précédé d'une sauvegarde — `docs/ADMIN_GUIDE.md` §8/§9.)
 
-## Moteur statistique R (V2-05, les deux options)
+## Moteur statistique R (V2-05/V2-06, les deux options)
 
-L'analyse multi-environnement (`docs/MULTI_ENVIRONMENT_ANALYTICS.md`) dépend d'un
+L'analyse multi-environnement (`docs/MULTI_ENVIRONMENT_ANALYTICS.md`) et la décision
+d'amélioration (`docs/BREEDING_DECISION_ANALYTICS.md`, V2-06) dépendent du même
 runtime R serveur (`analytics-r/`), distinct de Node/Next.js et requis en plus de
 l'application elle-même — un déploiement qui omet cette étape démarre normalement
-mais échoue dès la première analyse multi-environnement lancée.
+mais échoue dès la première analyse multi-environnement ou décision d'amélioration
+lancée. V2-06 ne change rien à ce runtime ni à `renv.lock` : il ajoute un second
+script (`analytics-r/scripts/selection_models.R`, MGIDI/MTSI) qui réutilise le
+`metan` déjà épinglé pour V2-05, sans nouveau package R.
 
 ### 1. Dépendances système
 
@@ -202,9 +206,11 @@ interne — ne pas considérer le déploiement terminé sans ce contrôle au ver
 
 ### 5. Variables d'environnement requises par le sous-processus R
 
-`src/lib/met/r-runner.ts` les fixe déjà explicitement à chaque appel du sous-processus
-(aucune configuration supplémentaire n'est nécessaire côté application Next.js/`.env.local`)
-— documenté ici uniquement pour qui invoquerait `analytics-r/scripts/met_models.R`
+`src/lib/met/r-runner.ts` (réutilisé sans modification par
+`src/lib/breeding-decision/r-runner.ts`) les fixe déjà explicitement à chaque appel du
+sous-processus (aucune configuration supplémentaire n'est nécessaire côté application
+Next.js/`.env.local`) — documenté ici uniquement pour qui invoquerait
+`analytics-r/scripts/met_models.R`/`analytics-r/scripts/selection_models.R`
 manuellement (tests, diagnostic) :
 
 - `LC_ALL=C.UTF-8` / `LANG=C.UTF-8` — sans cela, R décode mal les caractères accentués

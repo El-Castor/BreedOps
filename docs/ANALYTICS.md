@@ -25,9 +25,14 @@ with the exact missing requirement, never a fabricated number.
 
 Out of scope for V2-04: full normalized multi-environment model, G×E
 decomposition, AMMI, GGE biplots, WAASB/WAASBY, broad/specific adaptation —
-delivered in V2-05, see `docs/MULTI_ENVIRONMENT_ANALYTICS.md`. Still deferred to
-V2-06 (see `agend.md`'s roadmap reconciliation): genetic gain over generations,
-Smith-Hazel selection indices, MGIDI, MTSI, genomic selection/GBLUP.
+delivered in V2-05, see `docs/MULTI_ENVIRONMENT_ANALYTICS.md`. Multi-trait
+selection ranking (MGIDI/MTSI), selection differentials, and the
+genetic-validity panel are delivered in V2-06, see
+`docs/BREEDING_DECISION_ANALYTICS.md`. Still deferred there (see that
+document §7.3/§9.1/§9.2 and `agend.md`'s decision log): Smith-Hazel
+selection indices, multi-trait genetic covariance, additive breeding
+value/genetic gain, genetic progress over generations, parent/mating
+optimization, genomic selection/GBLUP.
 
 ## 2. Terminology discipline
 
@@ -274,6 +279,18 @@ If a future milestone adds the missing genetic/experimental semantics
 heritability should be revisited with an explicit model formula, variance
 components, an estimation method, and documented eligibility checks — never
 retrofitted onto the current grouping columns.
+
+**Revisited in V2-06** (`docs/BREEDING_DECISION_ANALYTICS.md` §9), once the
+missing semantics existed: `trial_entries.scientific_role = 'genotype'`
+(V2-05) provides the explicit genotype identity this section found missing,
+and V2-05's `met_base_v1` already estimates the variance components a
+broad-sense heritability formula needs. `computeBroadSenseHeritability()`
+computes `H² = σ²_G / (σ²_G + σ²_GE/e + σ²_e/(e·r))` from an already-
+completed `met_base_v1` run, with an explicit formula, documented
+eligibility (every candidate must be `scientific_role = 'genotype'`), and
+is still **broad-sense only** — V2-04's own `NOT_ESTIMABLE` reasons for a
+*narrow-sense/additive* heritability remain correct, since no pedigree/
+genomic relationship model exists.
 
 ## 9. Associations (`src/lib/analytics/associations.ts`)
 

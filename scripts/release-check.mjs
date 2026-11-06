@@ -140,6 +140,22 @@ try {
     fatal = true;
   if (!fatal && !runR("R reference tests: GGE", "tests/test_met_gge.R"))
     fatal = true;
+  if (
+    !fatal &&
+    !runR(
+      "R reference tests: selection MGIDI (V2-06)",
+      "tests/test_selection_mgidi.R",
+    )
+  )
+    fatal = true;
+  if (
+    !fatal &&
+    !runR(
+      "R reference tests: selection MTSI (V2-06)",
+      "tests/test_selection_mtsi.R",
+    )
+  )
+    fatal = true;
   if (!fatal && !npm("test:met-r-env")) fatal = true;
 
   if (!fatal) {
@@ -165,6 +181,10 @@ try {
       ["test:advanced-media", "advanced media metadata/annotations"],
       ["test:trait-analytics", "trait analytics provenance/RLS"],
       ["test:multi-environment", "multi-environment MET schema RLS/integrity"],
+      [
+        "test:breeding-decision",
+        "breeding-decision scenarios/traits/analytics_runs RLS/integrity",
+      ],
       [
         "test:legacy-met-mapping",
         "legacy location/material mapping workflow RLS/integrity",
@@ -250,6 +270,10 @@ try {
           [
             "test:multi-environment-integration",
             "multi-environment analytics integration",
+          ],
+          [
+            "test:breeding-decision-integration",
+            "breeding-decision analytics integration",
           ],
         ];
         for (const [script] of integrationSuites) {

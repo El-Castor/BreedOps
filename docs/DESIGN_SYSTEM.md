@@ -418,3 +418,32 @@ the fields specific to its model type (variance components/BLUPs, AMMI/GGE princ
 components and scores, WAASB entries plus the scatter above, or Finlay-Wilkinson's
 slope/stability table) — the same "visible reason, never a disabled control with no
 explanation" rule as every `.eligibility-panel` in §19.
+
+## 21. Breeding decision analytics (`/app/analytics/breeding-decision`)
+
+Introduces **no new visual primitives** — a deliberate choice, not an
+oversight: the page reuses §19/§20's exact components throughout
+(`PageHeader`, `Card`, `DataTable`, `StatusBadge`, `ProgramContext`/
+`ProgramSwitch`, `EmptyState`/`ActionForm`, the `chip-nav` scenario/trial
+switcher), so a breeder moving between trait analytics, multi-environment
+analytics, and breeding decision never has to learn a second visual
+language for the same kind of information (a result table, an eligibility
+panel, a run-history table).
+
+The one structural addition is the **genetic validity panel**: a plain
+`DataTable` with one row per metric (candidate ranking, selection
+differential, multi-environment stability, broad-sense genotypic response,
+genetic correlation, additive breeding value, expected additive gain), each
+with a `StatusBadge` (`AVAILABLE` in `success` tone, `NOT_ESTIMABLE`/
+`DEFERRED` in `neutral` tone) and its reason in a plain-text column when not
+`AVAILABLE` — never a blank cell. This is the UI's enforcement of §9's core
+rule (decision metrics and genetic-inference metrics are never shown as if
+they were the same kind of evidence) and deliberately looks exactly like
+every other eligibility/status table in the app, not a specially-styled
+"AI insight" card.
+
+A selected candidate is always labelled by the method and scenario that
+selected it ("Sélectionné par MGIDI") via the same `StatusBadge` component
+used for every other status flag in BreedOps — never a distinct "AI
+recommendation" visual treatment (see `docs/BREEDING_DECISION_
+ANALYTICS.md` §10: no opaque AI recommendation, ever).

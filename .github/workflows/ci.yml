@@ -62,7 +62,7 @@ jobs:
       - run: npm run test:unit
 
   met-r-engine:
-    name: V2-05 MET R statistical engine (health check + numeric reference tests)
+    name: V2-05/V2-06 R statistical engine (health check + numeric reference tests)
     runs-on: ubuntu-latest
     # Required (met_models.R's own header comment, and
     # docs/DEPLOYMENT_GUIDE.md "R subprocess environment"): without a UTF-8
@@ -108,6 +108,12 @@ jobs:
       - name: R reference tests - GGE
         working-directory: analytics-r
         run: Rscript tests/test_met_gge.R
+      - name: R reference tests - selection MGIDI (V2-06)
+        working-directory: analytics-r
+        run: Rscript tests/test_selection_mgidi.R
+      - name: R reference tests - selection MTSI (V2-06)
+        working-directory: analytics-r
+        run: Rscript tests/test_selection_mtsi.R
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -141,6 +147,7 @@ jobs:
       - run: npm run test:advanced-media
       - run: npm run test:trait-analytics
       - run: npm run test:multi-environment
+      - run: npm run test:breeding-decision
       - run: npm run test:legacy-met-mapping
       - run: npm run test:met-import
       - run: npm run test:workflows
@@ -203,6 +210,7 @@ jobs:
       - run: npm run test:advanced-media-integration
       - run: npm run test:trait-analytics-integration
       - run: npm run test:multi-environment-integration
+      - run: npm run test:breeding-decision-integration
       - name: Critical-path E2E (Playwright reuses the app server already running above)
         run: npm run test:e2e
       - name: Upload Playwright trace on failure

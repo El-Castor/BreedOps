@@ -105,6 +105,29 @@ export async function buildMetObservationDataset(
   return { rows, tooLarge };
 }
 
+/** Maps MET observation rows to the canonical fingerprint-row shape
+ * (`src/lib/analytics/fingerprint.ts`'s `datasetFingerprint()`), for a
+ * run's own staleness check (task review hardening #2/#3): recompute the
+ * current fingerprint from a run's own stored specification and compare
+ * to what was persisted. The ONE canonical mapping - both met-actions.ts
+ * (V2-05's own saved-run staleness, when added) and
+ * src/lib/breeding-decision/dataset.ts (checking a V2-05 source run is
+ * not stale before V2-06 consumes it) import this instead of each
+ * keeping a private copy that could silently drift apart. */
+export function toMetFingerprintRows(
+  rows: MetObservationRecord[],
+  traitId: string,
+) {
+  return rows.map((row) => ({
+    evaluationId: row.evaluationId,
+    traitValueId: row.traitValueId,
+    traitId,
+    phenotypeId: row.phenotypeId,
+    evaluationDate: row.evaluationDate,
+    numericValue: row.numericValue,
+  }));
+}
+
 // summarizeMetDesign/detectMetLongitudinalAmbiguity live in
 // ./design-summary.ts, without a "server-only" guard, so they stay
 // directly unit-testable; re-exported here so callers of the dataset

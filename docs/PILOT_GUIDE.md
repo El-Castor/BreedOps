@@ -250,6 +250,46 @@ PÉRIMÉE si les observations changent) ; les observations peuvent aussi être i
 masse (CSV) pour un essai déjà défini, ou exportées en CSV/JSON pour une ré-analyse
 indépendante.
 
+## Décision d'amélioration et progrès génétique
+
+Ouvrez **Analytique → Décision d'amélioration** (ou le bouton « Décision d'amélioration »
+depuis la page d'un essai). Cette page est une **aide à la décision analytique**, distincte
+et complémentaire du classement opérationnel existant (page Phénotypage) — elle ne le
+remplace jamais et ne le modifie jamais. Les candidats comparés sont toujours les entrées
+d'un essai multi-environnement (voir section précédente).
+
+Le principe directeur : **une décision de sélection n'est jamais automatiquement une valeur
+génétique.** Classer des candidats, calculer un différentiel de sélection ou lancer un MGIDI
+indique *quels candidats ont été choisis et comment ils diffèrent sur les traits mesurés* —
+jamais, en soi, une information sur la valeur génétique additive ou le gain génétique
+attendu. Un panneau de **validité génétique**, affiché sous chaque résultat, sépare toujours
+explicitement ce qui est disponible (classement, différentiel de sélection, stabilité
+multi-environnement) de ce qui reste NON ESTIMABLE ou DIFFÉRÉ (corrélation génétique, valeur
+génétique additive, gain génétique additif) — avec la raison précise dans chaque cas, jamais
+une case vide.
+
+Déroulé : créez un **scénario** (proportion de candidats retenus, politique d'éligibilité
+vis-à-vis des candidats déjà éliminés opérationnellement), ajoutez-y des **traits** (chacun
+avec une direction de sélection explicite — hausse, baisse ou valeur cible — et une source
+précise : observation brute, moyenne, ou résultat d'une analyse multi-environnement déjà
+enregistrée), puis lancez une méthode :
+
+- **MGIDI** compare les candidats sur l'ensemble des traits choisis (valeurs ponctuelles) ;
+  nécessite strictement plus de candidats complets que de traits.
+- **MTSI** nécessite que chaque trait provienne d'une analyse WAASBY réussie pour ce même
+  essai (section précédente), avec une pondération performance/stabilité identique entre
+  tous les traits.
+
+Le résultat affiche le classement, le différentiel de sélection par trait (jamais présenté
+comme un gain génétique), et pour MGIDI/MTSI les forces/faiblesses de chaque candidat
+(contribution par facteur). Un candidat sélectionné est toujours attribué à la méthode qui
+l'a choisi (« Sélectionné par MGIDI ») — BreedOps ne recommande jamais un candidat de façon
+opaque, la décision finale reste toujours celle du sélectionneur. Deux analyses déjà
+enregistrées peuvent être comparées directement (corrélation de rang, chevauchement des
+ensembles sélectionnés) — par exemple deux scénarios ne différant que par la proportion de
+sélection — pour évaluer la stabilité d'une décision sans relancer de calcul. Comme pour les
+autres analyses, chaque exécution reste reproductible et exportable (CSV/JSON).
+
 ## Inventory
 
 Open **Inventaire**, create an article, then create a lot with an initial receipt.
