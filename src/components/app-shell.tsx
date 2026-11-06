@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
+import { LogoutForm } from "@/components/logout-guard";
 import { NotificationCenter } from "@/components/notification-center";
 import { OfflineIndicator } from "@/components/offline-indicator";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -285,12 +286,7 @@ export function AppShell({
                   Administration
                 </Link>
               )}
-              <form action="/auth/logout" method="post">
-                <button className="menu-action">
-                  <Icon name="logout" />
-                  Déconnexion
-                </button>
-              </form>
+              <LogoutForm profileId={identity.profileId} />
             </div>
           </details>
         </header>
