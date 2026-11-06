@@ -140,6 +140,22 @@ try {
     fatal = true;
   if (!fatal && !runR("R reference tests: GGE", "tests/test_met_gge.R"))
     fatal = true;
+  if (
+    !fatal &&
+    !runR(
+      "R reference tests: selection MGIDI (V2-06)",
+      "tests/test_selection_mgidi.R",
+    )
+  )
+    fatal = true;
+  if (
+    !fatal &&
+    !runR(
+      "R reference tests: selection MTSI (V2-06)",
+      "tests/test_selection_mtsi.R",
+    )
+  )
+    fatal = true;
   if (!fatal && !npm("test:met-r-env")) fatal = true;
 
   if (!fatal) {
