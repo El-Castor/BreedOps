@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { evaluateSelectionMethodEligibility } from "../src/lib/breeding-decision/eligibility";
+import {
+  evaluateMtsiTraitEligibility,
+  evaluateSelectionMethodEligibility,
+} from "../src/lib/breeding-decision/eligibility";
 import type { BreedingCandidateTraitMatrix } from "../src/lib/breeding-decision/types";
 
 function matrix(
@@ -108,13 +111,74 @@ describe("evaluateSelectionMethodEligibility: selection_mgidi_v1", () => {
   });
 });
 
-describe("evaluateSelectionMethodEligibility: not-yet-supported methods", () => {
-  it("reports selection_mtsi_v1 as not yet supported", () => {
+describe("evaluateSelectionMethodEligibility: selection_mtsi_v1", () => {
+  it("is eligible with 2+ traits, none target_value", () => {
     const report = evaluateSelectionMethodEligibility(
       "selection_mtsi_v1",
       matrix(10, 2),
     );
+    expect(report.eligible).toBe(true);
+  });
+
+  it("blocks fewer than 2 traits", () => {
+    const report = evaluateSelectionMethodEligibility(
+      "selection_mtsi_v1",
+      matrix(10, 1),
+    );
     expect(report.eligible).toBe(false);
-    expect(report.reasons[0]).toContain("n'est pas encore pris en charge");
+    expect(report.reasons.some((r) => r.includes("au moins 2 traits"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("evaluateMtsiTraitEligibility", () => {
+  const trait = (
+    overrides: Partial<
+      Parameters<typeof evaluateMtsiTraitEligibility>[0][number]
+    >,
+  ) => ({
+    traitId: "t1",
+    traitCode: "t1",
+    traitName: "t1",
+    unit: null,
+    direction: "higher_is_better" as const,
+    targetValue: null,
+    weight: null,
+    economicWeight: null,
+    sourceType: "WAASBY_STABILITY_PERFORMANCE" as const,
+    sourceRunId: "run-1",
+    evaluationDate: null,
+    ...overrides,
+  });
+
+  it("is eligible with 2+ traits, none target_value", () => {
+    const report = evaluateMtsiTraitEligibility([
+      trait({ traitId: "a", traitCode: "a" }),
+      trait({ traitId: "b", traitCode: "b" }),
+    ]);
+    expect(report.eligible).toBe(true);
+  });
+
+  it("blocks a single trait", () => {
+    const report = evaluateMtsiTraitEligibility([trait({})]);
+    expect(report.eligible).toBe(false);
+    expect(report.reasons.some((r) => r.includes("une seule variable"))).toBe(
+      true,
+    );
+  });
+
+  it("blocks a target_value trait, naming it precisely", () => {
+    const report = evaluateMtsiTraitEligibility([
+      trait({ traitId: "a", traitCode: "yield" }),
+      trait({
+        traitId: "b",
+        traitCode: "height",
+        direction: "target_value",
+        targetValue: 100,
+      }),
+    ]);
+    expect(report.eligible).toBe(false);
+    expect(report.reasons.some((r) => r.includes("height"))).toBe(true);
   });
 });

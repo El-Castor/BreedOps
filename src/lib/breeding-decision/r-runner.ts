@@ -36,8 +36,21 @@ export type SelectionMatrixCellInput = {
   trait_id: string;
   value: number;
 };
+/** Long-format raw observation row for selection_mtsi_v1, which must
+ * refit metan::waasb() itself across every selected trait at once -
+ * there is no stored V2-05 object it could instead be handed (see
+ * analytics-r/scripts/selection_models.R's own header comment on
+ * run_selection_mtsi). */
+export type SelectionRowInput = {
+  entry_id: string;
+  environment_id: string;
+  block?: string | null;
+  trait_id: string;
+  value: number;
+};
 export type SelectionModelOptions = {
   selection_proportion: number;
+  performance_weight?: number;
 };
 
 export type SelectionModelFailure = {
@@ -104,6 +117,45 @@ const mgidiOkSchema = z.object({
 });
 export type SelectionMgidiModelResult = z.infer<typeof mgidiOkSchema>;
 
+const mtsiOkSchema = z.object({
+  status: z.literal("ok"),
+  engine: engineSchema,
+  model: z.object({
+    model_type: z.literal("selection_mtsi_v1"),
+    n_candidates: z.number(),
+    n_traits: z.number(),
+    n_environments: z.number(),
+    selection_proportion: z.number(),
+    index: z.literal("waasby"),
+    performance_weight: z.number(),
+    n_factors_retained: z.number(),
+  }),
+  candidates: z.array(
+    z.object({
+      candidate_id: z.string(),
+      mtsi: z.number(),
+      rank: z.number(),
+      selected: z.boolean(),
+    }),
+  ),
+  factor_loadings: z.array(
+    z.object({
+      trait_id: z.string(),
+      factor: z.string(),
+      loading: z.number(),
+      communality: z.number(),
+    }),
+  ),
+  factor_contributions: z.array(
+    z.object({
+      candidate_id: z.string(),
+      factor: z.string(),
+      contribution_pct: z.number(),
+    }),
+  ),
+});
+export type SelectionMtsiModelResult = z.infer<typeof mtsiOkSchema>;
+
 /** Spawns `Rscript analytics-r/scripts/selection_models.R <model_type>`,
  * feeds it one JSON request body on stdin, returns the raw parsed JSON
  * response. Never spawns a shell, never interpolates request data into a
@@ -115,9 +167,10 @@ export type SelectionMgidiModelResult = z.infer<typeof mgidiOkSchema>;
 async function invokeSelectionScript(
   modelType: SelectionModelType,
   body: {
-    candidates: SelectionCandidateInput[];
+    candidates?: SelectionCandidateInput[];
     traits: SelectionTraitInput[];
-    matrix: SelectionMatrixCellInput[];
+    matrix?: SelectionMatrixCellInput[];
+    rows?: SelectionRowInput[];
     options: SelectionModelOptions;
   },
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
@@ -125,10 +178,13 @@ async function invokeSelectionScript(
   if (!SELECTION_MODEL_TYPES.includes(modelType)) {
     throw new Error(`Unknown selection model_type: ${String(modelType)}`);
   }
-  if (body.candidates.length === 0) {
+  if (body.candidates && body.candidates.length === 0) {
     throw new Error("invokeSelectionScript called with zero candidates.");
   }
-  if (body.candidates.length > MAX_CANDIDATES) {
+  if (body.rows && body.rows.length === 0) {
+    throw new Error("invokeSelectionScript called with zero rows.");
+  }
+  if (body.candidates && body.candidates.length > MAX_CANDIDATES) {
     return {
       status: "dataset_too_large",
       message: `Dataset exceeds the supported size (${MAX_CANDIDATES} candidates).`,
@@ -278,4 +334,26 @@ export async function runSelectionMgidiModel(
     timeoutMs,
   );
   return toModelResult(raw, mgidiOkSchema);
+}
+
+export async function runSelectionMtsiModel(
+  traits: SelectionTraitInput[],
+  rows: SelectionRowInput[],
+  selectionProportion: number,
+  performanceWeight: number,
+  timeoutMs?: number,
+): Promise<SelectionModelResult<SelectionMtsiModelResult>> {
+  const raw = await invokeSelectionScript(
+    "selection_mtsi_v1",
+    {
+      traits,
+      rows,
+      options: {
+        selection_proportion: selectionProportion,
+        performance_weight: performanceWeight,
+      },
+    },
+    timeoutMs,
+  );
+  return toModelResult(raw, mtsiOkSchema);
 }

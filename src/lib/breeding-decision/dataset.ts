@@ -208,6 +208,153 @@ export async function resolveBreedingTraitValues(
   };
 }
 
+export type MtsiRawDatasetResult =
+  | {
+      status: "ok";
+      rows: {
+        entry_id: string;
+        environment_id: string;
+        block: string | null;
+        trait_id: string;
+        value: number;
+      }[];
+      performanceWeight: number;
+    }
+  | { status: "failed"; reason: string };
+
+/** Builds the raw, long-format multi-trait dataset selection_mtsi_v1
+ * needs to refit metan::waasb() itself (task review §18) - never reused
+ * from an already-stored V2-05 result object, since metan::mtsi() needs
+ * a real waasb-class fit, not a JSON summary of one. Every selected
+ * trait is read via met_observation_dataset() (V2-05's own canonical
+ * reader, migration 000028/000031), with the same longitudinal-occasion-
+ * ambiguity guard RAW_PHENOTYPIC/PHENOTYPIC_MEAN already use.
+ *
+ * Every trait's source_run_id must point to a SUCCESSFUL V2-05
+ * met_waasb_v1 run for this exact trial (proof that WAASB/WAASBY is
+ * actually estimable for that trait, never re-litigated here), and
+ * every one of those runs' own performance_weight must be identical -
+ * harmonized, never silently averaged or left to diverge (task review
+ * §19). */
+export async function buildMtsiRawDataset(
+  client: SupabaseClient,
+  trialId: string,
+  traits: BreedingScenarioTraitSpec[],
+): Promise<MtsiRawDatasetResult> {
+  const nonWaasby = traits.filter(
+    (t) => t.sourceType !== "WAASBY_STABILITY_PERFORMANCE",
+  );
+  if (nonWaasby.length > 0) {
+    return {
+      status: "failed",
+      reason: `Le MTSI nécessite que chaque trait sélectionné provienne d'une source WAASBY_STABILITY_PERFORMANCE (une analyse met_waasb_v1 réussie) : ${nonWaasby.map((t) => t.traitCode).join(", ")} n'en a pas.`,
+    };
+  }
+
+  const performanceWeights: number[] = [];
+  const allRows: {
+    entry_id: string;
+    environment_id: string;
+    block: string | null;
+    trait_id: string;
+    value: number;
+  }[] = [];
+
+  for (const trait of traits) {
+    if (!trait.sourceRunId) {
+      return {
+        status: "failed",
+        reason: `Le trait ${trait.traitCode} n'a pas d'analyse source (source_run_id).`,
+      };
+    }
+    const { data, error } = await client
+      .from("analytics_runs")
+      .select("id,trial_id,analysis_type,status,result")
+      .eq("id", trait.sourceRunId)
+      .maybeSingle();
+    if (error || !data) {
+      return {
+        status: "failed",
+        reason: `La source analytics_runs du trait ${trait.traitCode} est introuvable ou inaccessible.`,
+      };
+    }
+    const row = data as Record<string, unknown>;
+    if (row.analysis_type !== "multi_environment" || row.trial_id !== trialId) {
+      return {
+        status: "failed",
+        reason: `La source du trait ${trait.traitCode} n'est pas une analyse multi-environnement de ce même essai.`,
+      };
+    }
+    if (row.status !== "completed") {
+      return {
+        status: "failed",
+        reason: `La source du trait ${trait.traitCode} n'a pas le statut "completed".`,
+      };
+    }
+    const result = row.result as Record<string, unknown> | null;
+    if (!result || result.model_type !== "met_waasb_v1") {
+      return {
+        status: "failed",
+        reason: `La source du trait ${trait.traitCode} n'est pas un résultat met_waasb_v1.`,
+      };
+    }
+    const model = result.model as Record<string, unknown> | undefined;
+    const performanceWeight = model?.performance_weight;
+    if (typeof performanceWeight !== "number") {
+      return {
+        status: "failed",
+        reason: `La source du trait ${trait.traitCode} n'expose pas de pondération performance/stabilité.`,
+      };
+    }
+    performanceWeights.push(performanceWeight);
+
+    const dataset = await buildMetObservationDataset(client, {
+      trialId,
+      traitId: trait.traitId,
+      includeArchived: false,
+      evaluationDate: trait.evaluationDate,
+    });
+    if (dataset.tooLarge) {
+      return {
+        status: "failed",
+        reason: `Le jeu de données brut du trait ${trait.traitCode} dépasse la taille prise en charge.`,
+      };
+    }
+    if (!trait.evaluationDate) {
+      const ambiguity = detectMetLongitudinalAmbiguity(dataset.rows);
+      if (ambiguity.ambiguous) {
+        return {
+          status: "failed",
+          reason: `Des mesures longitudinales répétées ont été détectées pour le trait ${trait.traitCode}. Sélectionnez une occasion de mesure avant de l'utiliser dans un MTSI.`,
+        };
+      }
+    }
+    for (const r of dataset.rows) {
+      allRows.push({
+        entry_id: r.entryId,
+        environment_id: r.environmentId,
+        block: r.block,
+        trait_id: trait.traitId,
+        value: r.numericValue,
+      });
+    }
+  }
+
+  const distinctWeights = new Set(performanceWeights.map((w) => w.toFixed(6)));
+  if (distinctWeights.size > 1) {
+    return {
+      status: "failed",
+      reason: `Les traits sélectionnés n'ont pas tous la même pondération performance/stabilité (WAASBY) : ${performanceWeights.join(", ")}. Harmonisez les analyses sources avant de lancer un MTSI.`,
+    };
+  }
+
+  return {
+    status: "ok",
+    rows: allRows,
+    performanceWeight: performanceWeights[0],
+  };
+}
+
 export type BreedingMatrixBuildResult =
   | { status: "ok"; matrix: BreedingCandidateTraitMatrix }
   | { status: "failed"; reason: string; traitId?: string };
