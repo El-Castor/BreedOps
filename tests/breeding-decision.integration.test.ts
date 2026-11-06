@@ -979,32 +979,36 @@ describe.sequential("breeding-decision analytics", () => {
     const restoredHtml = await (await request(scenarioUrl)).text();
     expect(restoredHtml).toContain("ACTUELLE");
 
+    // traitYield is shared across trials A/B/C in this fixture, so the
+    // phenotype to mutate must be resolved deterministically through
+    // trialA's own known entry code - never "any row with this
+    // trait_id", which could just as easily belong to trialB/trialC.
+    const entryA1 = await admin
+      .from("trial_entries")
+      .select("id")
+      .eq("trial_id", ids.trialA)
+      .eq("code", "A1")
+      .single();
+    if (entryA1.error) throw entryA1.error;
+    const phenotypeA1 = await admin
+      .from("phenotypes")
+      .select("id")
+      .eq("trial_entry_id", entryA1.data.id)
+      .single();
+    if (phenotypeA1.error) throw phenotypeA1.error;
+    const evaluationA1 = await admin
+      .from("phenotype_evaluations")
+      .select("id")
+      .eq("phenotype_id", phenotypeA1.data.id)
+      .single();
+    if (evaluationA1.error) throw evaluationA1.error;
     const yieldValue = await admin
       .from("phenotype_trait_values")
-      .select("id,phenotype_evaluation_id,numeric_value")
+      .select("id,numeric_value")
+      .eq("phenotype_evaluation_id", evaluationA1.data.id)
       .eq("trait_id", ids.traitYield)
-      .limit(1)
       .single();
     if (yieldValue.error) throw yieldValue.error;
-    const evaluation = await admin
-      .from("phenotype_evaluations")
-      .select("phenotype_id")
-      .eq("id", yieldValue.data.phenotype_evaluation_id)
-      .single();
-    if (evaluation.error) throw evaluation.error;
-    const phenotype = await admin
-      .from("phenotypes")
-      .select("trial_entry_id")
-      .eq("id", evaluation.data.phenotype_id)
-      .single();
-    if (phenotype.error) throw phenotype.error;
-    const entry = await admin
-      .from("trial_entries")
-      .select("trial_id")
-      .eq("id", phenotype.data.trial_entry_id)
-      .single();
-    if (entry.error) throw entry.error;
-    expect(entry.data.trial_id).toBe(ids.trialA);
 
     const mutateValue = await admin
       .from("phenotype_trait_values")
