@@ -1,12 +1,9 @@
 "use server";
 
 import { requireIdentity } from "@/lib/auth";
+import { fetchActiveOfflineTraits } from "@/lib/offline/active-traits";
 import { buildOfflinePack } from "@/lib/offline/pack-builder";
-import type {
-  OfflinePack,
-  OfflinePhenotypeEntry,
-  OfflineTraitDefinition,
-} from "@/lib/offline/types";
+import type { OfflinePack, OfflinePhenotypeEntry } from "@/lib/offline/types";
 
 export type { OfflinePack };
 
@@ -29,27 +26,6 @@ interface PhenotypeRow {
     parent_line_id: string | null;
   } | null;
   environments: { code: string; name: string } | null;
-}
-
-interface ActiveTraitRow {
-  trait_id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  category: string;
-  data_type: string;
-  unit: string | null;
-  minimum_value: number | null;
-  maximum_value: number | null;
-  decimal_places: number | null;
-  allowed_values: string[] | null;
-  direction: string | null;
-  target_value: number | null;
-  protocol: string | null;
-  module_id: string;
-  module_name: string;
-  module_order: number;
-  trait_order: number;
 }
 
 function resolveQr(
@@ -109,13 +85,7 @@ export async function buildFieldOfflinePack(
     throw new Error("Impossible de charger les phénotypes de cet essai.");
   }
 
-  const { data: traitRows, error: traitsError } = await client.rpc(
-    "program_active_traits",
-    { target_program_id: trial.program_id },
-  );
-  if (traitsError) {
-    throw new Error("Impossible de charger les traits actifs du programme.");
-  }
+  const activeTraits = await fetchActiveOfflineTraits(client, trial.program_id);
 
   const entries: OfflinePhenotypeEntry[] = (
     (phenotypeRows ?? []) as unknown as PhenotypeRow[]
@@ -124,29 +94,6 @@ export async function buildFieldOfflinePack(
     phenotypeCode: row.phenotype_code,
     label: entryLabel(row),
     qr: resolveQr(row.trial_entries),
-  }));
-
-  const activeTraits: OfflineTraitDefinition[] = (
-    (traitRows ?? []) as ActiveTraitRow[]
-  ).map((row) => ({
-    traitId: row.trait_id,
-    code: row.code,
-    name: row.name,
-    description: row.description,
-    category: row.category,
-    dataType: row.data_type as OfflineTraitDefinition["dataType"],
-    unit: row.unit,
-    minimumValue: row.minimum_value,
-    maximumValue: row.maximum_value,
-    decimalPlaces: row.decimal_places,
-    allowedValues: row.allowed_values,
-    direction: row.direction,
-    targetValue: row.target_value,
-    protocol: row.protocol,
-    moduleId: row.module_id,
-    moduleName: row.module_name,
-    moduleOrder: row.module_order,
-    traitOrder: row.trait_order,
   }));
 
   return buildOfflinePack({

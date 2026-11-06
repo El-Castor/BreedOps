@@ -21,6 +21,7 @@
     "test:trait-analytics-integration": "vitest run tests/trait-analytics.integration.test.ts",
     "test:multi-environment-integration": "vitest run tests/multi-environment.integration.test.ts",
     "test:breeding-decision-integration": "vitest run tests/breeding-decision.integration.test.ts",
+    "test:offline-sync-integration": "vitest run tests/offline-sync.integration.test.ts",
     "test:met-r-env": "vitest run tests/met-r-env.integration.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",

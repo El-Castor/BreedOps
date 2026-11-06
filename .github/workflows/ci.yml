@@ -212,6 +212,7 @@ jobs:
       - run: npm run test:trait-analytics-integration
       - run: npm run test:multi-environment-integration
       - run: npm run test:breeding-decision-integration
+      - run: npm run test:offline-sync-integration
       - name: Critical-path E2E (Playwright reuses the app server already running above)
         run: npm run test:e2e
       - name: Upload Playwright trace on failure

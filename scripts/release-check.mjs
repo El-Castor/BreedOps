@@ -279,6 +279,10 @@ try {
             "test:breeding-decision-integration",
             "breeding-decision analytics integration",
           ],
+          [
+            "test:offline-sync-integration",
+            "offline sync endpoint integration (exact-once, idempotency, conflicts)",
+          ],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;
