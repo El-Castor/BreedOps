@@ -752,5 +752,371 @@ describe.sequential("breeding-decision analytics", () => {
     expect(
       run.result.candidates.some((c: { selected: boolean }) => c.selected),
     ).toBe(true);
+    // Hardening #5: MTSI now also persists a per-trait selection
+    // differential, computed from the candidate-level mean performance
+    // in its own raw rows - never left absent the way it was before
+    // this hardening pass.
+    expect(Array.isArray(run.result.selection_differentials)).toBe(true);
+    expect(run.result.selection_differentials.length).toBe(2);
   }, 180_000);
+
+  it("rejects WAASBY_STABILITY_PERFORMANCE as an MGIDI source (hardening #7) - valid for MTSI only", async () => {
+    await signIn(emailOwner, password);
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialC}`;
+    const scenarioUrl = `${pageUrl}&scenario=${ids.scenarioC}`;
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: ids.scenarioC,
+      method: "selection_mgidi_v1",
+    });
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,result,created_at")
+      .eq("scenario_id", ids.scenarioC)
+      .eq("analysis_type", "breeding_decision")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (runs.error) throw runs.error;
+    expect(runs.data[0].status).toBe("not_estimable");
+    expect(runs.data[0].result.eligibility.reasons.join(" ")).toContain(
+      "WAASBY_STABILITY_PERFORMANCE",
+    );
+  }, 60_000);
+
+  it("rejects a scenario trait's evaluation_date that does not match its WAASB source run's own measurement occasion (hardening #2)", async () => {
+    await signIn(emailOwner, password);
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialC}`;
+    await submitAction(pageUrl, "create-breeding-decision-scenario", {
+      program_id: ids.program,
+      trial_id: ids.trialC,
+      name: `Scenario C occasion ${marker}`,
+      description: "",
+      candidate_eligibility: "all",
+      selection_proportion: "40",
+    });
+    const scenario = await admin
+      .from("breeding_decision_scenarios")
+      .select("id")
+      .eq("trial_id", ids.trialC)
+      .eq("name", `Scenario C occasion ${marker}`)
+      .single();
+    if (scenario.error) throw scenario.error;
+    const scenarioId = scenario.data.id as string;
+    const scenarioUrl = `${pageUrl}&scenario=${scenarioId}`;
+
+    // The WAASB source runs were computed with no evaluation_date filter
+    // (specification.evaluationDate = null). Pinning a non-null date on
+    // the scenario trait itself must be rejected: MTSI would otherwise
+    // refit raw observations for a DIFFERENT occasion than the one the
+    // WAASB source run's own eligibility was proven against.
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: scenarioId,
+      trait_id: ids.traitYield,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbYieldRun,
+      evaluation_date: "2026-04-01",
+    });
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: scenarioId,
+      trait_id: ids.traitHeight,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbHeightRun,
+      evaluation_date: "2026-04-01",
+    });
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: scenarioId,
+      method: "selection_mtsi_v1",
+    });
+
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,result")
+      .eq("scenario_id", scenarioId)
+      .eq("analysis_type", "breeding_decision");
+    if (runs.error) throw runs.error;
+    expect(runs.data.length).toBe(1);
+    expect(runs.data[0].status).toBe("not_estimable");
+    expect(runs.data[0].result.eligibility.reasons.join(" ")).toMatch(
+      /occasion de mesure/,
+    );
+  }, 60_000);
+
+  it("excludes an operationally-eliminated candidate from MTSI's input and output, with exclusion provenance (hardening #4)", async () => {
+    await signIn(emailOwner, password);
+    // Mark trialC's entry C1 operationally eliminated under the EXISTING
+    // scoring workflow (phenotype_evaluations.is_eliminated on its most
+    // recent evaluation) - breeding_candidate_pool() aggregates this via
+    // bool_or across every phenotype of the entry.
+    const c1Entry = await admin
+      .from("trial_entries")
+      .select("id")
+      .eq("trial_id", ids.trialC)
+      .eq("code", "C1")
+      .single();
+    if (c1Entry.error) throw c1Entry.error;
+    const c1Phenotype = await admin
+      .from("phenotypes")
+      .select("id")
+      .eq("trial_entry_id", c1Entry.data.id)
+      .limit(1)
+      .single();
+    if (c1Phenotype.error) throw c1Phenotype.error;
+    const update = await admin
+      .from("phenotype_evaluations")
+      .update({ is_eliminated: true })
+      .eq("phenotype_id", c1Phenotype.data.id);
+    if (update.error) throw update.error;
+
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialC}`;
+    await submitAction(pageUrl, "create-breeding-decision-scenario", {
+      program_id: ids.program,
+      trial_id: ids.trialC,
+      name: `Scenario C exclude ${marker}`,
+      description: "",
+      candidate_eligibility: "exclude_operationally_eliminated",
+      selection_proportion: "40",
+    });
+    const scenario = await admin
+      .from("breeding_decision_scenarios")
+      .select("id")
+      .eq("trial_id", ids.trialC)
+      .eq("name", `Scenario C exclude ${marker}`)
+      .single();
+    if (scenario.error) throw scenario.error;
+    const scenarioId = scenario.data.id as string;
+    const scenarioUrl = `${pageUrl}&scenario=${scenarioId}`;
+
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: scenarioId,
+      trait_id: ids.traitYield,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbYieldRun,
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: scenarioId,
+      trait_id: ids.traitHeight,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbHeightRun,
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: scenarioId,
+      method: "selection_mtsi_v1",
+    });
+
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,result")
+      .eq("scenario_id", scenarioId)
+      .eq("analysis_type", "breeding_decision");
+    if (runs.error) throw runs.error;
+    expect(runs.data.length).toBe(1);
+    const run = runs.data[0];
+    expect(run.status).toBe("completed");
+    // 5 eligible candidates (6 minus the 1 excluded), never 6.
+    expect(run.result.candidates.length).toBe(5);
+    expect(
+      run.result.candidates.some(
+        (c: { candidate_id: string }) => c.candidate_id === c1Entry.data.id,
+      ),
+    ).toBe(false);
+    expect(Array.isArray(run.result.excluded_candidates)).toBe(true);
+    expect(
+      run.result.excluded_candidates.some(
+        (c: { candidate_id: string }) => c.candidate_id === c1Entry.data.id,
+      ),
+    ).toBe(true);
+  }, 60_000);
+
+  it("reports a saved run as ACTUELLE (CURRENT) until the scenario's configuration or its underlying raw observations change, then PÉRIMÉE (STALE) (hardening #3)", async () => {
+    await signIn(emailOwner, password);
+    const scenarioUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialA}&scenario=${ids.scenarioA}`;
+
+    const freshHtml = await (await request(scenarioUrl)).text();
+    expect(freshHtml).toContain("ACTUELLE");
+    expect(freshHtml).not.toContain("PÉRIMÉE");
+
+    // Scenario configuration drift: change the selection proportion
+    // directly (any external change, not just through this UI) without
+    // re-running the analysis.
+    const proportionUpdate = await admin
+      .from("breeding_decision_scenarios")
+      .update({ selection_proportion: 55 })
+      .eq("id", ids.scenarioA);
+    if (proportionUpdate.error) throw proportionUpdate.error;
+
+    const afterProportionChangeHtml = await (await request(scenarioUrl)).text();
+    expect(afterProportionChangeHtml).toContain("PÉRIMÉE");
+
+    // Restore the scenario's configuration, then prove the OTHER
+    // staleness trigger independently: the underlying raw observation
+    // itself changing, with the scenario configuration back to exactly
+    // what the run was computed from.
+    const restoreProportion = await admin
+      .from("breeding_decision_scenarios")
+      .update({ selection_proportion: 30 })
+      .eq("id", ids.scenarioA);
+    if (restoreProportion.error) throw restoreProportion.error;
+    const restoredHtml = await (await request(scenarioUrl)).text();
+    expect(restoredHtml).toContain("ACTUELLE");
+
+    const yieldValue = await admin
+      .from("phenotype_trait_values")
+      .select("id,phenotype_evaluation_id,numeric_value")
+      .eq("trait_id", ids.traitYield)
+      .limit(1)
+      .single();
+    if (yieldValue.error) throw yieldValue.error;
+    const evaluation = await admin
+      .from("phenotype_evaluations")
+      .select("phenotype_id")
+      .eq("id", yieldValue.data.phenotype_evaluation_id)
+      .single();
+    if (evaluation.error) throw evaluation.error;
+    const phenotype = await admin
+      .from("phenotypes")
+      .select("trial_entry_id")
+      .eq("id", evaluation.data.phenotype_id)
+      .single();
+    if (phenotype.error) throw phenotype.error;
+    const entry = await admin
+      .from("trial_entries")
+      .select("trial_id")
+      .eq("id", phenotype.data.trial_entry_id)
+      .single();
+    if (entry.error) throw entry.error;
+    expect(entry.data.trial_id).toBe(ids.trialA);
+
+    const mutateValue = await admin
+      .from("phenotype_trait_values")
+      .update({ numeric_value: Number(yieldValue.data.numeric_value) + 1000 })
+      .eq("id", yieldValue.data.id);
+    if (mutateValue.error) throw mutateValue.error;
+
+    const afterEvidenceChangeHtml = await (await request(scenarioUrl)).text();
+    expect(afterEvidenceChangeHtml).toContain("PÉRIMÉE");
+  }, 60_000);
+
+  it("rejects a now-stale met_waasb_v1 source run (hardening #2) - never silently consumes a BLUP/WAASBY computed on since-changed observations", async () => {
+    await signIn(emailOwner, password);
+    // Mutate one of trialC's own raw yield observations WITHOUT
+    // re-running met_waasb_v1 - ids.waasbYieldRun's own
+    // dataset_fingerprint now disagrees with the live data. This is
+    // intentionally the LAST test that touches trialC's raw data.
+    const trialCYieldValue = await admin
+      .from("phenotype_trait_values")
+      .select("id,phenotype_evaluation_id,numeric_value")
+      .eq("trait_id", ids.traitYield)
+      .limit(50);
+    if (trialCYieldValue.error) throw trialCYieldValue.error;
+    // Pick one whose phenotype belongs to trialC specifically (traitYield
+    // is shared across trials A/B/C in this fixture).
+    let mutatedOne = false;
+    for (const row of trialCYieldValue.data) {
+      const evalRow = await admin
+        .from("phenotype_evaluations")
+        .select("phenotype_id")
+        .eq("id", row.phenotype_evaluation_id)
+        .single();
+      if (evalRow.error) continue;
+      const phenoRow = await admin
+        .from("phenotypes")
+        .select("trial_entry_id")
+        .eq("id", evalRow.data.phenotype_id)
+        .single();
+      if (phenoRow.error) continue;
+      const entryRow = await admin
+        .from("trial_entries")
+        .select("trial_id")
+        .eq("id", phenoRow.data.trial_entry_id)
+        .single();
+      if (entryRow.error || entryRow.data.trial_id !== ids.trialC) continue;
+      const mutate = await admin
+        .from("phenotype_trait_values")
+        .update({ numeric_value: Number(row.numeric_value) + 500 })
+        .eq("id", row.id);
+      if (mutate.error) throw mutate.error;
+      mutatedOne = true;
+      break;
+    }
+    expect(mutatedOne).toBe(true);
+
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialC}`;
+    await submitAction(pageUrl, "create-breeding-decision-scenario", {
+      program_id: ids.program,
+      trial_id: ids.trialC,
+      name: `Scenario C stale ${marker}`,
+      description: "",
+      candidate_eligibility: "all",
+      selection_proportion: "40",
+    });
+    const scenario = await admin
+      .from("breeding_decision_scenarios")
+      .select("id")
+      .eq("trial_id", ids.trialC)
+      .eq("name", `Scenario C stale ${marker}`)
+      .single();
+    if (scenario.error) throw scenario.error;
+    const scenarioId = scenario.data.id as string;
+    const scenarioUrl = `${pageUrl}&scenario=${scenarioId}`;
+
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: scenarioId,
+      trait_id: ids.traitYield,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbYieldRun,
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: scenarioId,
+      trait_id: ids.traitHeight,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbHeightRun,
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: scenarioId,
+      method: "selection_mtsi_v1",
+    });
+
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,result")
+      .eq("scenario_id", scenarioId)
+      .eq("analysis_type", "breeding_decision");
+    if (runs.error) throw runs.error;
+    expect(runs.data.length).toBe(1);
+    expect(runs.data[0].status).toBe("not_estimable");
+    expect(runs.data[0].result.eligibility.reasons.join(" ")).toMatch(
+      /SOURCE_RUN_STALE/,
+    );
+  }, 60_000);
 });
