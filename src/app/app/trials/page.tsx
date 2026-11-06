@@ -605,12 +605,20 @@ export default async function Trials({
             </div>
           </div>
 
-          <Link
-            className="button-link"
-            href={`/app/analytics/multi-environment?program=${programId}&trial=${trial.id}`}
-          >
-            Analyser cet essai
-          </Link>
+          <div className="page-actions">
+            <Link
+              className="button-link"
+              href={`/app/analytics/multi-environment?program=${programId}&trial=${trial.id}`}
+            >
+              Analyser cet essai
+            </Link>
+            <Link
+              className="button-link secondary"
+              href={`/app/analytics/breeding-decision?program=${programId}&trial=${trial.id}`}
+            >
+              Décision d’amélioration
+            </Link>
+          </div>
         </Card>
       )}
     </div>
