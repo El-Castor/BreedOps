@@ -1,15 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, EmptyState, StatusBadge } from "@/components/ui";
 import {
-  getPack,
   listAllPacks,
   listOperationsForPack,
   listPacksForProfile,
   putOperation,
 } from "@/lib/offline/db";
 import { buildPhenotypeEvaluationOperation } from "@/lib/offline/outbox";
+import {
+  listenForBackgroundSyncMessages,
+  registerBackgroundSync,
+  syncPendingOperations,
+} from "@/lib/offline/sync";
 import { validateTraitValue } from "@/lib/offline/trait-validation";
 import type {
   OfflineOutboxOperation,
@@ -155,7 +160,37 @@ export function FieldWorkspace({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [outbox, setOutbox] = useState<OfflineOutboxOperation[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
 
+  const refreshOutbox = useCallback(async (packId: string | null) => {
+    if (!packId) {
+      setOutbox([]);
+      return;
+    }
+    setOutbox(await listOperationsForPack(packId));
+  }, []);
+
+  const runSync = useCallback(
+    async (currentProfileId: string, packId: string | null) => {
+      if (!navigator.onLine) return;
+      setSyncing(true);
+      try {
+        const summary = await syncPendingOperations(currentProfileId);
+        setAuthRequired(summary.authRequired);
+        await refreshOutbox(packId);
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [refreshOutbox],
+  );
+
+  // Foreground sync state machine (V2-07 §19): startup/resume (this
+  // effect, once profileId resolves), the manual button below, and the
+  // browser `online` event (the next effect) - all three call the same
+  // syncPendingOperations(). Background Sync (effect after that) is wired
+  // on top as a pure progressive enhancement that also just calls it.
   useEffect(() => {
     (async () => {
       const urlProfile = new URLSearchParams(window.location.search).get(
@@ -166,11 +201,34 @@ export function FieldWorkspace({
       if (resolved) {
         const loaded = await listPacksForProfile(resolved);
         setPacks(loaded);
-        setSelectedPackId((current) => current ?? loaded[0]?.packId ?? null);
+        const firstPackId = loaded[0]?.packId ?? null;
+        setSelectedPackId((current) => current ?? firstPackId);
+        void runSync(resolved, firstPackId); // startup/resume trigger
       }
       setLoading(false);
     })();
+    // runSync is stable via useCallback; only re-resolve on a new initial profile.
   }, [initialProfileId]);
+
+  // Browser `online` event trigger (V2-07 §19) - `navigator.onLine` is only
+  // a hint, but regaining it is still the right moment to attempt a sync;
+  // actual success/failure is what syncPendingOperations itself decides.
+  useEffect(() => {
+    if (!profileId) return;
+    const onOnline = () => void runSync(profileId, selectedPackId);
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [profileId, selectedPackId, runSync]);
+
+  // Background Sync progressive enhancement (V2-07 §20): registers once
+  // per profile and listens for the service worker forwarding a sync
+  // opportunity - both are no-ops where unsupported, and the three
+  // foreground triggers above already cover durability on their own.
+  useEffect(() => {
+    if (!profileId) return;
+    void registerBackgroundSync();
+    return listenForBackgroundSyncMessages(profileId);
+  }, [profileId]);
 
   const selectedPack = useMemo(
     () => packs.find((p) => p.packId === selectedPackId) ?? null,
@@ -178,12 +236,8 @@ export function FieldWorkspace({
   );
 
   useEffect(() => {
-    if (!selectedPackId) {
-      setOutbox([]);
-      return;
-    }
-    listOperationsForPack(selectedPackId).then(setOutbox);
-  }, [selectedPackId]);
+    void refreshOutbox(selectedPackId);
+  }, [selectedPackId, refreshOutbox]);
 
   const filteredEntries = useMemo<OfflinePhenotypeEntry[]>(() => {
     if (!selectedPack) return [];
@@ -245,11 +299,10 @@ export function FieldWorkspace({
         notes: notes.trim() ? notes.trim() : null,
       });
       await putOperation(operation);
-      const refreshed = selectedPackId
-        ? await listOperationsForPack(selectedPackId)
-        : [];
-      setOutbox(refreshed);
+      await refreshOutbox(selectedPackId);
       resetForm();
+      if (profileId && navigator.onLine)
+        void runSync(profileId, selectedPackId);
       setMessage(
         "Évaluation enregistrée localement, en attente de synchronisation.",
       );
@@ -278,15 +331,42 @@ export function FieldWorkspace({
     <div className="field-workspace">
       <p className="offline-status" aria-live="polite">
         <span
-          className={`status-dot ${online ? "status-dot-ok" : "status-dot-warn"}`}
+          className={`status-dot ${
+            syncing
+              ? "status-dot-syncing"
+              : online
+                ? pendingCount > 0
+                  ? "status-dot-warn"
+                  : "status-dot-ok"
+                : "status-dot-warn"
+          }`}
           aria-hidden="true"
         />
         {online ? "En ligne" : "Hors ligne"}
         {" · "}
-        {pendingCount > 0
-          ? `${pendingCount} évaluation(s) en attente de synchronisation`
-          : "Synchronisé"}
+        {syncing
+          ? "Synchronisation en cours…"
+          : pendingCount > 0
+            ? `${pendingCount} évaluation(s) en attente de synchronisation`
+            : "Synchronisé"}
+        {online && !syncing && pendingCount > 0 && profileId ? (
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => void runSync(profileId, selectedPackId)}
+          >
+            Synchroniser maintenant
+          </button>
+        ) : null}
       </p>
+
+      {authRequired ? (
+        <p role="alert" className="offline-card-error">
+          Votre session a expiré. <Link href="/login">Reconnectez-vous</Link>{" "}
+          pour synchroniser les évaluations en attente - elles restent
+          enregistrées localement jusque-là.
+        </p>
+      ) : null}
 
       {packs.length > 1 ? (
         <label>
