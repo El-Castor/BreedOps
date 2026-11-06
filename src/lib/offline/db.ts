@@ -99,6 +99,17 @@ export async function listPacksForProfile(
   return db.getAllFromIndex("packs", "byProfile", profileId);
 }
 
+/** Every pack regardless of profile - only for the field workspace's
+ * fallback profile discovery (src/app/field) when it has no explicit
+ * profile id from the URL or a remembered one in localStorage. In normal
+ * operation this returns at most one profile's packs, since logout clears
+ * a profile's packs once fully synced (V2-07 §24); this is never used to
+ * decide authorization, only which already-local data to display. */
+export async function listAllPacks(): Promise<OfflinePack[]> {
+  const db = await openOfflineDb();
+  return db.getAll("packs");
+}
+
 /** Deletes only the pack record itself. Callers are responsible for
  * checking for pending/conflicted outbox operations first and getting
  * explicit destructive confirmation (V2-07 §23) - this function never

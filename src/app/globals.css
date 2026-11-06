@@ -4339,3 +4339,53 @@ tr.archived-row td:first-child {
   color: var(--danger);
   font-size: var(--text-sm);
 }
+
+.field-shell {
+  align-items: flex-start;
+  padding-top: var(--space-6);
+}
+.field-container {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+.field-workspace {
+  display: grid;
+  gap: var(--space-4);
+}
+.field-trait-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.field-trait-input {
+  display: grid;
+  gap: var(--space-1);
+}
+.field-trait-error {
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+.field-entry-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.field-entry-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.field-entry-list li > button {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}

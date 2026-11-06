@@ -118,7 +118,10 @@ export function FieldPackCard({
             : "Rendre disponible hors ligne"}
         </button>
         {pack ? (
-          <Link className="button-link secondary" href="/field">
+          <Link
+            className="button-link secondary"
+            href={`/field?profile=${profileId}`}
+          >
             Ouvrir l’espace terrain
           </Link>
         ) : null}

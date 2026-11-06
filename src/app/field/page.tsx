@@ -1,4 +1,4 @@
-"use client";
+import { FieldWorkspace } from "./field-workspace";
 
 // Dedicated offline-safe field workspace (V2-07 §6). Deliberately a
 // top-level route outside /app: unlike every other authenticated screen in
@@ -8,20 +8,16 @@
 // server-rendered /app layout or middleware's live Supabase session check
 // (src/middleware.ts only gates /app/:path*). Identity and scientific data
 // for this workspace come from IndexedDB offline packs prepared earlier
-// while online (see /app/field-packs), never from a fresh server fetch.
-//
-// This is the first V2-07 skeleton of the route so the service worker has
-// something real to precache; the IndexedDB-backed pack picker, phenotype
-// entry form, outbox and sync status (spec §6-§23) are built out next.
+// while online (see /app/field-packs), never from a fresh server fetch -
+// FieldWorkspace resolves which profile's packs to show entirely
+// client-side (URL ?profile=, then a remembered value, then whatever is
+// already in IndexedDB).
 export default function FieldWorkspacePage() {
   return (
-    <main className="offline-shell">
-      <div className="card offline-card">
+    <main className="offline-shell field-shell">
+      <div className="field-container">
         <h1>Espace terrain</h1>
-        <p>
-          Cet espace permet de saisir des phénotypes sur un essai préparé pour
-          le travail hors ligne, et reste utilisable sans connexion réseau.
-        </p>
+        <FieldWorkspace initialProfileId={null} />
       </div>
     </main>
   );
