@@ -59,11 +59,12 @@ function MetImportCard({
       <h3 className="chart-title">Importer des observations (CSV)</h3>
       <p className="chart-description">
         Colonnes requises : <code>phenotype_code</code>, <code>entry_code</code>
-        , <code>environment_code</code>, <code>value</code> ; optionnelles :{" "}
-        <code>block</code>, <code>evaluation_date</code>. Les entrées et
-        environnements doivent déjà exister dans cet essai (
-        <Link href="/app/trials">gérer l’essai</Link>) - l’import ne crée jamais
-        d’identité à partir du fichier. Réimporter le même{" "}
+        , <code>environment_code</code>, <code>value</code>,{" "}
+        <code>evaluation_date</code> ; optionnelle : <code>block</code>. La date
+        d’évaluation identifie l’occasion de mesure mise à jour ou créée -
+        jamais devinée. Les entrées et environnements doivent déjà exister dans
+        cet essai (<Link href="/app/trials">gérer l’essai</Link>) - l’import ne
+        crée jamais d’identité à partir du fichier. Réimporter le même{" "}
         <code>phenotype_code</code> met à jour sa valeur plutôt que de créer un
         doublon.
       </p>

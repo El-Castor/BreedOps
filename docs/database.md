@@ -552,15 +552,21 @@ same belt-and-suspenders convention `import_phenotypes` already uses):
   whose existing `environment_id` is not part of the target trial — `validate_phenotype_
   met_links` would otherwise reject that one row and roll back the entire `UPDATE`.
 - **`import_met_observations(target_program_id, target_trial_id, target_trait_id, rows)`**
-  (migration 000030) — bulk CSV import of MET *observations* into an already-defined
-  trial, following `import_phenotypes`' exact convention (one JSONB rows array, any row
-  failing an invariant `RAISE`s and aborts the whole import, idempotent on
-  `phenotype_code`). Never creates a `trial_entry` or `environment` from the file — both
-  must already exist; `entry_code`/`environment_code` are resolved against the target
-  trial only. On re-import, `entry_code`/`environment_code` are treated as immutable
-  identity fields (same rule `import_phenotypes` already applies to family/seed lot) — a
-  row may only update its numeric value, never silently move to a different
-  entry/environment.
+  (migration 000030, evaluation-identity resolution fixed in 000032) — bulk CSV import of
+  MET *observations* into an already-defined trial, following `import_phenotypes`' exact
+  convention (one JSONB rows array, any row failing an invariant `RAISE`s and aborts the
+  whole import, idempotent on `phenotype_code`). Never creates a `trial_entry` or
+  `environment` from the file — both must already exist; `entry_code`/`environment_code`
+  are resolved against the target trial only. On re-import, `entry_code`/`environment_code`
+  are treated as immutable identity fields (same rule `import_phenotypes` already applies
+  to family/seed lot) — a row may only update its numeric value, never silently move to a
+  different entry/environment. `evaluation_date` is **required** (000032, independent
+  review hardening) and is the key — together with `phenotype_code` — that resolves WHICH
+  evaluation event a row updates or creates: an exact `(phenotype_id, evaluation_date)`
+  match is updated, no match creates a new dated evaluation event. The previous behaviour
+  (`ORDER BY created_at LIMIT 1`, ignoring the incoming date entirely) could silently
+  overwrite the wrong evaluation once a phenotype had more than one dated evaluation
+  event — fixed before this was ever observed in the retained stack.
 
 The statistical engine is a server-only R runtime (`analytics-r/`, driven from Node via
 `src/lib/met/r-runner.ts`) — see `docs/DEPLOYMENT_GUIDE.md` for the subprocess

@@ -414,13 +414,18 @@ export async function getLatestMetAnalysisRun(
 // B3/B41 discipline as the legacy mapping workflow); import_met_
 // observations (migration 000030) rejects any row whose entry_code/
 // environment_code does not already resolve within the target trial.
+// evaluation_date is required (migration 000032, B-review finding #5):
+// it is the resolution key - together with phenotype_code - for WHICH
+// evaluation event a row updates or creates, so an unset date would make
+// that resolution ambiguous rather than merely incomplete.
 const MET_IMPORT_REQUIRED_HEADERS = [
   "phenotype_code",
   "entry_code",
   "environment_code",
   "value",
+  "evaluation_date",
 ] as const;
-const MET_IMPORT_OPTIONAL_HEADERS = ["block", "evaluation_date"] as const;
+const MET_IMPORT_OPTIONAL_HEADERS = ["block"] as const;
 
 export async function importMetObservations(
   _previous: ActionState,
