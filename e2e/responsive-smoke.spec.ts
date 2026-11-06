@@ -189,3 +189,38 @@ for (const width of [320, 390, 480, 640, 768, 1024, 1440]) {
     }
   });
 }
+
+// V2-07 §40: the offline/field surfaces at the same width matrix - the
+// pack-management screen (program-scoped, inside the main app shell) and
+// the detached field workspace/offline fallback (outside it, no app-shell
+// chrome at all) are different enough layouts that each needs its own
+// check, not just an extrapolation from the dashboard above.
+for (const vp of WIDTHS) {
+  test(`offline/field surfaces never scroll the whole page horizontally at ${vp.label} (${vp.width}px)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.goto("/login");
+    await page.fill('input[name="email"]', email);
+    await page.fill('input[name="password"]', password);
+    await Promise.all([
+      page.waitForURL(/\/app/),
+      page.click('button[type="submit"]'),
+    ]);
+
+    for (const url of [
+      `/app/field-packs?program=${ids.program}`,
+      "/field",
+      "/offline",
+    ]) {
+      await page.goto(url);
+      const overflow = await page.evaluate(
+        () => document.body.scrollWidth > window.innerWidth + 1,
+      );
+      expect(
+        overflow,
+        `${url} document.body.scrollWidth should not exceed the viewport at ${vp.width}px`,
+      ).toBe(false);
+    }
+  });
+}
