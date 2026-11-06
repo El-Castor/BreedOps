@@ -65,6 +65,7 @@ import {
   Printer,
   LineChart,
   MapPin,
+  WifiOff,
   type LucideProps,
 } from "lucide-react";
 
@@ -141,6 +142,7 @@ const icons = {
   print: Printer,
   analytics: LineChart,
   trial: MapPin,
+  offline: WifiOff,
 } as const;
 
 export type IconName = keyof typeof icons;
