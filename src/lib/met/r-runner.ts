@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
 import { MET_MODEL_TYPES, type MetModelType } from "./r-model-types";
+import { buildRSubprocessEnv } from "./r-env";
 
 export { MET_MODEL_TYPES, type MetModelType };
 
@@ -19,6 +20,13 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * unbounded: a runaway or compromised R process must not be able to
  * exhaust server memory by writing arbitrarily large stdout. */
 const MAX_STDOUT_BYTES = 10 * 1024 * 1024;
+/** stderr is diagnostics/warnings only (met_models.R's own header
+ * comment) - it is never parsed, only logged on failure for operator
+ * troubleshooting, so it needs far less headroom than stdout. Bounded
+ * for the same reason as stdout (B-review blocker #4): a broken or
+ * runaway R process must not be able to accumulate unlimited stderr in
+ * Node memory. */
+const MAX_STDERR_BYTES = 1 * 1024 * 1024;
 
 export type MetModelRow = {
   entry_id: string;
@@ -275,20 +283,21 @@ async function invokeMetScript(
   return new Promise<unknown>((resolve, reject) => {
     const child = spawn("Rscript", [R_SCRIPT_RELATIVE_PATH, modelType], {
       cwd: ANALYTICS_R_DIR,
-      env: {
-        ...process.env,
-        // REQUIRED - see met_models.R's header comment: a parse-time
-        // locale issue, not fixable from inside the R script itself.
-        LC_ALL: "C.UTF-8",
-        LANG: "C.UTF-8",
-        RENV_CONFIG_STARTUP_QUIET: "TRUE",
-      },
+      // Strict allowlist, never the full server environment (B-review
+      // blocker #4): a wholesale `...process.env` spread here would
+      // forward SUPABASE_SERVICE_ROLE_KEY, database credentials, and any
+      // other deployment secret into a third-party statistical runtime
+      // that has no legitimate use for any of them. See
+      // src/lib/met/r-env.ts for exactly what survives and why.
+      env: buildRSubprocessEnv(process.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
     let stdout = "";
     let stdoutBytes = 0;
     let stderr = "";
+    let stderrBytes = 0;
+    let stderrTruncated = false;
     let settled = false;
     let timedOut = false;
 
@@ -320,7 +329,16 @@ async function invokeMetScript(
       stdout += chunk.toString("utf8");
     });
     child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBytes >= MAX_STDERR_BYTES) {
+        stderrTruncated = true;
+        return;
+      }
+      stderrBytes += chunk.length;
       stderr += chunk.toString("utf8");
+      if (stderrBytes > MAX_STDERR_BYTES) {
+        stderr = stderr.slice(0, MAX_STDERR_BYTES);
+        stderrTruncated = true;
+      }
     });
 
     child.on("error", (err) => {
@@ -339,7 +357,7 @@ async function invokeMetScript(
           // (missing Rscript, renv restore failure, OOM kill, ...), which
           // is an internal condition never shown verbatim to the client.
           console.error(
-            `MET R engine exited with code ${code}. stderr:\n${stderr}`,
+            `MET R engine exited with code ${code}. stderr${stderrTruncated ? ` (truncated at ${MAX_STDERR_BYTES} bytes)` : ""}:\n${stderr}`,
           );
           reject(new Error("The MET statistical engine failed to run."));
           return;

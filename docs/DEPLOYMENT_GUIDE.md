@@ -213,6 +213,20 @@ manuellement (tests, diagnostic) :
 - `RENV_CONFIG_STARTUP_QUIET=TRUE` — supprime la banderole de démarrage de `renv`, qui
   sinon pollue la sortie standard et casse le contrat « un seul objet JSON sur stdout ».
 
+**Allowlist stricte, jamais l'environnement serveur complet** (durcissement post-revue
+indépendante) : le sous-processus R ne reçoit plus `{...process.env}` — un héritage
+intégral aurait exposé `SUPABASE_SERVICE_ROLE_KEY`, les identifiants de base de données
+et tout autre secret de déploiement à un runtime statistique tiers qui n'en a aucun usage
+légitime. `src/lib/met/r-env.ts` (`buildRSubprocessEnv`, fonction pure, testée
+unitairement dans `tests/met-r-env.test.ts` et par un vrai sous-processus Rscript dans
+`tests/met-r-env.integration.test.ts`/`npm run test:met-r-env`) ne laisse passer que :
+`PATH`, `HOME`, `TMPDIR`/`TMP`/`TEMP`, `R_HOME`, `R_LIBS`/`R_LIBS_USER`/`R_LIBS_SITE`,
+toute variable préfixée `RENV_` (les réglages propres de `renv`), et les trois valeurs
+fixes ci-dessus (qui ne peuvent jamais être écrasées par l'environnement appelant). La
+sortie `stderr` du sous-processus est désormais bornée (1 Mo) exactement comme `stdout`
+l'était déjà (10 Mo) — un processus R défaillant ou compromis ne peut accumuler une
+quantité illimitée de sortie en mémoire Node dans aucun des deux flux.
+
 ### 6. Mise à niveau
 
 Après un `git pull` qui modifie `analytics-r/renv.lock` ou `analytics-r/scripts/`, relancer
