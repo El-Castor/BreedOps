@@ -166,6 +166,10 @@ try {
       ["test:trait-analytics", "trait analytics provenance/RLS"],
       ["test:multi-environment", "multi-environment MET schema RLS/integrity"],
       [
+        "test:breeding-decision",
+        "breeding-decision scenarios/traits/analytics_runs RLS/integrity",
+      ],
+      [
         "test:legacy-met-mapping",
         "legacy location/material mapping workflow RLS/integrity",
       ],
