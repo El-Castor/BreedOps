@@ -4,12 +4,16 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, EmptyState, StatusBadge } from "@/components/ui";
 import {
+  deleteOperation,
   listAllPacks,
   listOperationsForPack,
   listPacksForProfile,
   putOperation,
 } from "@/lib/offline/db";
-import { buildPhenotypeEvaluationOperation } from "@/lib/offline/outbox";
+import {
+  buildPhenotypeEvaluationOperation,
+  markPendingRetry,
+} from "@/lib/offline/outbox";
 import {
   listenForBackgroundSyncMessages,
   registerBackgroundSync,
@@ -162,6 +166,9 @@ export function FieldWorkspace({
   const [outbox, setOutbox] = useState<OfflineOutboxOperation[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
+  const [confirmingDiscardId, setConfirmingDiscardId] = useState<string | null>(
+    null,
+  );
 
   const refreshOutbox = useCallback(async (packId: string | null) => {
     if (!packId) {
@@ -311,6 +318,25 @@ export function FieldWorkspace({
     }
   }
 
+  // Manual retry for a FAILED or CONFLICT operation (V2-07 §22) - requeues
+  // it as PENDING and, if online, attempts to sync immediately. Never
+  // silent: the operation's attemptCount/lastError stay visible until the
+  // retry itself changes them.
+  async function handleRetry(op: OfflineOutboxOperation) {
+    await putOperation(markPendingRetry(op));
+    await refreshOutbox(selectedPackId);
+    if (profileId && navigator.onLine) void runSync(profileId, selectedPackId);
+  }
+
+  // Explicit, confirmed discard only (V2-07 §22: "never silently delete
+  // failed/conflicted operations") - confirmingDiscardId gates this on the
+  // OutboxEntry's own confirmation step.
+  async function handleDiscard(operationId: string) {
+    await deleteOperation(operationId);
+    setConfirmingDiscardId(null);
+    await refreshOutbox(selectedPackId);
+  }
+
   if (loading) {
     return <p className="chart-description">Chargement de l’espace terrain…</p>;
   }
@@ -325,7 +351,13 @@ export function FieldWorkspace({
     );
   }
 
-  const pendingCount = outbox.filter((op) => op.status !== "SYNCED").length;
+  // Conflicts are their own state (§21: "Conflict · N requires review"),
+  // distinct from the ordinary pending backlog - a conflict is never
+  // cleared by sync retrying it, only by the user reviewing it below.
+  const conflictCount = outbox.filter((op) => op.status === "CONFLICT").length;
+  const pendingCount = outbox.filter(
+    (op) => op.status !== "SYNCED" && op.status !== "CONFLICT",
+  ).length;
 
   return (
     <div className="field-workspace">
@@ -334,11 +366,13 @@ export function FieldWorkspace({
           className={`status-dot ${
             syncing
               ? "status-dot-syncing"
-              : online
-                ? pendingCount > 0
-                  ? "status-dot-warn"
-                  : "status-dot-ok"
-                : "status-dot-warn"
+              : conflictCount > 0
+                ? "status-dot-danger"
+                : online
+                  ? pendingCount > 0
+                    ? "status-dot-warn"
+                    : "status-dot-ok"
+                  : "status-dot-warn"
           }`}
           aria-hidden="true"
         />
@@ -346,9 +380,11 @@ export function FieldWorkspace({
         {" · "}
         {syncing
           ? "Synchronisation en cours…"
-          : pendingCount > 0
-            ? `${pendingCount} évaluation(s) en attente de synchronisation`
-            : "Synchronisé"}
+          : conflictCount > 0
+            ? `Conflit · ${conflictCount} évaluation(s) à vérifier`
+            : pendingCount > 0
+              ? `${pendingCount} évaluation(s) en attente de synchronisation`
+              : "Synchronisé"}
         {online && !syncing && pendingCount > 0 && profileId ? (
           <button
             type="button"
@@ -474,38 +510,121 @@ export function FieldWorkspace({
       ) : null}
 
       <Card>
-        <h3 className="chart-title">Synchronisation en attente</h3>
+        <h3 className="chart-title">File de synchronisation</h3>
         {outbox.length === 0 ? (
           <p className="chart-description">Aucune évaluation en attente.</p>
         ) : (
-          <ul className="field-entry-list">
+          <ul className="field-entry-list outbox-list">
             {outbox
               .slice()
               .sort((a, b) =>
                 b.createdAtClient.localeCompare(a.createdAtClient),
               )
               .map((op) => (
-                <li key={op.operationId}>
-                  <span>{op.candidateLabel}</span>
-                  <StatusBadge
-                    tone={
-                      op.status === "SYNCED"
-                        ? "success"
-                        : op.status === "CONFLICT" || op.status === "FAILED"
-                          ? "danger"
-                          : "warning"
-                    }
-                  >
-                    {op.status}
-                  </StatusBadge>
-                  {op.lastError ? (
-                    <span className="field-trait-error">{op.lastError}</span>
-                  ) : null}
-                </li>
+                <OutboxEntry
+                  key={op.operationId}
+                  op={op}
+                  confirmingDiscard={confirmingDiscardId === op.operationId}
+                  onRequestDiscard={() =>
+                    setConfirmingDiscardId(op.operationId)
+                  }
+                  onCancelDiscard={() => setConfirmingDiscardId(null)}
+                  onDiscard={() => void handleDiscard(op.operationId)}
+                  onRetry={() => void handleRetry(op)}
+                />
               ))}
           </ul>
         )}
       </Card>
     </div>
+  );
+}
+
+function OutboxEntry({
+  op,
+  confirmingDiscard,
+  onRequestDiscard,
+  onCancelDiscard,
+  onDiscard,
+  onRetry,
+}: {
+  op: OfflineOutboxOperation;
+  confirmingDiscard: boolean;
+  onRequestDiscard: () => void;
+  onCancelDiscard: () => void;
+  onDiscard: () => void;
+  onRetry: () => void;
+}) {
+  const retryable = op.status === "FAILED" || op.status === "CONFLICT";
+  // SYNCED is deliberately never discardable here - it already exists on
+  // the server, so "discard" would only hide a correct local record, not
+  // undo anything (V2-07 §22 only covers unsynchronized operations).
+  const discardable = op.status !== "SYNCED";
+  return (
+    <li className="outbox-entry">
+      <div className="outbox-entry-header">
+        {/* A scientific code, never a bare operation UUID (§22). */}
+        <span>{op.candidateLabel}</span>
+        <StatusBadge
+          tone={
+            op.status === "SYNCED"
+              ? "success"
+              : op.status === "CONFLICT" || op.status === "FAILED"
+                ? "danger"
+                : "warning"
+          }
+        >
+          {op.status}
+        </StatusBadge>
+      </div>
+      <p className="chart-description">
+        Évaluation du {op.payload.evaluationDate} · saisie le{" "}
+        {new Date(op.createdAtClient).toLocaleString("fr-FR")}
+        {op.attemptCount > 0
+          ? ` · ${op.attemptCount} tentative(s) de synchronisation`
+          : null}
+      </p>
+      {op.lastError ? (
+        <p role="alert" className="field-trait-error">
+          {op.lastError}
+        </p>
+      ) : null}
+      <div className="field-pack-actions">
+        {retryable ? (
+          <button type="button" className="secondary" onClick={onRetry}>
+            Réessayer
+          </button>
+        ) : null}
+        {discardable && !confirmingDiscard ? (
+          <button
+            type="button"
+            className="quiet danger"
+            onClick={onRequestDiscard}
+          >
+            Supprimer
+          </button>
+        ) : null}
+      </div>
+      {confirmingDiscard ? (
+        <div className="field-pack-confirm" role="alertdialog">
+          <p role="alert">
+            Supprimer cette évaluation non synchronisée ? Cette observation sera
+            définitivement perdue.
+          </p>
+          <div className="field-pack-actions">
+            <button type="button" className="danger" onClick={onDiscard}>
+              Confirmer la suppression
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={onCancelDiscard}
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </li>
   );
 }

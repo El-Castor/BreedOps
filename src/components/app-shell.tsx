@@ -5,12 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { NotificationCenter } from "@/components/notification-center";
+import { OfflineIndicator } from "@/components/offline-indicator";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { NotificationItem } from "@/lib/notifications/service";
 
 type Role = "system_admin" | "team_admin" | "user";
 
 type Identity = {
+  profileId: string;
   displayName: string;
   email: string;
   role: Role;
@@ -247,6 +249,7 @@ export function AppShell({
             <span className="header-team">{identity.teamName}</span>
           )}
           <div className="header-spacer" />
+          <OfflineIndicator profileId={identity.profileId} />
           <NotificationCenter
             items={notifications.items}
             unreadCount={notifications.unreadCount}
