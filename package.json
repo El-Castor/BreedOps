@@ -37,6 +37,7 @@
     "test:trait-analytics": "node scripts/test-rls.mjs tests/trait-analytics.sql",
     "test:multi-environment": "node scripts/test-rls.mjs tests/multi-environment.sql",
     "test:breeding-decision": "node scripts/test-rls.mjs tests/breeding-decision.sql",
+    "test:offline-sync": "node scripts/test-rls.mjs tests/offline-sync.sql",
     "test:legacy-met-mapping": "node scripts/test-rls.mjs tests/legacy-met-mapping.sql",
     "test:met-import": "node scripts/test-rls.mjs tests/met-import.sql",
     "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",

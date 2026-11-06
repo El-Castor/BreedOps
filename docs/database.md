@@ -644,6 +644,52 @@ value/expected additive gain/genetic correlation remain out of scope for
 V2-06 — no pedigree/genomic relationship model or multi-trait genetic
 covariance model exists in BreedOps.
 
+### Offline sync idempotency (V2-07, migration 000035)
+
+Exact-once synchronization for phenotype evaluations captured by the offline
+field workspace (`/field`) while disconnected. Full protocol and client-side
+design in `docs/OFFLINE_PWA.md`.
+
+New table:
+
+- **`offline_sync_receipts`** — an append-only idempotency ledger: one row
+  per client-generated `operation_id` (UNIQUE), recording `organization_id`/
+  `program_id`/`profile_id`, `operation_type` (currently only
+  `'PHENOTYPE_TRAIT_EVALUATION'`), `payload_hash` (a canonical hash of the
+  operation's content, computed identically client- and server-side —
+  `src/lib/offline/payload-hash.ts`), and the `result_entity_id` it produced
+  (the `phenotype_evaluations.id`). RLS grants same-organization
+  `SELECT` only — there is no `UPDATE`/`DELETE` policy for `authenticated`
+  at all, so the table is tamper-resistant from the application's own
+  session role; every write goes through the function below.
+
+New `SECURITY DEFINER` function:
+
+- **`submit_offline_phenotype_evaluation(operation_id, phenotype_id,
+  evaluation_date, submitted_values, evaluation_notes, payload_hash)`** —
+  the only path the offline sync endpoint (`/api/offline-sync`) is allowed
+  to use to create an evaluation from a queued offline operation. Takes an
+  `pg_advisory_xact_lock` keyed on `operation_id` to serialize concurrent
+  retries of the same operation, then: replays (returns the existing
+  `evaluation_id`, calls nothing else) if a receipt for that `operation_id`
+  already exists with a matching `payload_hash`; rejects with
+  `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD` if the hash differs;
+  otherwise re-derives `program_id` from `phenotype_id` itself (never
+  trusting a client-asserted scope — the same principle as V2-06's source-run
+  hardening), distinguishes `TARGET_NOT_FOUND` from `TARGET_ARCHIVED`
+  (`phenotypes.deleted_at IS NOT NULL` — the only archival concept
+  `phenotypes` currently has; its legacy `status` column is not wired into
+  any business rule), checks `PERMISSION_REVOKED` via `can_write_program()`,
+  then delegates the actual scientific write unconditionally to
+  `submit_trait_evaluation()` (000016) — never a divergent validation copy —
+  wrapped in its own exception block so a validation failure (re-raised as
+  `VALIDATION_REJECTED: <original message>`) rolls back any partial insert
+  and leaves no half-written evaluation behind. Only on success is a
+  receipt row inserted, atomically with the evaluation in the same
+  transaction. `tests/offline-sync.sql` covers the exact-once retry,
+  the payload-mismatch rejection, every structured error code, and that the
+  receipt table cannot be mutated by the application role.
+
 ## Relationships
 
 ```mermaid

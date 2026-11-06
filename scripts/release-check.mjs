@@ -186,6 +186,10 @@ try {
         "breeding-decision scenarios/traits/analytics_runs RLS/integrity",
       ],
       [
+        "test:offline-sync",
+        "offline sync idempotency (exact-once, payload mismatch, RLS)",
+      ],
+      [
         "test:legacy-met-mapping",
         "legacy location/material mapping workflow RLS/integrity",
       ],

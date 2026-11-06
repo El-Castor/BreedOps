@@ -148,6 +148,7 @@ jobs:
       - run: npm run test:trait-analytics
       - run: npm run test:multi-environment
       - run: npm run test:breeding-decision
+      - run: npm run test:offline-sync
       - run: npm run test:legacy-met-mapping
       - run: npm run test:met-import
       - run: npm run test:workflows
