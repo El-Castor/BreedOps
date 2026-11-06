@@ -7,6 +7,7 @@ import {
   ProgramContext,
   ProgramSwitch,
 } from "@/components/ui";
+import { StorageStatusPanel } from "@/components/storage-status-panel";
 import { requireIdentity } from "@/lib/auth";
 import { collectionState } from "@/lib/query-state";
 import { FieldPackCard } from "./field-pack-card";
@@ -84,6 +85,7 @@ export default async function FieldPacks({
         activeId={programId}
         basePath="/app/field-packs"
       />
+      <StorageStatusPanel />
 
       {trials.length === 0 ? (
         <EmptyState

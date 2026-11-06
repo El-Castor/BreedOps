@@ -26,6 +26,12 @@ export function FieldPackCard({
   const packId = `${profileId}:${trialId}`;
   const [pack, setPack] = useState<OfflinePack | null | undefined>(undefined);
   const [pendingCount, setPendingCount] = useState(0);
+  // Not a live server check - derived from whether any local outbox
+  // operation for this pack has already come back as CONFIG_CHANGED, which
+  // is the only evidence the client has without an extra network round
+  // trip purely to ask. Refreshing the pack (which re-fetches the current
+  // configuration) is what actually resolves this, not a passive check.
+  const [configChanged, setConfigChanged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
@@ -37,6 +43,12 @@ export function FieldPackCard({
     ]);
     setPack(loaded ?? null);
     setPendingCount(ops.filter((op) => op.status !== "SYNCED").length);
+    setConfigChanged(
+      ops.some(
+        (op) =>
+          op.status === "CONFLICT" && op.lastResultCode === "CONFIG_CHANGED",
+      ),
+    );
   }, [packId]);
 
   useEffect(() => {
@@ -88,6 +100,11 @@ export function FieldPackCard({
             {pendingCount > 0 ? (
               <StatusBadge tone="warning">
                 {pendingCount} en attente de synchronisation
+              </StatusBadge>
+            ) : null}
+            {configChanged ? (
+              <StatusBadge tone="danger">
+                Configuration modifiée depuis la préparation
               </StatusBadge>
             ) : null}
           </p>
