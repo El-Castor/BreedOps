@@ -14,6 +14,7 @@ import {
   buildPhenotypeEvaluationOperation,
   markPendingRetry,
 } from "@/lib/offline/outbox";
+import { parseQrInput, resolvePhenotypesByQr } from "@/lib/offline/qr-resolve";
 import {
   listenForBackgroundSyncMessages,
   registerBackgroundSync,
@@ -154,6 +155,11 @@ export function FieldWorkspace({
   const [packs, setPacks] = useState<OfflinePack[]>([]);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [qrInput, setQrInput] = useState("");
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [qrMatches, setQrMatches] = useState<OfflinePhenotypeEntry[] | null>(
+    null,
+  );
   const [selectedPhenotypeId, setSelectedPhenotypeId] = useState<string | null>(
     null,
   );
@@ -248,6 +254,10 @@ export function FieldWorkspace({
 
   const filteredEntries = useMemo<OfflinePhenotypeEntry[]>(() => {
     if (!selectedPack) return [];
+    // An active QR match narrows the list on its own - resolved locally
+    // (V2-07 §29), it takes priority over the free-text search below
+    // rather than being combined with it.
+    if (qrMatches) return qrMatches;
     const q = search.trim().toLowerCase();
     if (!q) return selectedPack.entries;
     return selectedPack.entries.filter(
@@ -255,7 +265,37 @@ export function FieldWorkspace({
         entry.phenotypeCode.toLowerCase().includes(q) ||
         entry.label.toLowerCase().includes(q),
     );
-  }, [selectedPack, search]);
+  }, [selectedPack, search, qrMatches]);
+
+  function handleResolveQr() {
+    setQrError(null);
+    setQrMatches(null);
+    if (!selectedPack) return;
+    const parsed = parseQrInput(qrInput);
+    if (!parsed) {
+      setQrError(
+        "Code non reconnu. Collez le lien complet ou le texte affiché sous le QR code.",
+      );
+      return;
+    }
+    const matches = resolvePhenotypesByQr(selectedPack, parsed);
+    if (matches.length === 0) {
+      setQrError(
+        "Aucun phénotype de cet essai ne correspond à ce code scanné.",
+      );
+      return;
+    }
+    if (matches.length === 1) {
+      setSelectedPhenotypeId(matches[0].phenotypeId);
+      resetForm();
+      setQrInput("");
+      return;
+    }
+    // Several candidates share this identity (e.g. a seed lot split across
+    // several trial entries) - let the user pick from the narrowed list
+    // rather than guessing which one they meant.
+    setQrMatches(matches);
+  }
 
   const selectedEntry = useMemo(
     () =>
@@ -412,6 +452,8 @@ export function FieldWorkspace({
             onChange={(e) => {
               setSelectedPackId(e.target.value);
               setSelectedPhenotypeId(null);
+              setQrMatches(null);
+              setQrError(null);
               resetForm();
             }}
           >
@@ -429,12 +471,54 @@ export function FieldWorkspace({
       )}
 
       <Card>
+        <h3 className="chart-title">Identifier par code QR</h3>
+        <p className="chart-description">
+          Scannez l’étiquette avec l’appareil photo de votre téléphone, puis
+          collez ici le lien ou le code obtenu - aucune connexion n’est
+          nécessaire pour le reconnaître.
+        </p>
+        <div className="field-pack-actions">
+          <input
+            type="text"
+            placeholder="Lien ou code scanné…"
+            value={qrInput}
+            onChange={(e) => setQrInput(e.target.value)}
+            aria-label="Lien ou code QR scanné"
+          />
+          <button type="button" className="secondary" onClick={handleResolveQr}>
+            Identifier
+          </button>
+          {qrMatches ? (
+            <button
+              type="button"
+              className="quiet"
+              onClick={() => {
+                setQrMatches(null);
+                setQrError(null);
+                setQrInput("");
+              }}
+            >
+              Effacer le filtre
+            </button>
+          ) : null}
+        </div>
+        {qrError ? (
+          <p role="alert" className="field-trait-error">
+            {qrError}
+          </p>
+        ) : null}
+      </Card>
+
+      <Card>
         <h3 className="chart-title">Rechercher un phénotype</h3>
         <input
           type="search"
           placeholder="Code ou libellé…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setQrMatches(null);
+          }}
           aria-label="Rechercher un phénotype"
         />
         {filteredEntries.length === 0 ? (
