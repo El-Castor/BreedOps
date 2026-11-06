@@ -21,6 +21,11 @@ import {
 } from "@/lib/breeding-decision/r-runner";
 import { computeSelectionDifferentials } from "@/lib/breeding-decision/selection-differential";
 import {
+  compareMethodRankings,
+  type MethodComparison,
+  type MethodRanking,
+} from "@/lib/breeding-decision/method-comparison";
+import {
   buildGeneticValidityPanel,
   computeBroadSenseHeritability,
 } from "@/lib/breeding-decision/genetic-validity";
@@ -713,5 +718,84 @@ export async function getLatestBreedingDecisionRun(
       (row.profiles as { display_name: string | null } | null)?.display_name ??
       null,
     result: row.result as Record<string, unknown> | null,
+  };
+}
+
+export type BreedingDecisionRunComparison = MethodComparison & {
+  runALabel: string;
+  runBLabel: string;
+};
+
+function methodRankingFromRun(
+  run: Pick<BreedingDecisionRunWithResult, "status" | "result">,
+): MethodRanking | null {
+  if (run.status !== "completed" || !run.result) return null;
+  const candidates = run.result.candidates;
+  if (!Array.isArray(candidates)) return null;
+  const method = String(run.result.method ?? "");
+  const rankByCandidateId = new Map<string, number>();
+  const selectedCandidateIds = new Set<string>();
+  for (const candidate of candidates as Record<string, unknown>[]) {
+    const candidateId = String(candidate.candidate_id);
+    const rank = Number(candidate.rank);
+    if (candidateId && Number.isFinite(rank)) {
+      rankByCandidateId.set(candidateId, rank);
+    }
+    if (candidate.selected) selectedCandidateIds.add(candidateId);
+  }
+  return { methodName: method, rankByCandidateId, selectedCandidateIds };
+}
+
+/** Compares two already-saved breeding_decision runs for the same trial -
+ * rank correlation, selected-set overlap, coincidence (task review §29).
+ * This is how V2-06 satisfies "decision stability/sensitivity across
+ * selection proportions/trait weights" (task review §30): the breeder
+ * compares two runs they already made with different scenario settings,
+ * rather than BreedOps running an automated parameter sweep. Returns null
+ * for a run that is not "completed" (e.g. NOT_ESTIMABLE) - there is no
+ * ranking to compare in that case, never a fabricated one. */
+export async function compareBreedingDecisionRuns(
+  programId: string,
+  trialId: string,
+  runIdA: string,
+  runIdB: string,
+): Promise<BreedingDecisionRunComparison | null> {
+  if (runIdA === runIdB) return null;
+  const { client } = await requireIdentity();
+  const { data, error } = await client
+    .from("analytics_runs")
+    .select("id,status,result,created_at")
+    .in("id", [runIdA, runIdB])
+    .eq("program_id", programId)
+    .eq("trial_id", trialId)
+    .eq("analysis_type", "breeding_decision");
+  if (error || !data || data.length !== 2) return null;
+  const rowA = data.find((r) => r.id === runIdA) as Record<
+    string,
+    unknown
+  > | null;
+  const rowB = data.find((r) => r.id === runIdB) as Record<
+    string,
+    unknown
+  > | null;
+  if (!rowA || !rowB) return null;
+
+  const rankingA = methodRankingFromRun({
+    status: rowA.status as string,
+    result: rowA.result as Record<string, unknown> | null,
+  });
+  const rankingB = methodRankingFromRun({
+    status: rowB.status as string,
+    result: rowB.result as Record<string, unknown> | null,
+  });
+  if (!rankingA || !rankingB) return null;
+
+  const comparison = compareMethodRankings(rankingA, rankingB);
+  const label = (ranking: MethodRanking, row: Record<string, unknown>) =>
+    `${ranking.methodName} · ${new Date(row.created_at as string).toLocaleString("fr-FR")}`;
+  return {
+    ...comparison,
+    runALabel: label(rankingA, rowA),
+    runBLabel: label(rankingB, rowB),
   };
 }

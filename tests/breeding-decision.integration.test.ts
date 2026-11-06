@@ -537,6 +537,36 @@ describe.sequential("breeding-decision analytics", () => {
     ).json();
     expect(json.scenarioId).toBe(ids.scenarioA);
     expect(json.result.method).toBe("selection_mgidi_v1");
+
+    // Re-running the same scenario produces a second completed run -
+    // comparing the two (task review §29/§30: rank correlation/overlap
+    // between two recorded runs, never an automated parameter sweep)
+    // should show perfect agreement, since the underlying data and
+    // configuration are identical.
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: ids.scenarioA,
+      method: "selection_mgidi_v1",
+    });
+    const rerun = await admin
+      .from("analytics_runs")
+      .select("id,created_at")
+      .eq("scenario_id", ids.scenarioA)
+      .eq("analysis_type", "breeding_decision")
+      .order("created_at", { ascending: true });
+    if (rerun.error) throw rerun.error;
+    expect(rerun.data.length).toBe(2);
+    const [firstRunId, secondRunId] = rerun.data.map((r) => r.id as string);
+
+    const comparisonHtml = await (
+      await request(
+        `${scenarioUrl}&compareA=${firstRunId}&compareB=${secondRunId}`,
+      )
+    ).text();
+    expect(comparisonHtml).toContain("Corrélation de rang (Spearman)");
+    expect(comparisonHtml).toMatch(
+      /Chevauchement des ensembles sélectionnés[\s\S]*?100 %/,
+    );
   }, 60_000);
 
   it("saves NOT_ESTIMABLE (never a fabricated ranking) when candidates do not strictly exceed the trait count", async () => {

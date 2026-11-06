@@ -18,6 +18,7 @@ import { listTrials } from "../../trials/actions";
 import {
   addBreedingDecisionScenarioTrait,
   archiveBreedingDecisionScenario,
+  compareBreedingDecisionRuns,
   createBreedingDecisionRun,
   createBreedingDecisionScenario,
   getLatestBreedingDecisionRun,
@@ -58,6 +59,8 @@ export default async function BreedingDecisionAnalytics({
     program?: string;
     trial?: string;
     scenario?: string;
+    compareA?: string;
+    compareB?: string;
   }>;
 }) {
   const { client, team } = await requireIdentity();
@@ -168,6 +171,16 @@ export default async function BreedingDecisionAnalytics({
     : [[], [], null];
 
   const traitNameById = new Map(traits.map((t) => [t.traitId, t.name]));
+
+  const runComparison =
+    params.compareA && params.compareB
+      ? await compareBreedingDecisionRuns(
+          programId,
+          trial.id,
+          params.compareA,
+          params.compareB,
+        )
+      : null;
 
   return (
     <div className="page">
@@ -487,6 +500,113 @@ export default async function BreedingDecisionAnalytics({
               </DataTable>
             )}
           </Card>
+
+          {savedRuns.length >= 2 && (
+            <Card>
+              <h3 className="chart-title">
+                Comparer deux analyses enregistrées
+              </h3>
+              <p className="chart-description">
+                Corrélation de rang et chevauchement des ensembles sélectionnés
+                entre deux analyses - jamais une déclaration qu’une méthode est
+                universellement « meilleure ». Comparer deux analyses qui ne
+                diffèrent que par la proportion de sélection ou les poids de
+                traits montre la stabilité de la décision sans lancer de
+                balayage automatique de paramètres.
+              </p>
+              <form method="get" action={basePath}>
+                <input type="hidden" name="program" value={programId} />
+                <input type="hidden" name="trial" value={trial.id} />
+                <input type="hidden" name="scenario" value={scenario.id} />
+                <label>
+                  Analyse A
+                  <select name="compareA" defaultValue={params.compareA ?? ""}>
+                    {savedRuns.map((run) => (
+                      <option key={run.id} value={run.id}>
+                        {methodLabels[run.specification.method as string] ??
+                          String(run.specification.method)}{" "}
+                        · {new Date(run.createdAt).toLocaleString("fr-FR")} (
+                        {run.status})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Analyse B
+                  <select name="compareB" defaultValue={params.compareB ?? ""}>
+                    {savedRuns.map((run) => (
+                      <option key={run.id} value={run.id}>
+                        {methodLabels[run.specification.method as string] ??
+                          String(run.specification.method)}{" "}
+                        · {new Date(run.createdAt).toLocaleString("fr-FR")} (
+                        {run.status})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="submit">Comparer</button>
+              </form>
+
+              {params.compareA && params.compareB && !runComparison && (
+                <p className="form-message" role="alert">
+                  Comparaison indisponible : les deux analyses doivent avoir le
+                  statut « completed » (un résultat NOT_ESTIMABLE n’a pas de
+                  classement à comparer).
+                </p>
+              )}
+
+              {runComparison && (
+                <DataTable label="Comparaison de deux analyses">
+                  <table>
+                    <tbody>
+                      <tr>
+                        <th scope="row">Analyses comparées</th>
+                        <td>
+                          {runComparison.runALabel} vs {runComparison.runBLabel}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Candidats partagés</th>
+                        <td>{runComparison.sharedCandidateCount}</td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Corrélation de rang (Spearman)</th>
+                        <td>{fmt(runComparison.rankCorrelation, 3)}</td>
+                      </tr>
+                      <tr>
+                        <th scope="row">
+                          Chevauchement des ensembles sélectionnés
+                        </th>
+                        <td>
+                          {runComparison.selectedOverlapProportion === null
+                            ? "—"
+                            : `${(runComparison.selectedOverlapProportion * 100).toFixed(0)} %`}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Sélectionnés par les deux</th>
+                        <td>
+                          {runComparison.selectedByBoth.join(", ") || "—"}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Sélectionnés uniquement par A</th>
+                        <td>
+                          {runComparison.selectedOnlyByA.join(", ") || "—"}
+                        </td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Sélectionnés uniquement par B</th>
+                        <td>
+                          {runComparison.selectedOnlyByB.join(", ") || "—"}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </DataTable>
+              )}
+            </Card>
+          )}
 
           <Card>
             <h3 className="chart-title">Comparer / supprimer</h3>
