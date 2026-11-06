@@ -88,7 +88,12 @@ const runtimeCaching: RuntimeCaching[] = [
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: true,
+  // Deliberately NOT skipWaiting: true (V2-07 §27 - "never force an
+  // update/reload that could discard an in-progress offline form"). A new
+  // service worker installs and then WAITS; it only takes over once the
+  // page explicitly asks it to (the "SKIP_WAITING" message handler below),
+  // which src/lib/offline/sw-update.ts only ever sends in response to the
+  // user clicking the update prompt themselves.
   clientsClaim: true,
   navigationPreload: false,
   runtimeCaching,
@@ -118,6 +123,15 @@ serwist.addEventListeners();
 // client-side logic can run; if no client is open, or the browser does not
 // support Background Sync, nothing here is required for durability or
 // eventual sync.
+// Service-worker update safety (V2-07 §27): the page-side update prompt
+// (src/lib/offline/sw-update.ts) sends this only after the user has
+// explicitly chosen to update - never automatically.
+self.addEventListener("message", (event) => {
+  if ((event.data as { type?: string } | undefined)?.type === "SKIP_WAITING") {
+    void self.skipWaiting();
+  }
+});
+
 self.addEventListener("sync", (event) => {
   const syncEvent = event as ExtendableEvent & { tag?: string };
   if (syncEvent.tag !== "breedops-offline-outbox") return;

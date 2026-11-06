@@ -4422,3 +4422,19 @@ tr.archived-row td:first-child {
 .offline-indicator:hover {
   background: var(--border-subtle);
 }
+
+.sw-update-banner {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--info-soft);
+  color: var(--text);
+  border-bottom: 1px solid var(--info);
+  font-size: var(--text-sm);
+}
