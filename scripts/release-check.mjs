@@ -255,6 +255,10 @@ try {
             "test:multi-environment-integration",
             "multi-environment analytics integration",
           ],
+          [
+            "test:breeding-decision-integration",
+            "breeding-decision analytics integration",
+          ],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;

@@ -1,0 +1,726 @@
+import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { createClient } from "@supabase/supabase-js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendServerActionFields } from "./server-action";
+import { hardDeleteOrganization } from "./db-cleanup";
+import { currentProfile } from "../scripts/lib/stack-identity.mjs";
+
+const profile = currentProfile();
+const backend = JSON.parse(readFileSync(profile.backendFile, "utf8"));
+if (backend.API_URL !== profile.apiUrl)
+  throw new Error("Tests require isolated local Supabase");
+const admin = createClient(backend.API_URL, backend.SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
+const base = profile.appOrigin;
+const marker = randomUUID().slice(0, 8);
+const ids: Record<string, string> = {};
+let cookies = "";
+
+async function request(path: string, options: RequestInit = {}) {
+  const response = await fetch(base + path, {
+    ...options,
+    redirect: "manual",
+    headers: { cookie: cookies, ...options.headers },
+  });
+  const jar = new Map(
+    cookies
+      .split("; ")
+      .filter(Boolean)
+      .map((entry) => {
+        const index = entry.indexOf("=");
+        return [entry.slice(0, index), entry.slice(index + 1)];
+      }),
+  );
+  for (const item of response.headers.getSetCookie()) {
+    const pair = item.split(";")[0];
+    const index = pair.indexOf("=");
+    jar.set(pair.slice(0, index), pair.slice(index + 1));
+  }
+  cookies = [...jar].map(([key, value]) => `${key}=${value}`).join("; ");
+  return response;
+}
+
+async function signIn(email: string, password: string) {
+  cookies = "";
+  const response = await request("/auth/login", {
+    method: "POST",
+    headers: { origin: base },
+    body: new URLSearchParams({ email, password }),
+  });
+  expect(response.status).toBe(303);
+}
+
+async function submitAction(
+  pageUrl: string,
+  actionName: string,
+  fields: Record<string, string>,
+) {
+  const pageHtml = await (await request(pageUrl)).text();
+  const body = new FormData();
+  appendServerActionFields(body, pageHtml, actionName);
+  for (const [key, value] of Object.entries(fields)) body.set(key, value);
+  const postUrl = pageUrl.split("?")[0];
+  const response = await request(postUrl, { method: "POST", body });
+  expect(response.status).toBe(200);
+  return response;
+}
+
+async function insertPhenotypeValue(params: {
+  programId: string;
+  phenotypeCode: string;
+  environmentId: string;
+  trialEntryId: string;
+  evaluationDate: string;
+  block?: string;
+  values: { traitId: string; value: number }[];
+}) {
+  const pheno = await admin
+    .from("phenotypes")
+    .insert({
+      program_id: params.programId,
+      phenotype_code: params.phenotypeCode,
+      environment_id: params.environmentId,
+      trial_entry_id: params.trialEntryId,
+      block: params.block ?? null,
+    })
+    .select("id")
+    .single();
+  if (pheno.error) throw pheno.error;
+  const evalRow = await admin
+    .from("phenotype_evaluations")
+    .insert({
+      phenotype_id: pheno.data.id,
+      evaluation_date: params.evaluationDate,
+    })
+    .select("id")
+    .single();
+  if (evalRow.error) throw evalRow.error;
+  for (const { traitId, value } of params.values) {
+    const tv = await admin.from("phenotype_trait_values").insert({
+      phenotype_evaluation_id: evalRow.data.id,
+      trait_id: traitId,
+      numeric_value: value,
+    });
+    if (tv.error) throw tv.error;
+  }
+}
+
+const password = `${randomUUID()}Aa9!`;
+const emailOwner = `bd-owner-${marker}@example.test`;
+const programCode = `BD${marker.toUpperCase()}`;
+
+// Covers V2-06 end-to-end over real HTTP: a genuinely eligible MGIDI
+// scenario (real metan::mgidi() round trip), the NOT_ESTIMABLE
+// demonstration when candidates <= traits (task review §13's eligibility
+// rule, never fabricated), a genuinely eligible MTSI scenario chained onto
+// two real V2-05 met_waasb_v1 runs (the first real end-to-end proof of the
+// TS -> R round trip for both implemented methods through the actual
+// running app, not just direct R script invocation / pure-TS unit tests),
+// and the export route returning the same persisted run. Mirrors
+// tests/multi-environment.integration.test.ts's architecture.
+//
+// What this file deliberately does NOT cover (left to the pgTap suite in
+// tests/breeding-decision.sql and the pure-TS unit tests in
+// tests/breeding-decision-*.test.ts): dataset.ts's own candidate-alignment
+// validation branches (different candidate populations between source
+// runs, a stale/wrong-trial source run, a different measurement occasion,
+// a different scientific_role, no cross-population mixing) are exercised
+// here only through the one path a breeder can actually reach from the UI
+// (a source_run_id that is valid for a DIFFERENT trait or in progress is
+// never offered by listCompletedMetRunsForTrial in the first place); a
+// forged source_run_id for the wrong trial is instead covered as a direct
+// resolveBreedingTraitValues() scenario, since dataset.ts carries
+// "server-only" and cannot be imported from vitest at all (see
+// src/lib/breeding-decision/dataset.ts's own header comment) - this file
+// is the one place it can be exercised, by going through the real HTTP
+// server action instead of importing the module.
+describe.sequential("breeding-decision analytics", () => {
+  beforeAll(async () => {
+    const team = await admin
+      .from("organizations")
+      .insert({ name: "BreedingDecision IT team", slug: `bd-${marker}` })
+      .select("id")
+      .single();
+    if (team.error) throw team.error;
+    ids.team = team.data.id;
+
+    const program = await admin
+      .from("programs")
+      .insert({
+        organization_id: ids.team,
+        code: programCode,
+        name: "Breeding decision integration program",
+        species: "Test species",
+      })
+      .select("id")
+      .single();
+    if (program.error) throw program.error;
+    ids.program = program.data.id;
+
+    const owner = await admin.auth.admin.createUser({
+      email: emailOwner,
+      password,
+      email_confirm: true,
+    });
+    if (owner.error) throw owner.error;
+    ids.owner = owner.data.user.id;
+    const ownerProfile = await admin
+      .from("profiles")
+      .insert({
+        user_id: ids.owner,
+        organization_id: ids.team,
+        role: "team_admin",
+        display_name: "Breeding decision IT owner",
+      })
+      .select("id")
+      .single();
+    if (ownerProfile.error) throw ownerProfile.error;
+
+    const module_ = await admin
+      .from("phenotyping_modules")
+      .insert({ organization_id: ids.team, name: `Module BD ${marker}` })
+      .select("id")
+      .single();
+    if (module_.error) throw module_.error;
+    const linkModule = await admin
+      .from("program_phenotyping_modules")
+      .insert({ program_id: ids.program, module_id: module_.data.id });
+    if (linkModule.error) throw linkModule.error;
+
+    const traitYield = await admin
+      .from("phenotype_traits")
+      .insert({
+        organization_id: ids.team,
+        code: `yld${marker}`,
+        name: "Rendement (BD IT)",
+        data_type: "numeric",
+      })
+      .select("id")
+      .single();
+    if (traitYield.error) throw traitYield.error;
+    ids.traitYield = traitYield.data.id;
+
+    const traitHeight = await admin
+      .from("phenotype_traits")
+      .insert({
+        organization_id: ids.team,
+        code: `hgt${marker}`,
+        name: "Hauteur (BD IT)",
+        data_type: "numeric",
+      })
+      .select("id")
+      .single();
+    if (traitHeight.error) throw traitHeight.error;
+    ids.traitHeight = traitHeight.data.id;
+
+    for (const [traitId, order] of [
+      [ids.traitYield, 0],
+      [ids.traitHeight, 1],
+    ] as const) {
+      const linkTrait = await admin.from("phenotyping_module_traits").insert({
+        module_id: module_.data.id,
+        trait_id: traitId,
+        display_order: order,
+      });
+      if (linkTrait.error) throw linkTrait.error;
+    }
+
+    const site = await admin
+      .from("sites")
+      .insert({
+        organization_id: ids.team,
+        code: `SITE-${marker}`,
+        name: "Integration site",
+      })
+      .select("id")
+      .single();
+    if (site.error) throw site.error;
+    ids.site = site.data.id;
+
+    // ───────── Trial A: 6 genotype-role entries, 1 environment -> MGIDI
+    // eligible (6 candidates > 2 traits). ─────────
+    const envA = await admin
+      .from("environments")
+      .insert({
+        program_id: ids.program,
+        site_id: ids.site,
+        code: `ENVA-${marker}`,
+        name: "Env A",
+      })
+      .select("id")
+      .single();
+    if (envA.error) throw envA.error;
+    ids.envA = envA.data.id;
+
+    const trialA = await admin
+      .from("trials")
+      .insert({
+        program_id: ids.program,
+        code: `TRIALA-${marker}`,
+        name: "MGIDI eligible trial",
+      })
+      .select("id")
+      .single();
+    if (trialA.error) throw trialA.error;
+    ids.trialA = trialA.data.id;
+    const linkEnvA = await admin
+      .from("trial_environments")
+      .insert({ trial_id: ids.trialA, environment_id: ids.envA });
+    if (linkEnvA.error) throw linkEnvA.error;
+
+    let seed = 7;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+
+    const entryCodesA = ["A1", "A2", "A3", "A4", "A5", "A6"];
+    for (const code of entryCodesA) {
+      const entry = await admin
+        .from("trial_entries")
+        .insert({
+          trial_id: ids.trialA,
+          code,
+          label: `Entry ${code}`,
+          scientific_role: "genotype",
+        })
+        .select("id")
+        .single();
+      if (entry.error) throw entry.error;
+      await insertPhenotypeValue({
+        programId: ids.program,
+        phenotypeCode: `BD-A-${marker}-${code}`,
+        environmentId: ids.envA,
+        trialEntryId: entry.data.id,
+        evaluationDate: "2026-04-01",
+        values: [
+          { traitId: ids.traitYield, value: 50 + rand() * 10 },
+          { traitId: ids.traitHeight, value: 100 + rand() * 20 },
+        ],
+      });
+    }
+
+    // ───────── Trial B: 2 entries, same 2 traits -> MGIDI NOT_ESTIMABLE
+    // (candidates=2 is not strictly more than traits=2). ─────────
+    const envB = await admin
+      .from("environments")
+      .insert({
+        program_id: ids.program,
+        site_id: ids.site,
+        code: `ENVB-${marker}`,
+        name: "Env B",
+      })
+      .select("id")
+      .single();
+    if (envB.error) throw envB.error;
+    ids.envB = envB.data.id;
+    const trialB = await admin
+      .from("trials")
+      .insert({
+        program_id: ids.program,
+        code: `TRIALB-${marker}`,
+        name: "MGIDI sparse trial",
+      })
+      .select("id")
+      .single();
+    if (trialB.error) throw trialB.error;
+    ids.trialB = trialB.data.id;
+    const linkEnvB = await admin
+      .from("trial_environments")
+      .insert({ trial_id: ids.trialB, environment_id: ids.envB });
+    if (linkEnvB.error) throw linkEnvB.error;
+    for (const code of ["B1", "B2"]) {
+      const entry = await admin
+        .from("trial_entries")
+        .insert({
+          trial_id: ids.trialB,
+          code,
+          label: `Entry ${code}`,
+          scientific_role: "genotype",
+        })
+        .select("id")
+        .single();
+      if (entry.error) throw entry.error;
+      await insertPhenotypeValue({
+        programId: ids.program,
+        phenotypeCode: `BD-B-${marker}-${code}`,
+        environmentId: ids.envB,
+        trialEntryId: entry.data.id,
+        evaluationDate: "2026-04-01",
+        values: [
+          { traitId: ids.traitYield, value: 50 + rand() * 10 },
+          { traitId: ids.traitHeight, value: 100 + rand() * 20 },
+        ],
+      });
+    }
+
+    // ───────── Trial C: 6 genotype-role entries, 3 environments, 3 reps
+    // per cell -> met_waasb_v1 eligible (6 entries > 2, 3 environments >
+    // 2), so MTSI's own source runs are genuinely estimable, never
+    // fabricated. ─────────
+    const trialC = await admin
+      .from("trials")
+      .insert({
+        program_id: ids.program,
+        code: `TRIALC-${marker}`,
+        name: "MTSI MET trial",
+      })
+      .select("id")
+      .single();
+    if (trialC.error) throw trialC.error;
+    ids.trialC = trialC.data.id;
+
+    const envCIds: string[] = [];
+    for (const suffix of ["C1", "C2", "C3"]) {
+      const env = await admin
+        .from("environments")
+        .insert({
+          program_id: ids.program,
+          site_id: ids.site,
+          code: `ENV${suffix}-${marker}`,
+          name: `Env ${suffix}`,
+        })
+        .select("id")
+        .single();
+      if (env.error) throw env.error;
+      envCIds.push(env.data.id);
+      const link = await admin
+        .from("trial_environments")
+        .insert({ trial_id: ids.trialC, environment_id: env.data.id });
+      if (link.error) throw link.error;
+    }
+
+    const entryCIds: string[] = [];
+    for (const code of ["C1", "C2", "C3", "C4", "C5", "C6"]) {
+      const entry = await admin
+        .from("trial_entries")
+        .insert({
+          trial_id: ids.trialC,
+          code,
+          label: `Entry ${code}`,
+          scientific_role: "genotype",
+        })
+        .select("id")
+        .single();
+      if (entry.error) throw entry.error;
+      entryCIds.push(entry.data.id);
+    }
+
+    // A genuine (deterministic) entry x environment interaction term is
+    // required, not just additive noise: with a purely additive
+    // entry+environment model, metan::waasb()'s AMMI/WAASB stability
+    // component has nothing to estimate and can return WAASB=NA for some
+    // entries (confirmed empirically - see analytics-r/tests/ for the
+    // production model's own documented guards). The crossover pattern
+    // below (entryIndex * envIndex, alternating sign) guarantees real
+    // rank-changing G x E structure for both traits.
+    for (const [envIndex, environmentId] of envCIds.entries()) {
+      for (const [entryIndex, entryId] of entryCIds.entries()) {
+        const interaction =
+          (entryIndex - 2.5) * (envIndex - 1) * (entryIndex % 2 === 0 ? 1 : -1);
+        for (let rep = 1; rep <= 3; rep++) {
+          await insertPhenotypeValue({
+            programId: ids.program,
+            phenotypeCode: `BD-C-${marker}-${environmentId.slice(0, 4)}-${entryId.slice(0, 4)}-${rep}`,
+            environmentId,
+            trialEntryId: entryId,
+            evaluationDate: "2026-04-01",
+            block: String(rep),
+            values: [
+              {
+                traitId: ids.traitYield,
+                value: 50 + entryIndex * 2 + interaction * 4 + rand() * 3,
+              },
+              {
+                traitId: ids.traitHeight,
+                value: 100 + entryIndex * 3 + interaction * 6 + rand() * 5,
+              },
+            ],
+          });
+        }
+      }
+    }
+  });
+
+  afterAll(async () => {
+    if (ids.owner) await admin.auth.admin.deleteUser(ids.owner);
+    if (ids.team) hardDeleteOrganization(ids.team);
+  });
+
+  it("runs MGIDI end to end over real HTTP (real metan::mgidi() round trip) and exports the saved run", async () => {
+    await signIn(emailOwner, password);
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialA}`;
+    await submitAction(pageUrl, "create-breeding-decision-scenario", {
+      program_id: ids.program,
+      trial_id: ids.trialA,
+      name: `Scenario A ${marker}`,
+      description: "",
+      candidate_eligibility: "all",
+      selection_proportion: "30",
+    });
+
+    const scenario = await admin
+      .from("breeding_decision_scenarios")
+      .select("id")
+      .eq("trial_id", ids.trialA)
+      .eq("name", `Scenario A ${marker}`)
+      .single();
+    if (scenario.error) throw scenario.error;
+    ids.scenarioA = scenario.data.id;
+
+    const scenarioUrl = `${pageUrl}&scenario=${ids.scenarioA}`;
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: ids.scenarioA,
+      trait_id: ids.traitYield,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "RAW_PHENOTYPIC",
+      source_run_id: "",
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: ids.scenarioA,
+      trait_id: ids.traitHeight,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "RAW_PHENOTYPIC",
+      source_run_id: "",
+      evaluation_date: "",
+    });
+
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: ids.scenarioA,
+      method: "selection_mgidi_v1",
+    });
+
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,n_observations,result")
+      .eq("scenario_id", ids.scenarioA)
+      .eq("analysis_type", "breeding_decision");
+    if (runs.error) throw runs.error;
+    expect(runs.data.length).toBe(1);
+    const run = runs.data[0];
+    expect(run.status).toBe("completed");
+    expect(run.result.method).toBe("selection_mgidi_v1");
+    expect(Array.isArray(run.result.candidates)).toBe(true);
+    expect(run.result.candidates.length).toBe(6);
+    expect(
+      run.result.candidates.some((c: { selected: boolean }) => c.selected),
+    ).toBe(true);
+    expect(Array.isArray(run.result.selection_differentials)).toBe(true);
+    expect(run.result.selection_differentials.length).toBe(2);
+    expect(run.result.genetic_validity_panel.additiveBreedingValue.status).toBe(
+      "NOT_ESTIMABLE",
+    );
+
+    const csv = await (
+      await request(
+        `/app/analytics/breeding-decision/export?program=${ids.program}&trial=${ids.trialA}&format=csv`,
+      )
+    ).text();
+    const lines = csv.trim().split("\r\n");
+    expect(lines[0]).toBe("candidate_id,rank,index,selected");
+    expect(lines.length).toBe(7); // header + 6 candidates
+
+    const json = await (
+      await request(
+        `/app/analytics/breeding-decision/export?program=${ids.program}&trial=${ids.trialA}&format=json`,
+      )
+    ).json();
+    expect(json.scenarioId).toBe(ids.scenarioA);
+    expect(json.result.method).toBe("selection_mgidi_v1");
+  }, 60_000);
+
+  it("saves NOT_ESTIMABLE (never a fabricated ranking) when candidates do not strictly exceed the trait count", async () => {
+    await signIn(emailOwner, password);
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialB}`;
+    await submitAction(pageUrl, "create-breeding-decision-scenario", {
+      program_id: ids.program,
+      trial_id: ids.trialB,
+      name: `Scenario B ${marker}`,
+      description: "",
+      candidate_eligibility: "all",
+      selection_proportion: "50",
+    });
+    const scenario = await admin
+      .from("breeding_decision_scenarios")
+      .select("id")
+      .eq("trial_id", ids.trialB)
+      .eq("name", `Scenario B ${marker}`)
+      .single();
+    if (scenario.error) throw scenario.error;
+    ids.scenarioB = scenario.data.id;
+
+    const scenarioUrl = `${pageUrl}&scenario=${ids.scenarioB}`;
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: ids.scenarioB,
+      trait_id: ids.traitYield,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "RAW_PHENOTYPIC",
+      source_run_id: "",
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: ids.scenarioB,
+      trait_id: ids.traitHeight,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "RAW_PHENOTYPIC",
+      source_run_id: "",
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: ids.scenarioB,
+      method: "selection_mgidi_v1",
+    });
+
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,result")
+      .eq("scenario_id", ids.scenarioB)
+      .eq("analysis_type", "breeding_decision");
+    if (runs.error) throw runs.error;
+    expect(runs.data.length).toBe(1);
+    expect(runs.data[0].status).toBe("not_estimable");
+    expect(runs.data[0].result.candidates).toBeUndefined();
+    expect(runs.data[0].result.eligibility.eligible).toBe(false);
+    expect(runs.data[0].result.eligibility.reasons.length).toBeGreaterThan(0);
+
+    const html = await (
+      await request(
+        `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialB}&scenario=${ids.scenarioB}`,
+      )
+    ).text();
+    expect(html).toContain("NOT_ESTIMABLE");
+  }, 60_000);
+
+  it("runs MTSI end to end over real HTTP, chained onto two genuinely estimable met_waasb_v1 runs (real TS -> R round trip for both implemented methods)", async () => {
+    await signIn(emailOwner, password);
+    const metPageUrl = `/app/analytics/multi-environment?program=${ids.program}&trial=${ids.trialC}&trait=${ids.traitYield}`;
+    const metPageHtml = await (await request(metPageUrl)).text();
+    const yieldBody = new FormData();
+    appendServerActionFields(yieldBody, metPageHtml, "met-run-analysis");
+    yieldBody.set("program_id", ids.program);
+    yieldBody.set("trial_id", ids.trialC);
+    yieldBody.set("trait_id", ids.traitYield);
+    yieldBody.set("model_type", "met_waasb_v1");
+    yieldBody.set("performance_weight", "0.5");
+    const yieldResponse = await request("/app/analytics/multi-environment", {
+      method: "POST",
+      body: yieldBody,
+    });
+    expect(yieldResponse.status).toBe(200);
+
+    const heightPageUrl = `/app/analytics/multi-environment?program=${ids.program}&trial=${ids.trialC}&trait=${ids.traitHeight}`;
+    const heightPageHtml = await (await request(heightPageUrl)).text();
+    const heightBody = new FormData();
+    appendServerActionFields(heightBody, heightPageHtml, "met-run-analysis");
+    heightBody.set("program_id", ids.program);
+    heightBody.set("trial_id", ids.trialC);
+    heightBody.set("trait_id", ids.traitHeight);
+    heightBody.set("model_type", "met_waasb_v1");
+    heightBody.set("performance_weight", "0.5");
+    const heightResponse = await request("/app/analytics/multi-environment", {
+      method: "POST",
+      body: heightBody,
+    });
+    expect(heightResponse.status).toBe(200);
+
+    const waasbRuns = await admin
+      .from("analytics_runs")
+      .select("id,trait_id,status,result")
+      .eq("trial_id", ids.trialC)
+      .eq("analysis_type", "multi_environment");
+    if (waasbRuns.error) throw waasbRuns.error;
+    const yieldRun = waasbRuns.data.find(
+      (r: { trait_id: string }) => r.trait_id === ids.traitYield,
+    );
+    const heightRun = waasbRuns.data.find(
+      (r: { trait_id: string }) => r.trait_id === ids.traitHeight,
+    );
+    expect(yieldRun?.status).toBe("completed");
+    expect(yieldRun?.result.model_type).toBe("met_waasb_v1");
+    expect(heightRun?.status).toBe("completed");
+    ids.waasbYieldRun = yieldRun!.id;
+    ids.waasbHeightRun = heightRun!.id;
+
+    const pageUrl = `/app/analytics/breeding-decision?program=${ids.program}&trial=${ids.trialC}`;
+    await submitAction(pageUrl, "create-breeding-decision-scenario", {
+      program_id: ids.program,
+      trial_id: ids.trialC,
+      name: `Scenario C ${marker}`,
+      description: "",
+      candidate_eligibility: "all",
+      selection_proportion: "40",
+    });
+    const scenario = await admin
+      .from("breeding_decision_scenarios")
+      .select("id")
+      .eq("trial_id", ids.trialC)
+      .eq("name", `Scenario C ${marker}`)
+      .single();
+    if (scenario.error) throw scenario.error;
+    ids.scenarioC = scenario.data.id;
+
+    const scenarioUrl = `${pageUrl}&scenario=${ids.scenarioC}`;
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: ids.scenarioC,
+      trait_id: ids.traitYield,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbYieldRun,
+      evaluation_date: "",
+    });
+    await submitAction(scenarioUrl, "add-breeding-decision-scenario-trait", {
+      scenario_id: ids.scenarioC,
+      trait_id: ids.traitHeight,
+      direction: "higher_is_better",
+      target_value: "",
+      weight: "",
+      economic_weight: "",
+      source_type: "WAASBY_STABILITY_PERFORMANCE",
+      source_run_id: ids.waasbHeightRun,
+      evaluation_date: "",
+    });
+
+    await submitAction(scenarioUrl, "create-breeding-decision-run", {
+      program_id: ids.program,
+      scenario_id: ids.scenarioC,
+      method: "selection_mtsi_v1",
+    });
+
+    const runs = await admin
+      .from("analytics_runs")
+      .select("id,status,n_observations,result")
+      .eq("scenario_id", ids.scenarioC)
+      .eq("analysis_type", "breeding_decision");
+    if (runs.error) throw runs.error;
+    expect(runs.data.length).toBe(1);
+    const run = runs.data[0];
+    expect(run.status).toBe("completed");
+    expect(run.result.method).toBe("selection_mtsi_v1");
+    expect(run.result.evidence_level).toBe("ADJUSTED_ENTRY");
+    expect(Array.isArray(run.result.candidates)).toBe(true);
+    expect(run.result.candidates.length).toBe(6);
+    expect(
+      run.result.candidates.some((c: { selected: boolean }) => c.selected),
+    ).toBe(true);
+  }, 180_000);
+});
