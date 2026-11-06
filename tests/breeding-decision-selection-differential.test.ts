@@ -117,6 +117,21 @@ describe("computeSelectionDifferentials", () => {
     expect(row.selectedN).toBe(2);
   });
 
+  it("reports a precise zero differential for a tie, never a misleading non-zero percentage", () => {
+    // Selecting a subset whose mean exactly equals the population mean -
+    // a genuine tie, not a rounding artifact (task review §48).
+    const m = matrix(
+      { direction: "higher_is_better" },
+      { G1: 10, G2: 20, G3: 10, G4: 20 },
+    );
+    const [row] = computeSelectionDifferentials(m, ["G1", "G2"]);
+    expect(row.populationMean).toBeCloseTo(15);
+    expect(row.selectedMean).toBeCloseTo(15);
+    expect(row.absoluteDifferential).toBe(0);
+    expect(row.percentageDifferential).toBe(0);
+    expect(row.directionAchieved).toBe(false);
+  });
+
   it("reports a null directionAchieved when the selected set has no supporting candidates", () => {
     const m = matrix({ direction: "higher_is_better" }, { G1: 10, G2: null });
     const [row] = computeSelectionDifferentials(m, ["G2"]);
