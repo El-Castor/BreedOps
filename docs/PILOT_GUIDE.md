@@ -216,6 +216,40 @@ les observations sous-jacentes changent ensuite, l'analyse enregistrée est sign
 **PÉRIMÉE** plutôt que présentée comme à jour. Le jeu de données complet peut être exporté
 en CSV ou JSON pour une ré-analyse indépendante dans R, Python, JMP ou SAS.
 
+## Essais multi-environnements et stabilité G×E
+
+Ouvrez **Essais multi-environnements** (section Sélection) pour définir la structure d'un
+essai : un **site** (lieu physique/organisationnel, partagé par toute l'équipe), un ou
+plusieurs **environnements** (un site observé pour une campagne donnée) et un **essai**
+(un ensemble explicite d'environnements et d'**entrées** — le matériel comparé). Pour
+chaque entrée, un rôle scientifique est toujours indiqué explicitement (génotype, famille,
+population, lot de graines, autre) : BreedOps ne parle jamais de « G×E » pour une entrée
+qui n'est pas explicitement déclarée génotype — sinon il s'agit d'« Entrée × Environnement ».
+
+Des phénotypes existants, dont le champ « emplacement » est un texte libre, peuvent être
+rattachés à ces environnements/entrées via les deux tableaux de correspondance affichés en
+bas de la page de gestion de l'essai sélectionné : BreedOps n'interprète jamais
+automatiquement un emplacement en texte libre comme un environnement, ni une famille/un lot
+de graines existant comme une entrée — chaque correspondance est un choix explicite, appliqué
+en une fois à toutes les observations concernées.
+
+Depuis **Analytique → Multi-environnement** (ou le bouton « Analyser cet essai »), choisissez
+un essai et un trait : la page affiche d'abord un **diagnostic de conception** (nombre
+d'entrées/d'environnements/d'entrées partagées, éligibilité) avant toute analyse — un plan
+expérimental insuffisant est signalé **NON ESTIMABLE** avec la raison précise, jamais un
+chiffre fabriqué. Suivent une carte de chaleur Entrée × Environnement et la stabilité du
+classement entre chaque paire d'environnements (un changement de l'entrée la plus
+performante signale un véritable croisement, pas seulement un effet d'échelle).
+
+Cinq modèles sont disponibles : le **modèle mixte de base** (composantes de variance,
+prédictions par entrée avec leur incertitude), **AMMI**, **GGE**, **WAASB/WAASBY**
+(pondération performance/stabilité réglable) et **Finlay-Wilkinson** (réactivité à l'indice
+environnemental et stabilité). Chaque analyse lancée est enregistrée de façon reproductible,
+exactement comme pour l'analytique des traits (signature de données, historique, statut
+PÉRIMÉE si les observations changent) ; les observations peuvent aussi être importées en
+masse (CSV) pour un essai déjà défini, ou exportées en CSV/JSON pour une ré-analyse
+indépendante.
+
 ## Inventory
 
 Open **Inventaire**, create an article, then create a lot with an initial receipt.

@@ -95,6 +95,53 @@ try {
 
   if (!fatal && !run("unit tests", "npm", ["run", "test:unit"])) fatal = true;
 
+  // V2-05 R statistical engine (B-review blocker #1): also fast, no
+  // database needed - assumes R/renv are already installed in this
+  // environment (same assumption as the `supabase`/`docker` CLIs this
+  // script never installs itself; see docs/DEPLOYMENT_GUIDE.md "R
+  // subprocess environment"). LC_ALL/LANG/RENV_CONFIG_STARTUP_QUIET are
+  // required for the OUTER `Rscript` invocation too, not just the nested
+  // met_models.R subprocess each reference test spawns via system2() -
+  // these test files' own French-language check labels are parsed under
+  // the same locale rule met_models.R's header comment documents.
+  const rEnv = {
+    ...baseEnv,
+    LC_ALL: "C.UTF-8",
+    LANG: "C.UTF-8",
+    RENV_CONFIG_STARTUP_QUIET: "TRUE",
+  };
+  const runR = (name, scriptRelativePath) =>
+    run(name, "Rscript", [scriptRelativePath], {
+      cwd: "analytics-r",
+      env: rEnv,
+    });
+  if (!fatal && !runR("R engine health check", "scripts/health_check.R"))
+    fatal = true;
+  if (
+    !fatal &&
+    !runR(
+      "R reference tests: met_base_v1 (identifiability, replication diagnostics)",
+      "tests/test_met_base_v1.R",
+    )
+  )
+    fatal = true;
+  if (
+    !fatal &&
+    !runR("R reference tests: AMMI / WAASB", "tests/test_met_ammi_waasb.R")
+  )
+    fatal = true;
+  if (
+    !fatal &&
+    !runR(
+      "R reference tests: Finlay-Wilkinson",
+      "tests/test_met_finlay_wilkinson.R",
+    )
+  )
+    fatal = true;
+  if (!fatal && !runR("R reference tests: GGE", "tests/test_met_gge.R"))
+    fatal = true;
+  if (!fatal && !npm("test:met-r-env")) fatal = true;
+
   if (!fatal) {
     run(
       "start disposable release-check Supabase stack (own project_id/ports/container/volume, migrations 000001 -> latest from zero)",
@@ -117,6 +164,12 @@ try {
       ["test:media", "plant media"],
       ["test:advanced-media", "advanced media metadata/annotations"],
       ["test:trait-analytics", "trait analytics provenance/RLS"],
+      ["test:multi-environment", "multi-environment MET schema RLS/integrity"],
+      [
+        "test:legacy-met-mapping",
+        "legacy location/material mapping workflow RLS/integrity",
+      ],
+      ["test:met-import", "multi-environment bulk import RLS/integrity"],
       ["test:workflows", "experimental workflows"],
       ["test:import-export", "import/export"],
       [
@@ -194,6 +247,10 @@ try {
             "advanced media metadata/annotations integration",
           ],
           ["test:trait-analytics-integration", "trait analytics integration"],
+          [
+            "test:multi-environment-integration",
+            "multi-environment analytics integration",
+          ],
         ];
         for (const [script] of integrationSuites) {
           if (!npm(script, [], { env: appEnv })) fatal = true;

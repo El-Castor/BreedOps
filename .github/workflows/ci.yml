@@ -61,6 +61,61 @@ jobs:
       - run: npm ci
       - run: npm run test:unit
 
+  met-r-engine:
+    name: V2-05 MET R statistical engine (health check + numeric reference tests)
+    runs-on: ubuntu-latest
+    # Required (met_models.R's own header comment, and
+    # docs/DEPLOYMENT_GUIDE.md "R subprocess environment"): without a UTF-8
+    # locale, R mis-decodes every accented character in the French
+    # reference-test labels/reason strings at parse time, before any
+    # in-script fix can run; RENV_CONFIG_STARTUP_QUIET silences renv's own
+    # startup banner, which would otherwise corrupt the "one JSON object on
+    # stdout" contract the reference tests exercise end to end (they spawn
+    # the real met_models.R subprocess via system2(), exactly like
+    # src/lib/met/r-runner.ts does). CMAKE_POLICY_VERSION_MINIMUM works
+    # around a toolchain mismatch, not a project bug: nloptr (an lme4
+    # dependency) bundles its own NLopt C library with a CMakeLists.txt
+    # whose cmake_minimum_required() predates 3.5, which the runner's
+    # modern CMake refuses to configure at all ("Compatibility with CMake
+    # < 3.5 has been removed") - this is CMake's own documented, official
+    # environment-variable escape hatch for exactly this situation, not a
+    # change to any package's source.
+    env:
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      RENV_CONFIG_STARTUP_QUIET: "TRUE"
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.3.3" # pinned to analytics-r/renv.lock's own R version
+      - uses: r-lib/actions/setup-renv@v2
+        with:
+          working-directory: analytics-r
+      - name: R engine health check
+        working-directory: analytics-r
+        run: Rscript scripts/health_check.R
+      - name: R reference tests - met_base_v1 (identifiability, replication diagnostics)
+        working-directory: analytics-r
+        run: Rscript tests/test_met_base_v1.R
+      - name: R reference tests - AMMI / WAASB
+        working-directory: analytics-r
+        run: Rscript tests/test_met_ammi_waasb.R
+      - name: R reference tests - Finlay-Wilkinson
+        working-directory: analytics-r
+        run: Rscript tests/test_met_finlay_wilkinson.R
+      - name: R reference tests - GGE
+        working-directory: analytics-r
+        run: Rscript tests/test_met_gge.R
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: R subprocess environment allowlist regression test (real Rscript child process, never a secret forwarded)
+        run: npm run test:met-r-env
+
   database:
     name: Database suite (migrations from zero + RLS + domain pgTap suites)
     runs-on: ubuntu-latest
@@ -85,6 +140,9 @@ jobs:
       - run: npm run test:media
       - run: npm run test:advanced-media
       - run: npm run test:trait-analytics
+      - run: npm run test:multi-environment
+      - run: npm run test:legacy-met-mapping
+      - run: npm run test:met-import
       - run: npm run test:workflows
       - run: npm run test:import-export
       - run: npm run test:business-completion
@@ -102,8 +160,22 @@ jobs:
     env:
       # Same disposable release-check identity as the database job above.
       BREEDOPS_STACK_PROFILE: release-check
+      # See the met-r-engine job's own comment: this works around a CMake
+      # toolchain mismatch while compiling nloptr (an lme4 dependency)
+      # during renv::restore() below, not a project bug.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
     steps:
       - uses: actions/checkout@v4
+      # The running app spawns the real R engine for the multi-environment
+      # integration suite below (src/lib/met/r-runner.ts) - this runner
+      # needs R/renv installed for exactly the same reason the met-r-engine
+      # job above does, on its own separate runner.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.3.3"
+      - uses: r-lib/actions/setup-renv@v2
+        with:
+          working-directory: analytics-r
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -130,6 +202,7 @@ jobs:
       - run: npm run test:notifications
       - run: npm run test:advanced-media-integration
       - run: npm run test:trait-analytics-integration
+      - run: npm run test:multi-environment-integration
       - name: Critical-path E2E (Playwright reuses the app server already running above)
         run: npm run test:e2e
       - name: Upload Playwright trace on failure
