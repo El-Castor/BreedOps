@@ -35,7 +35,32 @@ const NO_ADDITIVE_MODEL_REASON =
  * to be explicitly declared trial_entries.scientific_role='genotype'
  * (task review §3: "Even then: genotype identity != additive breeding
  * value" - this function never claims more than broad-sense, never
- * additive/narrow-sense). */
+ * additive/narrow-sense).
+ *
+ * DELIBERATELY NOT WIRED INTO createBreedingDecisionRun() (independent-
+ * review hardening #9, PR #15): every call site there passes
+ * `heritability: null` to buildGeneticValidityPanel() regardless of
+ * `allCandidatesAreGenotypeRole`, so this formula is never actually
+ * evaluated against a real V2-05 met_base_v1 run's variance components
+ * in the delivered run path - `broadSenseGenotypicResponse` stays
+ * NOT_ESTIMABLE for every run. This is intentional, not an oversight:
+ * the formula above is the textbook entry-mean estimator for a
+ * BALANCED design, and nothing in the V2-06 run path currently checks
+ * that the underlying met_base_v1 source's design is actually balanced
+ * enough (or that `nEnvironments`/`averageReplication` were computed
+ * the right way for the ACTUAL design) for naively plugging in this
+ * formula to be valid - genotype identity existing is necessary, but not
+ * sufficient, for this estimator to be trustworthy on a general
+ * unbalanced MET. Do not wire this function into the run path merely to
+ * make `HERITABILITY_STATUS` read something other than NOT_ESTIMABLE;
+ * only do so once a design-aware estimator (accounting for the actual
+ * replication/balance structure, not just plugging raw variance
+ * components into the textbook formula) has been independently
+ * validated - the same discipline V2-04/V2-05 already apply to every
+ * other NOT_ESTIMABLE guard in this codebase. Exercised directly by
+ * tests/breeding-decision-genetic-validity.test.ts as a pure function in
+ * its own right, which is deliberately not the same thing as being safe
+ * to call unconditionally from the run path. */
 export function computeBroadSenseHeritability(params: {
   allCandidatesAreGenotypeRole: boolean;
   entryVariance: number | null;

@@ -19,16 +19,18 @@ import {
   type SelectionMatrixCellInput,
   type SelectionTraitInput,
 } from "@/lib/breeding-decision/r-runner";
-import { computeSelectionDifferentials } from "@/lib/breeding-decision/selection-differential";
+import {
+  buildMeanPerformanceMatrixFromRows,
+  computeSelectionDifferentials,
+} from "@/lib/breeding-decision/selection-differential";
 import {
   compareMethodRankings,
   type MethodComparison,
   type MethodRanking,
 } from "@/lib/breeding-decision/method-comparison";
-import {
-  buildGeneticValidityPanel,
-  computeBroadSenseHeritability,
-} from "@/lib/breeding-decision/genetic-validity";
+// computeBroadSenseHeritability() is deliberately NOT imported/called
+// here - see its own doc comment in genetic-validity.ts (hardening #9).
+import { buildGeneticValidityPanel } from "@/lib/breeding-decision/genetic-validity";
 import type {
   BreedingCandidateTraitMatrix,
   BreedingScenarioTraitSpec,
@@ -65,6 +67,7 @@ function computeRowsFingerprint(
   rows: {
     entry_id: string;
     environment_id: string;
+    phenotype_id?: string;
     block: string | null;
     trait_id: string;
     value: number;
@@ -72,13 +75,13 @@ function computeRowsFingerprint(
 ): string {
   const sorted = [...rows].sort((a, b) => {
     const key = (r: typeof a) =>
-      `${r.entry_id}|${r.environment_id}|${r.block ?? ""}|${r.trait_id}`;
+      `${r.phenotype_id ?? ""}|${r.entry_id}|${r.environment_id}|${r.block ?? ""}|${r.trait_id}`;
     return key(a).localeCompare(key(b));
   });
   const hash = createHash("sha256");
   for (const row of sorted) {
     hash.update(
-      `${row.entry_id}|${row.environment_id}|${row.block ?? ""}|${row.trait_id}|${row.value}\n`,
+      `${row.phenotype_id ?? ""}|${row.entry_id}|${row.environment_id}|${row.block ?? ""}|${row.trait_id}|${row.value}\n`,
     );
   }
   return hash.digest("hex");
@@ -539,7 +542,11 @@ export async function createBreedingDecisionRun(
     }
 
     // selection_mtsi_v1
-    const rawResult = await buildMtsiRawDataset(client, trialId, traits);
+    const rawResult = await buildMtsiRawDataset(client, {
+      trialId,
+      candidateEligibility,
+      traits,
+    });
     if (rawResult.status === "failed") {
       return saveNotEstimable(rawResult.reason, computeRowsFingerprint([]), 0);
     }
@@ -595,6 +602,26 @@ export async function createBreedingDecisionRun(
       heritability: null,
     });
 
+    // Task review hardening #5: a transparent per-trait selection
+    // differential for MTSI too, computed from the candidate-level MEAN
+    // performance in the exact raw rows MTSI was actually fed (never
+    // re-fetched, never drawn from metan's own index/stability output) -
+    // see buildMeanPerformanceMatrixFromRows's own doc comment for why
+    // this is the documented choice. Independent of the R model, exactly
+    // like MGIDI's own selection differential.
+    const mtsiMeanPerformanceMatrix = buildMeanPerformanceMatrixFromRows(
+      rawResult.rows,
+      traits,
+      rResult.data.candidates.map((c) => c.candidate_id),
+    );
+    const mtsiSelectedIds = rResult.data.candidates
+      .filter((c) => c.selected)
+      .map((c) => c.candidate_id);
+    const mtsiSelectionDifferentials = computeSelectionDifferentials(
+      mtsiMeanPerformanceMatrix,
+      mtsiSelectedIds,
+    );
+
     const { error } = await client.from("analytics_runs").insert({
       program_id: input.programId,
       trial_id: trialId,
@@ -611,6 +638,7 @@ export async function createBreedingDecisionRun(
         candidates: rResult.data.candidates.slice(0, 2000),
         factor_loadings: rResult.data.factor_loadings,
         factor_contributions: rResult.data.factor_contributions.slice(0, 2000),
+        selection_differentials: mtsiSelectionDifferentials,
         coverage: {
           candidateCount: rResult.data.candidates.length,
           traitCount: traits.length,
@@ -620,6 +648,14 @@ export async function createBreedingDecisionRun(
         },
         evidence_level: "ADJUSTED_ENTRY",
         genetic_validity_panel: genericPanel,
+        // Task review hardening #4: the candidates the scenario's own
+        // candidate_eligibility policy removed before MTSI ever saw
+        // them - always disclosed, never silent.
+        excluded_candidates: rawResult.excludedCandidates.map((c) => ({
+          candidate_id: c.candidateId,
+          candidate_code: c.candidateCode,
+          reason: "operationally_eliminated",
+        })),
       },
       n_observations: rawResult.rows.length,
       engine_name: rResult.data.engine.engine_name,
@@ -798,4 +834,174 @@ export async function compareBreedingDecisionRuns(
     runALabel: label(rankingA, rowA),
     runBLabel: label(rankingB, rowB),
   };
+}
+
+export type BreedingDecisionStaleness = {
+  stale: boolean;
+  reasons: string[];
+};
+
+type StoredSpecTrait = {
+  traitId: string;
+  direction: BreedingScenarioTraitSpec["direction"];
+  targetValue: number | null;
+  weight: number | null;
+  economicWeight: number | null;
+  sourceType: BreedingScenarioTraitSpec["sourceType"];
+  sourceRunId: string | null;
+  evaluationDate: string | null;
+};
+
+/** Real staleness evaluation for a saved breeding_decision run (task
+ * review hardening #3) - the stored analytics_runs row is NEVER
+ * mutated; this recomputes CURRENT evidence at read time and compares it
+ * to what the run's own stored `specification` snapshot says it was
+ * built from. Two kinds of drift are detected:
+ *
+ *  1. Configuration drift: the scenario's own selection_proportion/
+ *     candidate_eligibility, or any of its traits' direction/target/
+ *     weight/source_type/source_run_id/evaluation_date, no longer match
+ *     what this run's specification recorded - compared explicitly,
+ *     since none of this changes a dataset_fingerprint (same raw cells,
+ *     different interpretation/cutoff).
+ *  2. Evidence drift: the underlying data has changed. Rather than
+ *     re-deriving a fingerprint by hand, this literally rebuilds the
+ *     exact candidate matrix (MGIDI) or raw rows (MTSI) using the run's
+ *     OWN stored trait configuration (never the scenario's CURRENT
+ *     config, which may itself have drifted per #1) via the same
+ *     buildCandidateTraitMatrix()/buildMtsiRawDataset() this run was
+ *     originally built from - which already re-validates every
+ *     MET_ENTRY_PREDICTION/WAASBY_STABILITY_PERFORMANCE source run
+ *     (loadAndValidateMetSourceRun) and re-reads the current candidate
+ *     pool, so a stale V2-05 source run or a changed candidate
+ *     population surfaces automatically as a rebuild failure or a
+ *     fingerprint mismatch, with no separate code path to keep in sync. */
+export async function isBreedingDecisionRunStale(
+  run: Pick<
+    BreedingDecisionRunWithResult,
+    "scenarioId" | "trialId" | "specification" | "datasetFingerprint"
+  >,
+): Promise<BreedingDecisionStaleness> {
+  const { client } = await requireIdentity();
+  const reasons: string[] = [];
+  const spec = run.specification;
+  const method = spec.method as "selection_mgidi_v1" | "selection_mtsi_v1";
+  const storedSelectionProportion = Number(spec.selectionProportion);
+  const storedCandidateEligibility = spec.candidateEligibility as
+    | "all"
+    | "exclude_operationally_eliminated";
+  const storedTraits = (
+    Array.isArray(spec.traits) ? spec.traits : []
+  ) as StoredSpecTrait[];
+
+  const { data: scenarioData } = await client
+    .from("breeding_decision_scenarios")
+    .select("candidate_eligibility,selection_proportion")
+    .eq("id", run.scenarioId)
+    .maybeSingle();
+  if (!scenarioData) {
+    return {
+      stale: true,
+      reasons: ["Le scénario source n'existe plus ou n'est plus accessible."],
+    };
+  }
+  if (scenarioData.candidate_eligibility !== storedCandidateEligibility) {
+    reasons.push(
+      "La politique d'éligibilité des candidats du scénario a changé depuis cette analyse.",
+    );
+  }
+  if (Number(scenarioData.selection_proportion) !== storedSelectionProportion) {
+    reasons.push(
+      "La proportion de sélection du scénario a changé depuis cette analyse.",
+    );
+  }
+
+  const currentTraits = await listBreedingDecisionScenarioTraits(
+    run.scenarioId,
+  );
+  const currentByTraitId = new Map(currentTraits.map((t) => [t.traitId, t]));
+  if (currentTraits.length !== storedTraits.length) {
+    reasons.push(
+      "Les traits du scénario ont changé (ajout ou retrait) depuis cette analyse.",
+    );
+  }
+  for (const stored of storedTraits) {
+    const current = currentByTraitId.get(stored.traitId);
+    if (!current) {
+      reasons.push(
+        `Le trait ${stored.traitId} n'est plus dans le scénario depuis cette analyse.`,
+      );
+      continue;
+    }
+    if (
+      current.direction !== stored.direction ||
+      current.targetValue !== stored.targetValue ||
+      current.weight !== stored.weight ||
+      current.economicWeight !== stored.economicWeight ||
+      current.sourceType !== stored.sourceType ||
+      current.sourceRunId !== stored.sourceRunId ||
+      current.evaluationDate !== stored.evaluationDate
+    ) {
+      reasons.push(
+        `La configuration du trait ${current.traitName} a changé depuis cette analyse.`,
+      );
+    }
+  }
+
+  const traitSpecs: BreedingScenarioTraitSpec[] = storedTraits.map((t) => {
+    const current = currentByTraitId.get(t.traitId);
+    return {
+      traitId: t.traitId,
+      traitCode: current?.traitCode ?? t.traitId,
+      traitName: current?.traitName ?? t.traitId,
+      unit: current?.unit ?? null,
+      direction: t.direction,
+      targetValue: t.targetValue,
+      weight: t.weight,
+      economicWeight: t.economicWeight,
+      sourceType: t.sourceType,
+      sourceRunId: t.sourceRunId,
+      evaluationDate: t.evaluationDate,
+    };
+  });
+
+  if (method === "selection_mgidi_v1") {
+    const matrixResult = await buildCandidateTraitMatrix(client, {
+      trialId: run.trialId,
+      candidateEligibility: storedCandidateEligibility,
+      traits: traitSpecs,
+    });
+    if (matrixResult.status === "failed") {
+      reasons.push(
+        `Les preuves sous-jacentes ne peuvent plus être reconstruites à l'identique : ${matrixResult.reason}`,
+      );
+    } else {
+      const currentFingerprint = computeMatrixFingerprint(matrixResult.matrix);
+      if (currentFingerprint !== run.datasetFingerprint) {
+        reasons.push(
+          "Les observations brutes sous-jacentes ont changé depuis cette analyse.",
+        );
+      }
+    }
+  } else {
+    const rawResult = await buildMtsiRawDataset(client, {
+      trialId: run.trialId,
+      candidateEligibility: storedCandidateEligibility,
+      traits: traitSpecs,
+    });
+    if (rawResult.status === "failed") {
+      reasons.push(
+        `Les preuves sous-jacentes ne peuvent plus être reconstruites à l'identique : ${rawResult.reason}`,
+      );
+    } else {
+      const currentFingerprint = computeRowsFingerprint(rawResult.rows);
+      if (currentFingerprint !== run.datasetFingerprint) {
+        reasons.push(
+          "Les observations brutes sous-jacentes (ou l'analyse WAASB source) ont changé depuis cette analyse.",
+        );
+      }
+    }
+  }
+
+  return { stale: reasons.length > 0, reasons };
 }

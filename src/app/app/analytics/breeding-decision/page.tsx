@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
+import { BreedingDecisionSourceFields } from "@/components/breeding-decision-source-fields";
 import {
   Breadcrumbs,
   Card,
@@ -22,6 +23,7 @@ import {
   createBreedingDecisionRun,
   createBreedingDecisionScenario,
   getLatestBreedingDecisionRun,
+  isBreedingDecisionRunStale,
   listBreedingDecisionRuns,
   listBreedingDecisionScenarios,
   listBreedingDecisionScenarioTraits,
@@ -171,6 +173,26 @@ export default async function BreedingDecisionAnalytics({
     : [[], [], null];
 
   const traitNameById = new Map(traits.map((t) => [t.traitId, t.name]));
+
+  // Real staleness evaluation (task review hardening #3) - bounded to
+  // the latest run plus the first 10 history rows shown, same convention
+  // as V2-04's own isAnalysisRunStale usage (src/app/app/analytics/
+  // page.tsx): each check rebuilds the evidence from the run's own
+  // stored specification, so it is not free, and must never be run
+  // against an unbounded list.
+  const latestRunStaleness =
+    latestRun && latestRun.status === "completed"
+      ? await isBreedingDecisionRunStale(latestRun)
+      : null;
+  const historyWithStaleness = await Promise.all(
+    savedRuns.slice(0, 10).map(async (run) => ({
+      run,
+      staleness:
+        run.status === "completed"
+          ? await isBreedingDecisionRunStale(run)
+          : null,
+    })),
+  );
 
   const runComparison =
     params.compareA && params.compareB
@@ -328,16 +350,26 @@ export default async function BreedingDecisionAnalytics({
               submitLabel="Ajouter le trait"
             >
               <input type="hidden" name="scenario_id" value={scenario.id} />
-              <label>
-                Trait
-                <select name="trait_id" required>
-                  {traits.map((t) => (
-                    <option key={t.traitId} value={t.traitId}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <BreedingDecisionSourceFields
+                traits={traits.map((t) => ({
+                  traitId: t.traitId,
+                  name: t.name,
+                }))}
+                metBaseRuns={metBaseRuns.map((r) => ({
+                  id: r.id,
+                  traitId: r.traitId,
+                  traitName: traitNameById.get(r.traitId) ?? r.traitId,
+                  modelType: "met_base_v1",
+                  createdAt: r.createdAt,
+                }))}
+                metWaasbRuns={metWaasbRuns.map((r) => ({
+                  id: r.id,
+                  traitId: r.traitId,
+                  traitName: traitNameById.get(r.traitId) ?? r.traitId,
+                  modelType: "met_waasb_v1",
+                  createdAt: r.createdAt,
+                }))}
+              />
               <label>
                 Direction de sélection
                 <select name="direction" defaultValue="higher_is_better">
@@ -358,37 +390,6 @@ export default async function BreedingDecisionAnalytics({
                 Poids économique (optionnel, requis pour Smith-Hazel - non
                 disponible dans cette version)
                 <input type="number" name="economic_weight" step="any" />
-              </label>
-              <label>
-                Source de la valeur
-                <select name="source_type" defaultValue="RAW_PHENOTYPIC">
-                  <option value="RAW_PHENOTYPIC">Observation brute</option>
-                  <option value="PHENOTYPIC_MEAN">Moyenne phénotypique</option>
-                  <option value="MET_ENTRY_PREDICTION">
-                    Prédiction d’entrée (met_base_v1)
-                  </option>
-                  <option value="WAASBY_STABILITY_PERFORMANCE">
-                    Performance/stabilité WAASBY (met_waasb_v1)
-                  </option>
-                </select>
-              </label>
-              <label>
-                Analyse source (si prédiction/WAASBY)
-                <select name="source_run_id">
-                  <option value="">—</option>
-                  {metBaseRuns.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      met_base_v1 · {traitNameById.get(r.traitId) ?? r.traitId}{" "}
-                      · {new Date(r.createdAt).toLocaleDateString("fr-FR")}
-                    </option>
-                  ))}
-                  {metWaasbRuns.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      met_waasb_v1 · {traitNameById.get(r.traitId) ?? r.traitId}{" "}
-                      · {new Date(r.createdAt).toLocaleDateString("fr-FR")}
-                    </option>
-                  ))}
-                </select>
               </label>
               <label>
                 Occasion de mesure (date, pour observation brute/moyenne)
@@ -424,6 +425,30 @@ export default async function BreedingDecisionAnalytics({
 
           {latestRun && (
             <>
+              {latestRunStaleness && (
+                <p
+                  className="form-message"
+                  role={latestRunStaleness.stale ? "alert" : undefined}
+                >
+                  {latestRunStaleness.stale ? (
+                    <>
+                      <StatusBadge tone="warning">PÉRIMÉE</StatusBadge> Les
+                      preuves de cette analyse ont changé depuis son exécution :{" "}
+                      <ul>
+                        {latestRunStaleness.reasons.map((reason, i) => (
+                          <li key={i}>{reason}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <StatusBadge tone="success">ACTUELLE</StatusBadge> Les
+                      preuves sous-jacentes n’ont pas changé depuis cette
+                      analyse.
+                    </>
+                  )}
+                </p>
+              )}
               <BreedingDecisionResultCard run={latestRun} />
               <Card>
                 <h3 className="chart-title">Exporter la dernière analyse</h3>
@@ -465,12 +490,13 @@ export default async function BreedingDecisionAnalytics({
                       <th scope="col">Méthode</th>
                       <th scope="col">n</th>
                       <th scope="col">Statut</th>
+                      <th scope="col">Fraîcheur</th>
                       <th scope="col">Signature</th>
                       <th scope="col">Auteur</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {savedRuns.map((run) => (
+                    {historyWithStaleness.map(({ run, staleness }) => (
                       <tr key={run.id}>
                         <td>
                           {new Date(run.createdAt).toLocaleString("fr-FR")}
@@ -490,11 +516,33 @@ export default async function BreedingDecisionAnalytics({
                           </StatusBadge>
                         </td>
                         <td>
+                          {staleness ? (
+                            <span title={staleness.reasons.join(" ")}>
+                              <StatusBadge
+                                tone={staleness.stale ? "warning" : "success"}
+                              >
+                                {staleness.stale ? "PÉRIMÉE" : "ACTUELLE"}
+                              </StatusBadge>
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td>
                           <code>{run.datasetFingerprint.slice(0, 12)}…</code>
                         </td>
                         <td>{run.createdByName ?? "—"}</td>
                       </tr>
                     ))}
+                    {savedRuns.length > historyWithStaleness.length && (
+                      <tr>
+                        <td colSpan={7}>
+                          Les {savedRuns.length - historyWithStaleness.length}{" "}
+                          analyse(s) plus ancienne(s) ne sont pas évaluées pour
+                          la fraîcheur (limite d’affichage).
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </DataTable>

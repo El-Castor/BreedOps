@@ -316,6 +316,7 @@ run_selection_mtsi <- function(spec) {
   get_field <- function(r, name) if (is.null(r[[name]])) NA else r[[name]]
   entry_id <- vapply(spec$rows, get_field, character(1), name = "entry_id")
   environment_id <- vapply(spec$rows, get_field, character(1), name = "environment_id")
+  phenotype_id <- vapply(spec$rows, get_field, character(1), name = "phenotype_id")
   block <- vapply(spec$rows, function(r) {
     v <- get_field(r, "block")
     if (is.null(v) || identical(v, NA)) NA_character_ else as.character(v)
@@ -324,10 +325,10 @@ run_selection_mtsi <- function(spec) {
   value <- vapply(spec$rows, function(r) as.numeric(get_field(r, "value")), numeric(1))
 
   long <- data.frame(
-    entry_id = entry_id, environment_id = environment_id, block = block,
-    trait_id = trait_id, value = value, stringsAsFactors = FALSE
+    entry_id = entry_id, environment_id = environment_id, phenotype_id = phenotype_id,
+    block = block, trait_id = trait_id, value = value, stringsAsFactors = FALSE
   )
-  long <- long[!is.na(long$value) & !is.na(long$entry_id) & !is.na(long$environment_id) & !is.na(long$trait_id), , drop = FALSE]
+  long <- long[!is.na(long$value) & !is.na(long$entry_id) & !is.na(long$environment_id) & !is.na(long$phenotype_id) & !is.na(long$trait_id), , drop = FALSE]
   long$block[is.na(long$block) | !nzchar(long$block)] <- "_unblocked"
 
   trait_ids <- vapply(spec$traits, function(t) t$trait_id, character(1))
@@ -351,17 +352,34 @@ run_selection_mtsi <- function(spec) {
     fail("Le MTSI nécessite au moins 2 traits (un indice multi-traits ne peut pas être calculé avec une seule variable).", status = "not_estimable")
   }
 
-  # Pivot to wide: one row per (entry_id, environment_id, block), one
-  # column per trait.
+  # Pivot to wide, joined on phenotype_id alone - the true experimental-
+  # unit identity (task review hardening #6), never on
+  # (entry_id, environment_id, block): when block is absent for every
+  # row of an unblocked design, that triple is identical for every
+  # replicate of the same cell, and merge() on it would silently produce
+  # a cartesian product across traits (every trait-A replicate paired
+  # with every trait-B replicate, in row order - never a real
+  # correspondence). phenotype_id is globally unique per biological
+  # unit, so merging on it alone is always exactly 1:1 regardless of
+  # whether block is set. entry_id/environment_id/block are carried
+  # through from the FIRST trait's own rows only (they are the same
+  # physical unit's descriptive columns, identical across every trait
+  # that actually has an observation for this phenotype_id - never
+  # re-merged per trait, which would otherwise re-introduce duplicate
+  # .x/.y columns).
   wide <- NULL
   for (i in seq_along(trait_ids)) {
     tid <- trait_ids[i]
-    sub <- long[long$trait_id == tid, c("entry_id", "environment_id", "block", "value")]
-    colnames(sub)[4] <- trait_cols[i]
-    wide <- if (is.null(wide)) sub else merge(wide, sub, by = c("entry_id", "environment_id", "block"), all = TRUE)
+    sub <- long[long$trait_id == tid, c("phenotype_id", "entry_id", "environment_id", "block", "value")]
+    colnames(sub)[5] <- trait_cols[i]
+    if (is.null(wide)) {
+      wide <- sub
+    } else {
+      wide <- merge(wide, sub[, c("phenotype_id", trait_cols[i])], by = "phenotype_id", all = TRUE)
+    }
   }
   if (any(is.na(wide[trait_cols]))) {
-    fail("Le MTSI nécessite une observation pour chaque trait sélectionné à chaque combinaison entrée x environnement x bloc utilisée.", status = "not_estimable")
+    fail("Le MTSI nécessite une observation pour chaque trait sélectionné à chaque unité expérimentale utilisée.", status = "not_estimable")
   }
 
   selection_proportion <- get_numeric_option(spec$options, "selection_proportion")

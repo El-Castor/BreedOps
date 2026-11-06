@@ -7,7 +7,10 @@ import {
   type ActionState,
 } from "@/lib/action-state";
 import { requireIdentity } from "@/lib/auth";
-import { buildMetObservationDataset } from "@/lib/met/dataset";
+import {
+  buildMetObservationDataset,
+  toMetFingerprintRows,
+} from "@/lib/met/dataset";
 import {
   evaluateMetModelEligibility,
   evaluateMetOccasionEligibility,
@@ -32,17 +35,6 @@ function toMetModelRows(rows: MetObservationRecord[]): MetModelRow[] {
     environment_id: row.environmentId,
     block: row.block,
     value: row.numericValue,
-  }));
-}
-
-function toFingerprintRows(rows: MetObservationRecord[], traitId: string) {
-  return rows.map((row) => ({
-    evaluationId: row.evaluationId,
-    traitValueId: row.traitValueId,
-    traitId,
-    phenotypeId: row.phenotypeId,
-    evaluationDate: row.evaluationDate,
-    numericValue: row.numericValue,
   }));
 }
 
@@ -169,7 +161,7 @@ export async function createMetAnalysisRun(
     );
     if (!occasion.eligible) {
       const fingerprint = datasetFingerprint(
-        toFingerprintRows(discovery.rows, input.traitId),
+        toMetFingerprintRows(discovery.rows, input.traitId),
       );
       const { error } = await client.from("analytics_runs").insert({
         program_id: input.programId,
@@ -221,7 +213,7 @@ export async function createMetAnalysisRun(
     }
 
     const fingerprint = datasetFingerprint(
-      toFingerprintRows(dataset.rows, input.traitId),
+      toMetFingerprintRows(dataset.rows, input.traitId),
     );
 
     const eligibility = evaluateMetModelEligibility(

@@ -40,10 +40,15 @@ export type SelectionMatrixCellInput = {
  * refit metan::waasb() itself across every selected trait at once -
  * there is no stored V2-05 object it could instead be handed (see
  * analytics-r/scripts/selection_models.R's own header comment on
- * run_selection_mtsi). */
+ * run_selection_mtsi). `phenotype_id` is the true experimental-unit
+ * identity the R pivot joins traits on (task review hardening #6) -
+ * `block` is carried through only as waasb()'s own replicate/rep
+ * factor, never as a join key (a null/shared block value must never
+ * collapse distinct phenotypes together). */
 export type SelectionRowInput = {
   entry_id: string;
   environment_id: string;
+  phenotype_id: string;
   block?: string | null;
   trait_id: string;
   value: number;

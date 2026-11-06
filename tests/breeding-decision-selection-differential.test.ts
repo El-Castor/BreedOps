@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeSelectionDifferentials } from "../src/lib/breeding-decision/selection-differential";
+import {
+  buildMeanPerformanceMatrixFromRows,
+  computeSelectionDifferentials,
+} from "../src/lib/breeding-decision/selection-differential";
 import type { BreedingCandidateTraitMatrix } from "../src/lib/breeding-decision/types";
+import type { BreedingScenarioTraitSpec } from "../src/lib/breeding-decision/types";
 
 function matrix(
   trait: Partial<BreedingCandidateTraitMatrix["traits"][number]>,
@@ -137,5 +141,66 @@ describe("computeSelectionDifferentials", () => {
     const [row] = computeSelectionDifferentials(m, ["G2"]);
     expect(row.selectedN).toBe(0);
     expect(row.directionAchieved).toBeNull();
+  });
+});
+
+describe("buildMeanPerformanceMatrixFromRows", () => {
+  const trait = (overrides: Partial<BreedingScenarioTraitSpec>) => ({
+    traitId: "t1",
+    traitCode: "t1",
+    traitName: "t1",
+    unit: null,
+    direction: "higher_is_better" as const,
+    targetValue: null,
+    weight: null,
+    economicWeight: null,
+    sourceType: "WAASBY_STABILITY_PERFORMANCE" as const,
+    sourceRunId: "run-1",
+    evaluationDate: null,
+    ...overrides,
+  });
+
+  it("averages every raw observation per (candidate, trait)", () => {
+    const matrix = buildMeanPerformanceMatrixFromRows(
+      [
+        { entry_id: "G1", trait_id: "t1", value: 10 },
+        { entry_id: "G1", trait_id: "t1", value: 20 },
+        { entry_id: "G2", trait_id: "t1", value: 5 },
+      ],
+      [trait({})],
+      ["G1", "G2"],
+    );
+    expect(matrix.cells.find((c) => c.candidateId === "G1")?.value).toBeCloseTo(
+      15,
+    );
+    expect(matrix.cells.find((c) => c.candidateId === "G2")?.value).toBeCloseTo(
+      5,
+    );
+  });
+
+  it("reports a null cell (never a fabricated mean) for a candidate with zero observations for a trait", () => {
+    const matrix = buildMeanPerformanceMatrixFromRows(
+      [{ entry_id: "G1", trait_id: "t1", value: 10 }],
+      [trait({})],
+      ["G1", "G2"],
+    );
+    expect(matrix.cells.find((c) => c.candidateId === "G2")?.value).toBeNull();
+    expect(matrix.coverage.completeCandidateCount).toBe(1);
+  });
+
+  it("feeds directly into computeSelectionDifferentials, producing a sensible differential", () => {
+    const matrix = buildMeanPerformanceMatrixFromRows(
+      [
+        { entry_id: "G1", trait_id: "t1", value: 10 },
+        { entry_id: "G2", trait_id: "t1", value: 20 },
+        { entry_id: "G3", trait_id: "t1", value: 30 },
+      ],
+      [trait({ direction: "higher_is_better" })],
+      ["G1", "G2", "G3"],
+    );
+    const [row] = computeSelectionDifferentials(matrix, ["G3"]);
+    expect(row.populationMean).toBeCloseTo(20);
+    expect(row.selectedMean).toBeCloseTo(30);
+    expect(row.directionAchieved).toBe(true);
   });
 });

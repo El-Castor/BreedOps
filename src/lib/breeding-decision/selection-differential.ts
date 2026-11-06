@@ -4,7 +4,9 @@
 // model, for every selected trait - never automatically "genetic gain"
 // (task review §25).
 import type {
+  BreedingCandidateRecord,
   BreedingCandidateTraitMatrix,
+  BreedingScenarioTraitSpec,
   BreedingTraitDirection,
 } from "./types";
 import { getCell } from "./types";
@@ -100,4 +102,74 @@ export function computeSelectionDifferentials(
       directionAchieved,
     };
   });
+}
+
+/** Builds a candidate x trait matrix of per-candidate, per-trait MEAN
+ * performance from MTSI's own raw long-format observation rows (task
+ * review hardening #5) - the transparent "candidate-level mean
+ * performance used by the MTSI evidence" option the task review names
+ * explicitly, chosen over trying to extract a selection-differential-
+ * shaped quantity from metan::mtsi()/waasb()'s own return value (which
+ * exposes per-genotype index/stability scores, not a population vs.
+ * selected mean of the ORIGINAL trait units a breeder can read
+ * directly). Documented choice: a plain arithmetic mean of every
+ * available raw observation per (candidate, trait) - independent of the
+ * WAASB/MTSI R model itself, exactly the same independence MGIDI's own
+ * selection differential already has from metan::mgidi(). Reusing this
+ * matrix with the existing computeSelectionDifferentials() above is
+ * therefore correct without any new calculation logic. Never label the
+ * result genetic gain - it is a phenotypic/adjusted-entry selection
+ * differential, same discipline as every other BreedOps selection
+ * differential. */
+export function buildMeanPerformanceMatrixFromRows(
+  rows: readonly { entry_id: string; trait_id: string; value: number }[],
+  traits: readonly BreedingScenarioTraitSpec[],
+  candidateIds: readonly string[],
+): BreedingCandidateTraitMatrix {
+  const sums = new Map<string, number>();
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${row.entry_id}||${row.trait_id}`;
+    sums.set(key, (sums.get(key) ?? 0) + row.value);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const candidates: BreedingCandidateRecord[] = candidateIds.map((id) => ({
+    candidateId: id,
+    candidateCode: id,
+    candidateLabel: id,
+    candidateScientificRole: "other",
+    operationallyEliminated: false,
+  }));
+  const cells = candidateIds.flatMap((candidateId) =>
+    traits.map((trait) => {
+      const key = `${candidateId}||${trait.traitId}`;
+      const count = counts.get(key) ?? 0;
+      const mean = count > 0 ? (sums.get(key) ?? 0) / count : null;
+      return { candidateId, traitId: trait.traitId, value: mean };
+    }),
+  );
+  const missingCells = cells.filter((c) => c.value === null).length;
+  const completeCandidateCount = candidateIds.filter((id) =>
+    traits.every(
+      (t) =>
+        cells.find((c) => c.candidateId === id && c.traitId === t.traitId)
+          ?.value !== null,
+    ),
+  ).length;
+  return {
+    candidates,
+    traits: [...traits],
+    cells,
+    evidenceLevel: "ADJUSTED_ENTRY",
+    coverage: {
+      candidateCount: candidateIds.length,
+      traitCount: traits.length,
+      completeCandidateCount,
+      missingCells,
+      coverage:
+        candidateIds.length > 0
+          ? completeCandidateCount / candidateIds.length
+          : 0,
+    },
+  };
 }

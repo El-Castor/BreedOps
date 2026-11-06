@@ -9,7 +9,7 @@
 -- explicit (task review §8/§32/§50).
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(34);
+SELECT plan(38);
 
 INSERT INTO organizations(id,name,slug) VALUES
  ('e1111111-0000-0000-0000-00000000e0a1','BreedDec A','breed-dec-a'),
@@ -26,11 +26,13 @@ INSERT INTO programs(id,organization_id,code,name) VALUES
  ('e5555555-0000-0000-0000-00000000e0a2','e1111111-0000-0000-0000-00000000e0a2','BDB1','BreedDec program B1');
 INSERT INTO phenotype_traits(id,organization_id,code,name,data_type) VALUES
  ('e6666666-0000-0000-0000-00000000e0a1','e1111111-0000-0000-0000-00000000e0a1','ya','Rendement A','numeric'),
- ('e6666666-0000-0000-0000-00000000e0a2','e1111111-0000-0000-0000-00000000e0a2','yb','Rendement B','numeric');
+ ('e6666666-0000-0000-0000-00000000e0a2','e1111111-0000-0000-0000-00000000e0a2','yb','Rendement B','numeric'),
+ ('e6666666-0000-0000-0000-00000000e0a4','e1111111-0000-0000-0000-00000000e0a1','yc','Rendement C (autre trait, meme org)','numeric');
 INSERT INTO trials(id,program_id,code,name) VALUES
  ('e9999999-0000-0000-0000-00000000e0a1','e5555555-0000-0000-0000-00000000e0a1','BDT1','BreedDec Trial 1'),
  ('e9999999-0000-0000-0000-00000000e0a3','e5555555-0000-0000-0000-00000000e0a3','BDT2','BreedDec Trial on sibling program'),
- ('e9999999-0000-0000-0000-00000000e0a2','e5555555-0000-0000-0000-00000000e0a2','BDT3','BreedDec Trial B');
+ ('e9999999-0000-0000-0000-00000000e0a2','e5555555-0000-0000-0000-00000000e0a2','BDT3','BreedDec Trial B'),
+ ('e9999999-0000-0000-0000-00000000e0a4','e5555555-0000-0000-0000-00000000e0a1','BDT4','BreedDec Trial 4 (meme programme que Trial 1)');
 INSERT INTO trial_entries(id,trial_id,code,label,scientific_role) VALUES
  ('eaaaaaaa-0000-0000-0000-00000000e0a1','e9999999-0000-0000-0000-00000000e0a1','E1','Entry 1','genotype'),
  ('eaaaaaaa-0000-0000-0000-00000000e0a2','e9999999-0000-0000-0000-00000000e0a1','E2','Entry 2','genotype');
@@ -168,6 +170,46 @@ SELECT throws_ok(
   $$INSERT INTO breeding_decision_scenario_traits(scenario_id,trait_id,direction,source_type) VALUES ('ebbbbbbb-0000-0000-0000-00000000e0a2','e6666666-0000-0000-0000-00000000e0a2','higher_is_better','RAW_PHENOTYPIC')$$,
   '42501', NULL, 'a user cannot write a trait row for another organization''s scenario, even knowing its id and using an internally-consistent (same-org) trait'
 );
+
+-- ───────── Scenario trait source_run_id: trial/trait/analysis_type
+-- hardening (independent review, migration 000034) - a source run must
+-- match the scenario trait's own trial AND exact trait, and must itself
+-- be a multi_environment run; cross-program alone (tested above) is not
+-- enough. ─────────
+RESET ROLE;
+-- The scenario trait under test here uses trait yc (e0a4) - NOT ya
+-- (e0a1), which this same scenario already has a row for (test #9
+-- above) and would otherwise collide on UNIQUE(scenario_id, trait_id).
+INSERT INTO analytics_runs(
+  id, organization_id, program_id, trait_id, analysis_type, trial_id, specification, dataset_fingerprint, status, engine_name, engine_version, created_by
+) VALUES
+ ('ef000001-0000-0000-0000-00000000e0a1','e1111111-0000-0000-0000-00000000e0a1','e5555555-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a1',
+  'multi_environment','e9999999-0000-0000-0000-00000000e0a1','{}'::jsonb,repeat('1',64),'completed','breedops-r-mixed-models','1.0.0','e3333333-0000-0000-0000-00000000e0a1'),
+ ('ef000002-0000-0000-0000-00000000e0a1','e1111111-0000-0000-0000-00000000e0a1','e5555555-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4',
+  'multi_environment','e9999999-0000-0000-0000-00000000e0a4','{}'::jsonb,repeat('2',64),'completed','breedops-r-mixed-models','1.0.0','e3333333-0000-0000-0000-00000000e0a1'),
+ ('ef000003-0000-0000-0000-00000000e0a1','e1111111-0000-0000-0000-00000000e0a1','e5555555-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4',
+  'trait_intelligence',NULL,'{}'::jsonb,repeat('3',64),'completed','breedops-ts-stats','1.0.0','e3333333-0000-0000-0000-00000000e0a1'),
+ ('ef000004-0000-0000-0000-00000000e0a1','e1111111-0000-0000-0000-00000000e0a1','e5555555-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4',
+  'multi_environment','e9999999-0000-0000-0000-00000000e0a1','{}'::jsonb,repeat('4',64),'completed','breedops-r-mixed-models','1.0.0','e3333333-0000-0000-0000-00000000e0a1');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','e2222222-0000-0000-0000-00000000e0a1',true);
+
+SELECT throws_ok(
+  $$INSERT INTO breeding_decision_scenario_traits(scenario_id,trait_id,direction,source_type,source_run_id) VALUES ('ebbbbbbb-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4','higher_is_better','MET_ENTRY_PREDICTION','ef000001-0000-0000-0000-00000000e0a1')$$,
+  '23514', NULL, 'source_run_id computed for a DIFFERENT trait in the same trial is rejected, even same program/org'
+);
+SELECT throws_ok(
+  $$INSERT INTO breeding_decision_scenario_traits(scenario_id,trait_id,direction,source_type,source_run_id) VALUES ('ebbbbbbb-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4','higher_is_better','MET_ENTRY_PREDICTION','ef000002-0000-0000-0000-00000000e0a1')$$,
+  '23514', NULL, 'source_run_id computed for a DIFFERENT trial in the same program is rejected, even with the right trait'
+);
+SELECT throws_ok(
+  $$INSERT INTO breeding_decision_scenario_traits(scenario_id,trait_id,direction,source_type,source_run_id) VALUES ('ebbbbbbb-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4','higher_is_better','MET_ENTRY_PREDICTION','ef000003-0000-0000-0000-00000000e0a1')$$,
+  '23514', NULL, 'a non-multi_environment source_run_id is rejected, even with the right trait and no trial'
+);
+INSERT INTO breeding_decision_scenario_traits(scenario_id,trait_id,direction,source_type,source_run_id) VALUES
+ ('ebbbbbbb-0000-0000-0000-00000000e0a1','e6666666-0000-0000-0000-00000000e0a4','higher_is_better','MET_ENTRY_PREDICTION','ef000004-0000-0000-0000-00000000e0a1');
+SELECT pass('a source_run_id matching the scenario trait''s own program/trial/trait and analysis_type=multi_environment is accepted');
+DELETE FROM breeding_decision_scenario_traits WHERE scenario_id='ebbbbbbb-0000-0000-0000-00000000e0a1' AND trait_id='e6666666-0000-0000-0000-00000000e0a4';
 
 -- ───────── analytics_runs: breeding_decision analysis type ─────────
 INSERT INTO analytics_runs(
