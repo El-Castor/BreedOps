@@ -45,6 +45,7 @@ export default async function ProtectedLayout({
         teamName: teamNameById.get(item.organization_id) ?? "—",
       }))}
       identity={{
+        profileId: profile.id,
         displayName:
           profile.display_name || user.email || "Utilisateur BreedOps",
         email: user.email || "",

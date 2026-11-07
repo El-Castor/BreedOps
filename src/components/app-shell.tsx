@@ -4,13 +4,16 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
+import { LogoutForm } from "@/components/logout-guard";
 import { NotificationCenter } from "@/components/notification-center";
+import { OfflineIndicator } from "@/components/offline-indicator";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { NotificationItem } from "@/lib/notifications/service";
 
 type Role = "system_admin" | "team_admin" | "user";
 
 type Identity = {
+  profileId: string;
   displayName: string;
   email: string;
   role: Role;
@@ -40,6 +43,7 @@ const groups: { label: string; items: [string, string, IconName][] }[] = [
       ["/app/phenotypes", "Phénotypes", "phenotype"],
       ["/app/trials", "Essais multi-environnements", "trial"],
       ["/app/analytics", "Analytique", "analytics"],
+      ["/app/field-packs", "Terrain", "offline"],
     ],
   },
   {
@@ -64,6 +68,7 @@ const programScoped = new Set([
   "/app/operations",
   "/app/import-export",
   "/app/analytics",
+  "/app/field-packs",
 ]);
 
 const collapseKey = "breedops-sidebar";
@@ -245,6 +250,7 @@ export function AppShell({
             <span className="header-team">{identity.teamName}</span>
           )}
           <div className="header-spacer" />
+          <OfflineIndicator profileId={identity.profileId} />
           <NotificationCenter
             items={notifications.items}
             unreadCount={notifications.unreadCount}
@@ -280,12 +286,7 @@ export function AppShell({
                   Administration
                 </Link>
               )}
-              <form action="/auth/logout" method="post">
-                <button className="menu-action">
-                  <Icon name="logout" />
-                  Déconnexion
-                </button>
-              </form>
+              <LogoutForm profileId={identity.profileId} />
             </div>
           </details>
         </header>

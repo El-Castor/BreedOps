@@ -30,6 +30,8 @@
     ".beads",
     ".beads.backup-20260827",
     ".serena",
-    "analytics-r"
+    "analytics-r",
+    "src/app/sw.ts",
+    "public/sw.js"
   ]
 }

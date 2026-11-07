@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" package.json eslint.config.js",
     "test": "vitest run",
-    "test:unit": "vitest run tests/auth.test.ts tests/request-security.test.ts tests/security-headers.test.ts tests/query-state.test.ts tests/user-management.test.ts tests/media.test.ts tests/import-export.test.ts tests/import-export-export.test.ts tests/instrumentation.test.ts tests/health.test.ts tests/qr-payload.test.ts tests/media-temporal.test.ts tests/media-annotation-validation.test.ts tests/analytics-stats.test.ts tests/analytics-icc.test.ts tests/analytics-fingerprint.test.ts tests/analytics-longitudinal.test.ts tests/met-dataset.test.ts tests/met-eligibility.test.ts tests/met-model-eligibility.test.ts tests/met-occasion-eligibility.test.ts tests/met-r-env.test.ts tests/met-rank-stability.test.ts tests/breeding-decision-types.test.ts tests/breeding-decision-selection-differential.test.ts tests/breeding-decision-method-comparison.test.ts tests/breeding-decision-eligibility.test.ts tests/breeding-decision-genetic-validity.test.ts",
+    "test:unit": "vitest run tests/auth.test.ts tests/request-security.test.ts tests/security-headers.test.ts tests/query-state.test.ts tests/user-management.test.ts tests/media.test.ts tests/import-export.test.ts tests/import-export-export.test.ts tests/instrumentation.test.ts tests/health.test.ts tests/qr-payload.test.ts tests/media-temporal.test.ts tests/media-annotation-validation.test.ts tests/analytics-stats.test.ts tests/analytics-icc.test.ts tests/analytics-fingerprint.test.ts tests/analytics-longitudinal.test.ts tests/met-dataset.test.ts tests/met-eligibility.test.ts tests/met-model-eligibility.test.ts tests/met-occasion-eligibility.test.ts tests/met-r-env.test.ts tests/met-rank-stability.test.ts tests/breeding-decision-types.test.ts tests/breeding-decision-selection-differential.test.ts tests/breeding-decision-method-comparison.test.ts tests/breeding-decision-eligibility.test.ts tests/breeding-decision-genetic-validity.test.ts tests/offline-db.test.ts tests/offline-pack-builder.test.ts tests/offline-outbox.test.ts tests/offline-trait-validation.test.ts tests/offline-sync-engine.test.ts tests/offline-outbox-summary.test.ts tests/offline-storage-status.test.ts tests/offline-qr-resolve.test.ts",
     "test:auth": "vitest run tests/auth.integration.test.ts",
     "test:breeding": "vitest run tests/breeding.integration.test.ts",
     "test:phenotypes": "vitest run tests/phenotypes.integration.test.ts",
@@ -21,9 +21,11 @@
     "test:trait-analytics-integration": "vitest run tests/trait-analytics.integration.test.ts",
     "test:multi-environment-integration": "vitest run tests/multi-environment.integration.test.ts",
     "test:breeding-decision-integration": "vitest run tests/breeding-decision.integration.test.ts",
+    "test:offline-sync-integration": "vitest run tests/offline-sync.integration.test.ts",
     "test:met-r-env": "vitest run tests/met-r-env.integration.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
+    "typecheck:worker": "tsc --noEmit -p tsconfig.worker.json",
     "local:configure": "node scripts/configure-local.mjs",
     "local:provision-admin": "node scripts/provision-first-admin.mjs",
     "local:reset-password": "node scripts/reset-local-password.mjs",
@@ -36,6 +38,7 @@
     "test:trait-analytics": "node scripts/test-rls.mjs tests/trait-analytics.sql",
     "test:multi-environment": "node scripts/test-rls.mjs tests/multi-environment.sql",
     "test:breeding-decision": "node scripts/test-rls.mjs tests/breeding-decision.sql",
+    "test:offline-sync": "node scripts/test-rls.mjs tests/offline-sync.sql",
     "test:legacy-met-mapping": "node scripts/test-rls.mjs tests/legacy-met-mapping.sql",
     "test:met-import": "node scripts/test-rls.mjs tests/met-import.sql",
     "test:workflows": "node scripts/test-rls.mjs tests/experimental-workflows.sql",
@@ -56,7 +59,18 @@
     "test:coverage": "vitest --coverage"
   },
   "overrides": {
-    "postcss": "^8.5.23"
+    "postcss": "^8.5.23",
+    "@serwist/next": {
+      "zod": "4.6.7",
+      "glob": "14.0.4"
+    },
+    "@serwist/build": {
+      "zod": "4.6.7",
+      "glob": "14.0.4"
+    },
+    "@serwist/webpack-plugin": {
+      "zod": "4.6.7"
+    }
   },
   "dependencies": {
     "@hookform/resolvers": "3.4.2",
@@ -65,6 +79,7 @@
     "@tanstack/react-table": "8.17.0",
     "date-fns": "3.6.0",
     "exceljs": "4.4.0",
+    "idb": "8.0.4",
     "lucide-react": "1.52.0",
     "next": "15.5.28",
     "qrcode": "1.5.4",
@@ -73,12 +88,14 @@
     "react-hook-form": "7.87.0",
     "recharts": "3.10.1",
     "server-only": "0.0.1",
+    "serwist": "9.5.13",
     "tailwindcss": "3.4.4",
     "typescript": "5.5.4",
     "zod": "3.23.8"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@serwist/next": "9.5.13",
     "@types/node": "20.19.0",
     "@types/qrcode": "1.5.6",
     "@types/react": "18.3.3",
@@ -86,6 +103,7 @@
     "@vitest/coverage-v8": "4.1.11",
     "eslint": "9.39.1",
     "eslint-config-next": "15.5.25",
+    "fake-indexeddb": "6.2.7",
     "jsdom": "24.1.1",
     "prettier": "3.3.2",
     "supabase": "2.121.0",

@@ -28,6 +28,13 @@ function scan(path) {
   }
 }
 scan(".next/static");
+// The service worker (V2-07) is a client-served build artifact outside
+// .next/static - it never references server secrets, but it ships straight
+// to the browser like any other client asset, so it gets the same check.
+for (const swFile of readdirSync("public")) {
+  if (!/^(sw|swe-worker-)/.test(swFile) || !swFile.endsWith(".js")) continue;
+  if (readFileSync(join("public", swFile)).includes(secret)) matches.push(join("public", swFile));
+}
 if (matches.length) {
   console.error(`Server credential found in ${matches.length} client artifact(s).`);
   process.exit(1);

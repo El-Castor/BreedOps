@@ -1,5 +1,6 @@
 import "server-only";
 import { redirect } from "next/navigation";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/server";
 import { z } from "zod";
 
@@ -11,13 +12,32 @@ const profileSchema = z.object({
   display_name: z.string().nullable(),
 });
 
-export async function requireIdentity() {
+interface ResolvedIdentity {
+  client: Awaited<ReturnType<typeof createClient>>;
+  user: User;
+  profile: z.infer<typeof profileSchema>;
+  team: { id: string; name: string };
+}
+
+/** Same resolution `requireIdentity()` performs, but returns a discriminated
+ * result instead of calling `redirect()` - `redirect()` throws a Next.js
+ * page/server-action-specific signal that is the wrong contract for a JSON
+ * API route handler (src/app/api/offline-sync/route.ts), which must return
+ * a structured AUTH_REQUIRED response of its own instead. Pages and server
+ * actions should keep using `requireIdentity()` below; this is for route
+ * handlers only. `reason` mirrors the two distinct redirect cases
+ * `requireIdentity()` already made (no session vs. no active membership) so
+ * a caller can tell them apart without duplicating the lookup. */
+export async function resolveIdentity(): Promise<
+  | ({ ok: true } & ResolvedIdentity)
+  | { ok: false; reason: "unauthenticated" | "membership" }
+> {
   const client = await createClient();
   const {
     data: { user },
     error,
   } = await client.auth.getUser();
-  if (error || !user) redirect("/login");
+  if (error || !user) return { ok: false, reason: "unauthenticated" };
   const { data } = await client
     .from("profiles")
     .select("id,user_id,organization_id,role,display_name")
@@ -26,15 +46,30 @@ export async function requireIdentity() {
     .is("deleted_at", null)
     .maybeSingle();
   const parsed = profileSchema.safeParse(data);
-  if (!parsed.success) redirect("/login?error=membership");
+  if (!parsed.success) return { ok: false, reason: "membership" };
   const { data: team } = await client
     .from("organizations")
     .select("id,name")
     .eq("id", parsed.data.organization_id)
     .is("deleted_at", null)
     .maybeSingle();
-  if (!team) redirect("/login?error=membership");
-  return { client, user, profile: parsed.data, team };
+  if (!team) return { ok: false, reason: "membership" };
+  return { ok: true, client, user, profile: parsed.data, team };
+}
+
+export async function requireIdentity(): Promise<ResolvedIdentity> {
+  const identity = await resolveIdentity();
+  if (!identity.ok) {
+    redirect(
+      identity.reason === "membership" ? "/login?error=membership" : "/login",
+    );
+  }
+  return {
+    client: identity.client,
+    user: identity.user,
+    profile: identity.profile,
+    team: identity.team,
+  };
 }
 
 export async function requireAdministrator() {

@@ -62,12 +62,23 @@ type AxeResults = {
   violations: { id: string; impact: string; help: string; nodes: unknown[] }[];
 };
 
-async function runAxe(page: import("@playwright/test").Page): Promise<AxeResults> {
+async function runAxe(
+  page: import("@playwright/test").Page,
+): Promise<AxeResults> {
   await page.addScriptTag({ content: axeSource });
   return page.evaluate(async () => {
-    const globalAxe = (globalThis as unknown as { axe: { run: (context: Document, options: unknown) => Promise<AxeResults> } }).axe;
+    const globalAxe = (
+      globalThis as unknown as {
+        axe: {
+          run: (context: Document, options: unknown) => Promise<AxeResults>;
+        };
+      }
+    ).axe;
     return await globalAxe.run(document, {
-      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+      runOnly: {
+        type: "tag",
+        values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"],
+      },
     });
   });
 }
@@ -78,13 +89,17 @@ function describeViolations(results: AxeResults) {
     .join("\n");
 }
 
-test("login page has no automated accessibility violations", async ({ page }) => {
+test("login page has no automated accessibility violations", async ({
+  page,
+}) => {
   await page.goto("/login");
   const results = await runAxe(page);
   expect(results.violations, describeViolations(results)).toHaveLength(0);
 });
 
-test("dashboard has no automated accessibility violations", async ({ page }) => {
+test("dashboard has no automated accessibility violations", async ({
+  page,
+}) => {
   await page.goto("/login");
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', password);
@@ -92,6 +107,43 @@ test("dashboard has no automated accessibility violations", async ({ page }) => 
     page.waitForURL(/\/app/),
     page.click('button[type="submit"]'),
   ]);
+  const results = await runAxe(page);
+  expect(results.violations, describeViolations(results)).toHaveLength(0);
+});
+
+// V2-07 §41: offline/online state must not be conveyed by color alone, and
+// the install/offline surfaces must stay keyboard-/screen-reader-usable
+// like the rest of the app - covered here rather than assumed from the
+// pages above, since /field and /offline sit outside the normal app shell
+// entirely (no nav, no header) and could easily have been built without
+// their accessibility baseline.
+test("offline pack management screen has no automated accessibility violations", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.fill('input[name="email"]', email);
+  await page.fill('input[name="password"]', password);
+  await Promise.all([
+    page.waitForURL(/\/app/),
+    page.click('button[type="submit"]'),
+  ]);
+  await page.goto("/app/field-packs");
+  const results = await runAxe(page);
+  expect(results.violations, describeViolations(results)).toHaveLength(0);
+});
+
+test("the offline fallback page has no automated accessibility violations", async ({
+  page,
+}) => {
+  await page.goto("/offline");
+  const results = await runAxe(page);
+  expect(results.violations, describeViolations(results)).toHaveLength(0);
+});
+
+test("the field workspace (empty state) has no automated accessibility violations", async ({
+  page,
+}) => {
+  await page.goto("/field");
   const results = await runAxe(page);
   expect(results.violations, describeViolations(results)).toHaveLength(0);
 });
