@@ -103,6 +103,36 @@ Ne jamais tester une restauration contre l'instance réelle/retenue — toujours
 | Connexion refusée après plusieurs essais corrects | Limitation des tentatives de connexion encore active (§5) | Attendre le délai indiqué, ou vérifier `auth_rate_limits` en base si besoin d'une levée manuelle exceptionnelle |
 | Upload d'image rejeté avec un message de format | Fichier non JPEG/PNG/WebP réel (le serveur vérifie le contenu, pas seulement l'extension) ou dépassant 10 Mo | Attendu — vérifier le fichier source |
 | `npm run db:migrate` échoue | Migration en conflit avec l'état réel de la base | Ne pas réessayer en boucle ; inspecter manuellement l'état (`supabase migration list --local`) avant toute action corrective |
+| Un utilisateur signale des évaluations de terrain « bloquées » en attente | Appareil resté hors ligne, session expirée, ou configuration de traits modifiée depuis la préparation du pack | Demander à l'utilisateur de rouvrir **Terrain** en ligne — un bandeau explique la cause exacte (reconnexion requise, conflit de configuration) ; voir §12bis |
+| Installation de l'application (PWA) impossible pour un utilisateur distant | Accès servi en `http://` sans TLS — le service worker exige un contexte sécurisé | Mettre en place un reverse proxy TLS (`docs/REMOTE_ACCESS.md`, `docs/DEPLOYMENT_GUIDE.md` §« Service worker et mode hors ligne ») ; le reste de l'application fonctionne normalement sans cela |
+
+## 12bis. Mode hors ligne et synchronisation de terrain (V2-07)
+
+Document complet : `docs/OFFLINE_PWA.md`. Les évaluations saisies hors
+ligne sont **exclusivement** créées via `submit_offline_phenotype_evaluation()`
+(migration `000035`), qui délègue inconditionnellement à
+`submit_trait_evaluation()` — aucune règle de validation distincte,
+aucun contournement possible. Chaque opération de synchronisation est
+tracée dans `offline_sync_receipts` (table en lecture seule pour les
+utilisateurs de l'organisation, jamais modifiable depuis l'application) :
+en cas de doute sur une synchronisation, cette table fait foi.
+
+Points d'attention pour l'administrateur :
+
+- Une évaluation hors ligne n'est **jamais dupliquée**, même après
+  plusieurs tentatives réseau échouées — l'identifiant d'opération généré
+  par l'appareil garantit l'unicité côté serveur.
+- Les données hors ligne (IndexedDB) vivent **uniquement sur l'appareil**
+  de l'utilisateur, jamais sur le serveur avant synchronisation réussie —
+  il n'existe aucune commande administrateur pour inspecter ou effacer à
+  distance la file d'un utilisateur. La déconnexion de l'application
+  bloque par défaut tant que des évaluations restent en attente (voir
+  `docs/OFFLINE_PWA.md` §13) — c'est la seule garantie contre une perte de
+  données, pas une action administrateur.
+- Un appareil perdu ou volé contenant des évaluations non synchronisées
+  représente une perte de données **locale**, pas une fuite de sécurité :
+  aucun jeton d'authentification ni secret n'est jamais stocké dans
+  IndexedDB (`docs/OFFLINE_PWA.md` §13).
 
 ## 12. Stockage des médias (Plant Media)
 

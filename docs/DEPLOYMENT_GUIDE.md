@@ -242,3 +242,35 @@ les étapes 3 et 4 ci-dessus en plus de la mise à niveau habituelle de l'applic
 ## Sécurité réseau (les deux options)
 
 Ce guide ne configure **aucun accès réseau externe** — ni reverse proxy, ni TLS, ni VPN. Voir `docs/REMOTE_ACCESS.md` pour la comparaison des approches et la recommandation, à mettre en place séparément et volontairement par l'utilisateur. Par défaut, dans les deux options ci-dessus, le serveur Next.js écoute sur `127.0.0.1` uniquement (jamais `0.0.0.0`) — il n'est donc **pas** atteignable depuis le réseau tant qu'aucun reverse proxy n'est explicitement configuré devant lui.
+
+## Service worker et mode hors ligne (V2-07)
+
+Document complet : `docs/OFFLINE_PWA.md`. Le service worker (installation
+de l'application, saisie de terrain hors ligne) **exige un contexte
+sécurisé** : `https://` pour tout accès distant, ou `http://localhost`/
+`http://127.0.0.1` uniquement en local. Les navigateurs refusent purement
+et simplement d'enregistrer un service worker sur `http://` dès que
+l'origine n'est pas `localhost` — ce n'est pas une option BreedOps, c'est
+une restriction du navigateur. Concrètement :
+
+- **Accès local uniquement** (reverse proxy non configuré, § ci-dessus) :
+  fonctionne tel quel, `http://127.0.0.1` est un contexte sécurisé par
+  définition.
+- **Accès distant** (Mac mini pilote, futur hôte Linux, déploiement
+  INRAE) : nécessite un reverse proxy TLS devant Next.js
+  (`docs/REMOTE_ACCESS.md`) avant que l'installation PWA et la saisie hors
+  ligne ne fonctionnent pour les utilisateurs distants. Sans TLS, le reste
+  de l'application continue de fonctionner normalement — seules
+  l'installation PWA et la capacité hors ligne sont indisponibles.
+
+Le service worker n'est **jamais** actif en mode développement
+(`npm run dev`) — seul un build de production (`npm run build` puis
+`npm run start`) l'enregistre. Après une mise à niveau qui modifie
+`src/app/sw.ts` ou tout fichier précaché, aucune action manuelle n'est
+requise : les utilisateurs déjà installés voient une bannière « Nouvelle
+version disponible » et choisissent eux-mêmes le moment de la mise à jour
+— jamais un rechargement forcé qui pourrait interrompre une saisie en
+cours. La politique de cache n'ajoute et n'élargit **aucune** source `*`
+dans la CSP existante (`next.config.mjs`) : seul `worker-src 'self'` a été
+ajouté, strictement nécessaire à l'enregistrement du service worker
+lui-même ; `connect-src`/`img-src`/`script-src` restent inchangés.

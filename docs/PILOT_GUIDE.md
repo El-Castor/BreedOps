@@ -290,6 +290,44 @@ ensembles sélectionnés) — par exemple deux scénarios ne différant que par 
 sélection — pour évaluer la stabilité d'une décision sans relancer de calcul. Comme pour les
 autres analyses, chaque exécution reste reproductible et exportable (CSV/JSON).
 
+## Mode terrain hors ligne (PWA)
+
+Document complet : `docs/OFFLINE_PWA.md`. BreedOps peut être installé comme
+application (icône sur l'écran d'accueil, bouton « Installer » du
+navigateur) et reste utilisable pour la saisie de terrain **sans
+connexion réseau**, dans un périmètre volontairement restreint : seule la
+saisie d'évaluations phénotypiques fonctionne hors ligne, jamais
+l'administration, les analyses statistiques ou les décisions de sélection.
+
+**Avant d'aller sur le terrain** (en ligne) : ouvrez **Terrain** dans le
+menu, choisissez un essai et cliquez « Rendre disponible hors ligne ». La
+liste des phénotypes et les traits actifs de cet essai sont alors
+enregistrés sur l'appareil. Un indicateur dans l'en-tête de l'application
+affiche le nombre d'évaluations en attente de synchronisation dès qu'une
+activité hors ligne existe.
+
+**Sur le terrain** (hors ligne ou en ligne) : ouvrez **Terrain**, cherchez
+un phénotype par code/libellé ou collez le lien d'un code QR scanné avec
+l'appareil photo du téléphone (BreedOps n'intègre pas de scanner — scannez
+avec l'appareil photo, puis collez le lien obtenu). Saisissez l'évaluation
+comme d'habitude et validez « Enregistrer » : elle est conservée localement
+immédiatement, même sans réseau.
+
+**Au retour du réseau** : la synchronisation se déclenche automatiquement
+(au retour de la connexion, à l'ouverture de l'application, ou via le
+bouton « Synchroniser maintenant »). Chaque évaluation n'est jamais
+enregistrée deux fois, même après une coupure ou une nouvelle tentative. En
+cas de conflit (configuration des traits modifiée entre-temps, session
+expirée, phénotype archivé), l'évaluation reste visible et n'est **jamais
+effacée silencieusement** — un message explique la situation et propose de
+réessayer ou d'abandonner explicitement.
+
+**Avant de vous déconnecter** : si des évaluations ne sont pas encore
+synchronisées, la déconnexion est bloquée par défaut et vous invite à
+synchroniser d'abord. Un appareil partagé entre plusieurs utilisateurs
+reste sûr : les données hors ligne d'un compte ne sont jamais visibles
+pour un autre compte sur le même appareil.
+
 ## Inventory
 
 Open **Inventaire**, create an article, then create a lot with an initial receipt.

@@ -447,3 +447,43 @@ selected it ("Sélectionné par MGIDI") via the same `StatusBadge` component
 used for every other status flag in BreedOps — never a distinct "AI
 recommendation" visual treatment (see `docs/BREEDING_DECISION_
 ANALYTICS.md` §10: no opaque AI recommendation, ever).
+
+## 22. Offline / PWA (V2-07)
+
+Full behavioral documentation: `docs/OFFLINE_PWA.md`. Two of this
+milestone's three new routes (`/field`, `/offline`) sit entirely **outside**
+the authenticated app shell (no sidebar, no header, no `AppShell` at all,
+since they must render with zero network and no live session) — they reuse
+`Card`/`EmptyState`/`StatusBadge` from `@/components/ui` for visual
+consistency with the rest of the app, but their own page chrome is a
+minimal centered `.offline-shell`/`.offline-card` (also the base for the
+`/field` container), never a second design language for "the offline
+version of the app". `/app/field-packs`, by contrast, lives fully inside
+the normal app shell like any other authenticated page.
+
+**Status indication never relies on color alone** (V2-07 §41): every
+`.status-dot` (online/offline, syncing, conflict) is always paired with
+text stating the same state in words, never a bare colored dot. Five
+semantic variants share the one `.status-dot` base — `-ok` (success),
+`-warn` (pending), `-danger` (conflict), `-info`, and `-syncing` (a pulsing
+animation, suppressed under `prefers-reduced-motion: reduce`). The
+app-header's `OfflineIndicator` reuses the same dot + `StatusBadge`-style
+pill language as the field workspace's own status line, so "pending" and
+"conflict" look and read identically everywhere they appear.
+
+The outbox list (`.outbox-entry`, `.outbox-entry-header`) follows §8's data
+honesty principle applied to sync state: a scientific code is always the
+primary label, never a bare operation UUID, and a conflict/error message
+is always shown as plain text next to the entry it belongs to — never a
+tooltip-only explanation. The pack-management and discard/logout
+confirmation dialogs (`.field-pack-confirm`) reuse the same pattern as
+every other destructive-action confirmation in the app (red border,
+`--danger-soft` background, an explicit secondary "Annuler"), so a
+destructive offline-data action never looks different from, say, deleting
+a breeding record elsewhere in BreedOps.
+
+The service-worker update banner (`.sw-update-banner`) is the one
+genuinely new top-level chrome element this milestone adds: a sticky,
+dismissible bar above the page content, shown only when a new version is
+actually waiting — never a blocking modal, since updating is always the
+user's own choice (§14 of `docs/OFFLINE_PWA.md`).
