@@ -1,0 +1,495 @@
+"use server";
+
+import { z } from "zod";
+import {
+  actionError,
+  actionSuccess,
+  type ActionState,
+} from "@/lib/action-state";
+import { requireIdentity } from "@/lib/auth";
+import {
+  buildMetObservationDataset,
+  toMetFingerprintRows,
+} from "@/lib/met/dataset";
+import {
+  evaluateMetModelEligibility,
+  evaluateMetOccasionEligibility,
+} from "@/lib/met/eligibility";
+import {
+  runMetAmmiModel,
+  runMetBaseModel,
+  runMetFinlayWilkinsonModel,
+  runMetGgeModel,
+  runMetWaasbModel,
+  type MetModelRow,
+} from "@/lib/met/r-runner";
+import { datasetFingerprint } from "@/lib/analytics/fingerprint";
+import type { MetObservationRecord } from "@/lib/met/types";
+import { parseCsv } from "@/lib/import-export/csv";
+import { IMPORT_LIMITS, assertUploadSize } from "@/lib/import-export/limits";
+import { metRunInputFromFormData, type MetRunInput } from "./met-filters";
+
+function toMetModelRows(rows: MetObservationRecord[]): MetModelRow[] {
+  return rows.map((row) => ({
+    entry_id: row.entryId,
+    environment_id: row.environmentId,
+    block: row.block,
+    value: row.numericValue,
+  }));
+}
+
+/** Caps what ever gets persisted into analytics_runs.result: a compact
+ * summary, never the full per-row model output - mirrors
+ * summarizeForStorage() in ./actions.ts. Migration 000027's own size CHECK
+ * (<=200000 bytes) is the hard backstop; this stays well under it by
+ * bounding every array, same as the V2-04 convention. */
+function summarizeMetResultForStorage(
+  modelType: MetRunInput["modelType"],
+  result:
+    | Awaited<ReturnType<typeof runMetBaseModel>>
+    | Awaited<ReturnType<typeof runMetAmmiModel>>
+    | Awaited<ReturnType<typeof runMetWaasbModel>>
+    | Awaited<ReturnType<typeof runMetFinlayWilkinsonModel>>
+    | Awaited<ReturnType<typeof runMetGgeModel>>,
+): Record<string, unknown> {
+  if (result.status !== "ok") {
+    return {
+      model_type: modelType,
+      status: result.status,
+      message: result.message,
+    };
+  }
+  if (modelType === "met_base_v1" && "variance_components" in result.data) {
+    return {
+      model_type: modelType,
+      engine: result.data.engine,
+      model: result.data.model,
+      replication: result.data.replication,
+      variance_components: result.data.variance_components,
+      fixed_effects_environment: result.data.fixed_effects_environment.slice(
+        0,
+        200,
+      ),
+      entry_predictions: result.data.entry_predictions.slice(0, 500),
+      entry_environment_predictions:
+        result.data.entry_environment_predictions.slice(0, 1000),
+    };
+  }
+  if (modelType === "met_ammi_v1" && "principal_components" in result.data) {
+    return {
+      model_type: modelType,
+      engine: result.data.engine,
+      model: result.data.model,
+      principal_components: result.data.principal_components.slice(0, 50),
+      genotype_scores: result.data.genotype_scores.slice(0, 500),
+      environment_scores: result.data.environment_scores.slice(0, 200),
+    };
+  }
+  if (modelType === "met_gge_v1" && "grand_mean" in result.data) {
+    return {
+      model_type: modelType,
+      engine: result.data.engine,
+      model: result.data.model,
+      grand_mean: result.data.grand_mean,
+      principal_components: result.data.principal_components.slice(0, 50),
+      genotype_scores: result.data.genotype_scores.slice(0, 500),
+      environment_scores: result.data.environment_scores.slice(0, 200),
+    };
+  }
+  if (
+    (modelType === "met_waasb_v1" || modelType === "met_finlay_wilkinson_v1") &&
+    "entries" in result.data
+  ) {
+    return {
+      model_type: modelType,
+      engine: result.data.engine,
+      model: result.data.model,
+      entries: result.data.entries.slice(0, 500),
+    };
+  }
+  return {
+    model_type: modelType,
+    status: "error",
+    message: "Unrecognized model result shape.",
+  };
+}
+
+/** Form-action entry point (B17-B18): fetches the canonical MET dataset
+ * for one trial/trait, runs the eligibility gate BEFORE ever invoking the
+ * R engine, and persists the outcome into the existing analytics_runs
+ * table with analysis_type='multi_environment' - never a parallel
+ * provenance system. A NOT_ESTIMABLE verdict is saved exactly like a
+ * successful run (same table, same fingerprint, status='not_estimable'):
+ * it is a correct, reproducible result, not a failure to hide. */
+export async function createMetAnalysisRun(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const input = metRunInputFromFormData(form);
+    const { client, profile } = await requireIdentity();
+
+    // Stage A ("discovery"): every dated evaluation for this trial/trait,
+    // unfiltered - the only way to detect whether the same phenotype has
+    // 2+ distinct evaluation dates (B-review blocker #3). Never fed to a
+    // model directly: see the occasion check right below.
+    const discovery = await buildMetObservationDataset(client, {
+      trialId: input.trialId,
+      traitId: input.traitId,
+      includeArchived: false,
+      evaluationDate: null,
+    });
+    if (discovery.tooLarge) {
+      return actionError(
+        new Error("met dataset too large"),
+        "Le jeu de données de cet essai dépasse la taille d’analyse prise en charge.",
+      );
+    }
+
+    const startedAt = new Date().toISOString();
+    const specification = {
+      trialId: input.trialId,
+      traitId: input.traitId,
+      modelType: input.modelType,
+      performanceWeight: input.performanceWeight,
+      evaluationDate: input.evaluationDate,
+    };
+
+    const occasion = evaluateMetOccasionEligibility(
+      discovery.rows,
+      input.evaluationDate,
+    );
+    if (!occasion.eligible) {
+      const fingerprint = datasetFingerprint(
+        toMetFingerprintRows(discovery.rows, input.traitId),
+      );
+      const { error } = await client.from("analytics_runs").insert({
+        program_id: input.programId,
+        trait_id: input.traitId,
+        trial_id: input.trialId,
+        analysis_type: "multi_environment",
+        spec_version: "1",
+        specification,
+        dataset_fingerprint: fingerprint,
+        status: "not_estimable",
+        result: {
+          model_type: input.modelType,
+          eligibility: { eligible: false, reasons: occasion.reasons },
+          available_evaluation_dates: occasion.availableDates,
+        },
+        n_observations: discovery.rows.length,
+        engine_name: "breedops-met-eligibility",
+        engine_version: "1.0.0",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        created_by: profile.id,
+      });
+      if (error) throw error;
+      return actionSuccess(
+        "Analyse enregistrée : NOT_ESTIMABLE. Sélectionnez une occasion de mesure (date) - les raisons détaillées sont disponibles dans l’historique.",
+      );
+    }
+
+    // Stage B: either there is only one coherent occasion already (no
+    // refetch needed - `discovery` already is that one dataset), or the
+    // user explicitly selected one, in which case it must be re-fetched
+    // with the date filter applied server-side in SQL (migration 000031),
+    // never by filtering `discovery.rows` in TypeScript after the fact -
+    // that would reuse a row cap computed over every date pooled
+    // together, not over the occasion actually analyzed.
+    const dataset = input.evaluationDate
+      ? await buildMetObservationDataset(client, {
+          trialId: input.trialId,
+          traitId: input.traitId,
+          includeArchived: false,
+          evaluationDate: input.evaluationDate,
+        })
+      : discovery;
+    if (dataset.tooLarge) {
+      return actionError(
+        new Error("met dataset too large"),
+        "Le jeu de données de cet essai dépasse la taille d’analyse prise en charge.",
+      );
+    }
+
+    const fingerprint = datasetFingerprint(
+      toMetFingerprintRows(dataset.rows, input.traitId),
+    );
+
+    const eligibility = evaluateMetModelEligibility(
+      input.modelType,
+      dataset.rows,
+    );
+    if (!eligibility.eligible) {
+      const { error } = await client.from("analytics_runs").insert({
+        program_id: input.programId,
+        trait_id: input.traitId,
+        trial_id: input.trialId,
+        analysis_type: "multi_environment",
+        spec_version: "1",
+        specification,
+        dataset_fingerprint: fingerprint,
+        status: "not_estimable",
+        result: { model_type: input.modelType, eligibility },
+        n_observations: dataset.rows.length,
+        engine_name: "breedops-met-eligibility",
+        engine_version: "1.0.0",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        created_by: profile.id,
+      });
+      if (error) throw error;
+      return actionSuccess(
+        "Analyse enregistrée : NOT_ESTIMABLE. Les raisons détaillées sont disponibles dans l’historique.",
+      );
+    }
+
+    const modelRows = toMetModelRows(dataset.rows);
+    const modelResult =
+      input.modelType === "met_base_v1"
+        ? await runMetBaseModel(modelRows)
+        : input.modelType === "met_ammi_v1"
+          ? await runMetAmmiModel(modelRows)
+          : input.modelType === "met_finlay_wilkinson_v1"
+            ? await runMetFinlayWilkinsonModel(modelRows)
+            : input.modelType === "met_gge_v1"
+              ? await runMetGgeModel(modelRows)
+              : await runMetWaasbModel(
+                  modelRows,
+                  input.performanceWeight ?? 0.5,
+                );
+
+    const status: "completed" | "not_estimable" | "error" =
+      modelResult.status === "ok"
+        ? "completed"
+        : modelResult.status === "not_estimable"
+          ? "not_estimable"
+          : "error";
+    const engineName =
+      modelResult.status === "ok"
+        ? modelResult.data.engine.engine_name
+        : "breedops-r-mixed-models";
+    const engineVersion =
+      modelResult.status === "ok"
+        ? modelResult.data.engine.engine_version
+        : "1.0.0";
+
+    const { error } = await client.from("analytics_runs").insert({
+      program_id: input.programId,
+      trait_id: input.traitId,
+      trial_id: input.trialId,
+      analysis_type: "multi_environment",
+      spec_version: "1",
+      specification,
+      dataset_fingerprint: fingerprint,
+      status,
+      result: summarizeMetResultForStorage(input.modelType, modelResult),
+      n_observations: dataset.rows.length,
+      engine_name: engineName,
+      engine_version: engineVersion,
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      created_by: profile.id,
+    });
+    if (error) throw error;
+
+    if (status === "completed") {
+      return actionSuccess("Analyse multi-environnement enregistrée.");
+    }
+    if (status === "not_estimable") {
+      return actionSuccess(
+        "Analyse enregistrée : NOT_ESTIMABLE. Le moteur statistique n’a pas pu estimer ce modèle pour ce jeu de données.",
+      );
+    }
+    return actionError(
+      new Error("met engine error"),
+      "Le moteur statistique a rencontré une erreur. L’analyse a été enregistrée avec son statut d’échec.",
+    );
+  } catch (error) {
+    return actionError(
+      error,
+      "L’analyse multi-environnement n’a pas pu être enregistrée.",
+    );
+  }
+}
+
+export type SavedMetAnalysisRun = {
+  id: string;
+  trialId: string;
+  traitId: string;
+  specification: MetRunInput;
+  datasetFingerprint: string;
+  status: string;
+  nObservations: number | null;
+  createdAt: string;
+  createdByName: string | null;
+};
+
+/** Sibling of listAnalysisRuns in ./actions.ts, scoped to one trial. */
+export async function listMetAnalysisRuns(
+  programId: string,
+  trialId: string,
+): Promise<SavedMetAnalysisRun[]> {
+  const { client } = await requireIdentity();
+  const { data, error } = await client
+    .from("analytics_runs")
+    .select(
+      "id,trial_id,trait_id,specification,dataset_fingerprint,status,n_observations,created_at,created_by,profiles(display_name)",
+    )
+    .eq("program_id", programId)
+    .eq("trial_id", trialId)
+    .eq("analysis_type", "multi_environment")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error || !data) return [];
+  return (data as Record<string, unknown>[]).map((row) => ({
+    id: row.id as string,
+    trialId: row.trial_id as string,
+    traitId: row.trait_id as string,
+    specification: row.specification as MetRunInput,
+    datasetFingerprint: row.dataset_fingerprint as string,
+    status: row.status as string,
+    nObservations: row.n_observations as number | null,
+    createdAt: row.created_at as string,
+    createdByName:
+      (row.profiles as { display_name: string | null } | null)?.display_name ??
+      null,
+  }));
+}
+
+export type MetAnalysisRunWithResult = SavedMetAnalysisRun & {
+  result: Record<string, unknown> | null;
+};
+
+/** Fetches only the single most recent run's full `result` payload - never
+ * the whole history at once (each result can be up to the migration's own
+ * 200000-byte CHECK, so listMetAnalysisRuns above deliberately omits it). */
+export async function getLatestMetAnalysisRun(
+  programId: string,
+  trialId: string,
+): Promise<MetAnalysisRunWithResult | null> {
+  const { client } = await requireIdentity();
+  const { data, error } = await client
+    .from("analytics_runs")
+    .select(
+      "id,trial_id,trait_id,specification,dataset_fingerprint,status,n_observations,created_at,created_by,result,profiles(display_name)",
+    )
+    .eq("program_id", programId)
+    .eq("trial_id", trialId)
+    .eq("analysis_type", "multi_environment")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as Record<string, unknown>;
+  return {
+    id: row.id as string,
+    trialId: row.trial_id as string,
+    traitId: row.trait_id as string,
+    specification: row.specification as MetRunInput,
+    datasetFingerprint: row.dataset_fingerprint as string,
+    status: row.status as string,
+    nObservations: row.n_observations as number | null,
+    createdAt: row.created_at as string,
+    createdByName:
+      (row.profiles as { display_name: string | null } | null)?.display_name ??
+      null,
+    result: row.result as Record<string, unknown> | null,
+  };
+}
+
+// ───────────────────────── MET import (B42) ─────────────────────────
+// A fixed, documented CSV shape rather than the generic column-mapping
+// flow in src/app/app/import-export/: a deliberate scope reduction (see
+// the BreedOps design rationale) - this imports OBSERVATIONS for an already-defined trial
+// only. Entry/environment identity is never created from the file (same
+// B3/B41 discipline as the legacy mapping workflow); import_met_
+// observations (migration 000030) rejects any row whose entry_code/
+// environment_code does not already resolve within the target trial.
+// evaluation_date is required (migration 000032, B-review finding #5):
+// it is the resolution key - together with phenotype_code - for WHICH
+// evaluation event a row updates or creates, so an unset date would make
+// that resolution ambiguous rather than merely incomplete.
+const MET_IMPORT_REQUIRED_HEADERS = [
+  "phenotype_code",
+  "entry_code",
+  "environment_code",
+  "value",
+  "evaluation_date",
+] as const;
+const MET_IMPORT_OPTIONAL_HEADERS = ["block"] as const;
+
+export async function importMetObservations(
+  _previous: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    const programId = z.string().uuid().parse(form.get("program_id"));
+    const trialId = z.string().uuid().parse(form.get("trial_id"));
+    const traitId = z.string().uuid().parse(form.get("trait_id"));
+    const file = form.get("file");
+    if (!(file instanceof File)) {
+      return actionError(new Error("no file"), "Aucun fichier reçu.");
+    }
+    assertUploadSize(file.size);
+    const text = Buffer.from(await file.arrayBuffer()).toString("utf8");
+    const allRows = parseCsv(text);
+    if (allRows.length === 0) {
+      return actionError(new Error("empty file"), "Le fichier est vide.");
+    }
+    const headerRow = allRows[0].map((h) => h.trim().toLowerCase());
+    const missing = MET_IMPORT_REQUIRED_HEADERS.filter(
+      (h) => !headerRow.includes(h),
+    );
+    if (missing.length > 0) {
+      return actionError(
+        new Error("missing headers"),
+        `Colonnes manquantes dans le fichier : ${missing.join(", ")}.`,
+      );
+    }
+    const dataRows = allRows
+      .slice(1)
+      .filter((r) => r.some((cell) => cell.trim() !== ""));
+    if (dataRows.length > IMPORT_LIMITS.maxRows) {
+      return actionError(
+        new Error("too many rows"),
+        `Le fichier dépasse ${IMPORT_LIMITS.maxRows} lignes.`,
+      );
+    }
+    const columnIndex = (name: string) => headerRow.indexOf(name);
+    const rows = dataRows.map((cells, index) => ({
+      row_index: index + 1,
+      phenotype_code: cells[columnIndex("phenotype_code")]?.trim() || null,
+      entry_code: cells[columnIndex("entry_code")]?.trim() || null,
+      environment_code: cells[columnIndex("environment_code")]?.trim() || null,
+      value: cells[columnIndex("value")]?.trim() || null,
+      block:
+        columnIndex("block") >= 0
+          ? cells[columnIndex("block")]?.trim() || null
+          : null,
+      evaluation_date:
+        columnIndex("evaluation_date") >= 0
+          ? cells[columnIndex("evaluation_date")]?.trim() || null
+          : null,
+    }));
+
+    const { client } = await requireIdentity();
+    const { data, error } = await client.rpc("import_met_observations", {
+      target_program_id: programId,
+      target_trial_id: trialId,
+      target_trait_id: traitId,
+      rows,
+    });
+    if (error) {
+      return actionError(error, `Import annulé : ${error.message}`);
+    }
+    const results = (data ?? []) as { status: "created" | "updated" }[];
+    const created = results.filter((r) => r.status === "created").length;
+    const updated = results.filter((r) => r.status === "updated").length;
+    return actionSuccess(
+      `Import réussi : ${created} créée(s), ${updated} mise(s) à jour.`,
+    );
+  } catch (error) {
+    return actionError(error, "L’import des observations a échoué.");
+  }
+}

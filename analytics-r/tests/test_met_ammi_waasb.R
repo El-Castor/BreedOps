@@ -1,0 +1,145 @@
+# Reference tests for met_ammi_v1 and met_waasb_v1 (analytics-r/scripts/met_models.R).
+# Run with: Rscript tests/test_met_ammi_waasb.R (from analytics-r/).
+suppressMessages(suppressWarnings({
+  library(jsonlite)
+}))
+
+failures <- character(0)
+checks_run <- 0
+check <- function(label, condition) {
+  checks_run <<- checks_run + 1
+  if (isTRUE(condition)) cat("ok - ", label, "\n") else {
+    cat("NOT OK - ", label, "\n")
+    failures <<- c(failures, label)
+  }
+}
+
+run_script <- function(payload, model_type) {
+  input <- toJSON(payload, auto_unbox = TRUE)
+  out <- system2("Rscript", c("scripts/met_models.R", model_type),
+    input = input, stdout = TRUE, stderr = FALSE,
+    env = c("RENV_CONFIG_STARTUP_QUIET=TRUE", "LC_ALL=C.UTF-8", "LANG=C.UTF-8"))
+  fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE)
+}
+
+# A balanced MET with a genuine, strong, multi-dimensional Entry x
+# Environment pattern (sin() interaction) - AMMI/WAASB need real
+# interaction structure to be a meaningful reference case, unlike the
+# purely-additive fixture used for met_base_v1.
+n_entries <- 10
+n_envs <- 5
+n_reps <- 3
+set.seed(42)
+grid <- expand.grid(env = factor(paste0("E", 1:n_envs)), entry = factor(paste0("G", 1:n_entries)), rep = factor(1:n_reps))
+env_eff <- rnorm(n_envs, 0, 5)[as.integer(grid$env)]
+entry_eff <- rnorm(n_entries, 0, 3)[as.integer(grid$entry)]
+interaction <- outer(1:n_entries, 1:n_envs, function(g, e) sin(g + e))[cbind(as.integer(grid$entry), as.integer(grid$env))] * 2
+grid$value <- 50 + env_eff + entry_eff + interaction + rnorm(nrow(grid), 0, 1)
+rows <- lapply(seq_len(nrow(grid)), function(i) list(
+  entry_id = as.character(grid$entry[i]), environment_id = as.character(grid$env[i]),
+  block = as.character(grid$rep[i]), value = grid$value[i]
+))
+
+# ---- AMMI ----
+ammi <- run_script(list(model_type = "met_ammi_v1", rows = rows), "met_ammi_v1")
+check("AMMI: status ok", identical(ammi$status, "ok"))
+check("AMMI: at least one principal component reported", length(ammi$principal_components) >= 1)
+pc_variances <- sapply(ammi$principal_components, function(p) p$variance_explained_pct)
+check("AMMI: variance-explained percentages are non-increasing (PC1 explains the most)", all(diff(pc_variances) <= 1e-6))
+check("AMMI: cumulative variance never exceeds 100%", max(sapply(ammi$principal_components, function(p) p$cumulative_pct)) <= 100 + 1e-6)
+check("AMMI: every entry has a genotype score", length(ammi$genotype_scores) == n_entries)
+check("AMMI: every environment has an environment score", length(ammi$environment_scores) == n_envs)
+
+# ---- WAASB ----
+waasb_equal <- run_script(list(model_type = "met_waasb_v1", rows = rows, options = list(performance_weight = 0.5)), "met_waasb_v1")
+check("WAASB (50/50): status ok", identical(waasb_equal$status, "ok"))
+check("WAASB (50/50): performance_weight echoed back", isTRUE(all.equal(waasb_equal$model$performance_weight, 0.5)))
+check("WAASB (50/50): every entry has a WAASBY value", length(waasb_equal$entries) == n_entries)
+check(
+  "WAASB (50/50): WAASB is non-negative (it is defined as a weighted absolute score)",
+  all(sapply(waasb_equal$entries, function(e) e$waasb >= 0))
+)
+
+waasb_perf_heavy <- run_script(list(model_type = "met_waasb_v1", rows = rows, options = list(performance_weight = 0.9)), "met_waasb_v1")
+check("WAASB (90/10): status ok", identical(waasb_perf_heavy$status, "ok"))
+# With performance weighted far more heavily, the entry with the single
+# highest raw mean performance should rank at or very near the top of
+# WAASBY - unlike with equal weighting, where a highly unstable top
+# performer can be overtaken by a more stable, slightly-lower performer.
+best_mean_entry <- waasb_perf_heavy$entries[[which.max(sapply(waasb_perf_heavy$entries, function(e) e$mean_performance))]]$entry_id
+best_waasby_entry <- waasb_perf_heavy$entries[[which.max(sapply(waasb_perf_heavy$entries, function(e) e$waasby))]]$entry_id
+check(
+  "WAASB (90/10, performance-heavy): the highest-WAASBY entry is among the top 2 by raw mean performance",
+  best_waasby_entry %in% c(
+    best_mean_entry,
+    waasb_perf_heavy$entries[[order(-sapply(waasb_perf_heavy$entries, function(e) e$mean_performance))[2]]]$entry_id
+  )
+)
+
+# ---- Eligibility: AMMI refuses rather than fabricates when there is no real structure ----
+sparse_rows <- list(
+  list(entry_id = "E1", environment_id = "Env1", value = 10),
+  list(entry_id = "E2", environment_id = "Env1", value = 11)
+)
+ammi_sparse <- run_script(list(model_type = "met_ammi_v1", rows = sparse_rows), "met_ammi_v1")
+check("AMMI on an insufficient design: NOT_ESTIMABLE, never a fabricated model", identical(ammi_sparse$status, "not_estimable"))
+
+# ---- WAASB-specific minimum (found via manual UI verification, not by any
+# prior reference test here - metan::waasb() requires MORE than 2 entries
+# AND MORE than 2 environments, stricter than met_base_v1's MIN_ENTRIES=2/
+# MIN_ENVIRONMENTS=2, and unlike performs_ammi()'s equivalent failure
+# (caught above as a normal R condition), waasb() writes its complaint
+# directly to stdout rather than raising one - the regression this test
+# guards against is exactly that: a corrupted, non-JSON stdout, not merely
+# a wrong status) ----
+exactly_two_envs <- expand.grid(env = factor(paste0("E", 1:2)), entry = factor(paste0("G", 1:5)), rep = factor(1:3))
+exactly_two_envs$value <- 50 + rnorm(nrow(exactly_two_envs), 0, 3)
+waasb_two_envs_rows <- lapply(seq_len(nrow(exactly_two_envs)), function(i) list(
+  entry_id = as.character(exactly_two_envs$entry[i]), environment_id = as.character(exactly_two_envs$env[i]),
+  block = as.character(exactly_two_envs$rep[i]), value = exactly_two_envs$value[i]
+))
+waasb_two_envs <- run_script(list(model_type = "met_waasb_v1", rows = waasb_two_envs_rows), "met_waasb_v1")
+check(
+  "WAASB with exactly 2 environments (5 entries): NOT_ESTIMABLE with a precise reason, never a corrupted stdout",
+  identical(waasb_two_envs$status, "not_estimable")
+)
+
+# ---- AMMI's own strict minimum (B-review blocker #6): >2 entries AND >2
+# environments, same shape as WAASB's already-established minimum ----
+ammi_two_envs <- run_script(list(model_type = "met_ammi_v1", rows = waasb_two_envs_rows), "met_ammi_v1")
+check(
+  "AMMI with exactly 2 environments (5 entries): NOT_ESTIMABLE with a precise reason",
+  identical(ammi_two_envs$status, "not_estimable")
+)
+
+# ---- missing-cell imputation disclosure (B-review blocker #6 / B40): never
+# silent. A complete design reports missing_cells_imputed == 0; an
+# incomplete one reports the exact count metan's EM-SVD imputation fills
+# in - confirmed by reading metan's own source (impute_missing_val()) ----
+check(
+  "AMMI on the complete balanced fixture: missing_cells_imputed == 0",
+  identical(ammi$model$missing_cells_imputed, 0L)
+)
+
+incomplete_rows <- Filter(function(r) !(r$entry_id == "G1" && r$environment_id == "E1"), rows)
+ammi_incomplete <- run_script(list(model_type = "met_ammi_v1", rows = incomplete_rows), "met_ammi_v1")
+check("AMMI on an incomplete design: status still ok (metan imputes rather than refusing)", identical(ammi_incomplete$status, "ok"))
+check(
+  "AMMI on an incomplete design: missing_cells_imputed reports exactly the 1 missing cell, never silently",
+  identical(ammi_incomplete$model$missing_cells_imputed, 1L)
+)
+
+gge_incomplete <- run_script(list(model_type = "met_gge_v1", rows = incomplete_rows), "met_gge_v1")
+check("GGE on an incomplete design: status still ok (metan imputes rather than refusing)", identical(gge_incomplete$status, "ok"))
+check(
+  "GGE on an incomplete design: missing_cells_imputed reports exactly the 1 missing cell, never silently",
+  identical(gge_incomplete$model$missing_cells_imputed, 1L)
+)
+
+cat("\n", checks_run, "checks run,", length(failures), "failed.\n")
+if (length(failures) > 0) {
+  cat("FAILED:\n")
+  for (f in failures) cat(" -", f, "\n")
+  quit(save = "no", status = 1)
+}
+cat("All met_ammi_v1 / met_waasb_v1 reference tests passed.\n")
