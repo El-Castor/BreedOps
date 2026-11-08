@@ -1,6 +1,6 @@
 BreedOps Pilot Software License Notice
 
-Copyright (c) 2026 
+Copyright (c) 2026 The BreedOps copyright holder(s)
 All rights reserved.
 
 This software and its accompanying documentation are made available for
@@ -15,7 +15,4 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
 
-IMPORTANT:
-Replace the bracketed copyright-holder line before publishing the release
-repository. If BreedOps is later released under an open-source license, replace
-this file with the selected license text after institutional/legal validation.
+
